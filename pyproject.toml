@@ -1,0 +1,13 @@
+[project]
+name = "network-creation"
+version = "0.1.0"
+description = "Network creation based on information decay."
+readme = "README.md"
+authors = [
+    {name = "Hicham DAHMOU"}
+]
+requires-python = ">=3.13"
+dependencies = [
+    "igraph>=1.0.0",
+    "sbi>=0.25.0",
+]

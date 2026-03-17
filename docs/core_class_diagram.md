@@ -1,61 +1,74 @@
 ```mermaid
     classDiagram
+
     class Environment {
-    +seed: int
-    +globalState: object
-    +agentIds: List[int]
-    +reset() void
-    +step(actions: Map) object
-    +render() void
-    +getLocalState(agent: Agent) object
-    +getLegalActions(agent: Agent) List
+        +seed: int
+        +state: EnvironmentState
+        +agentIds: List[int]
+        +reset() void
+        +step(action: Action) EnvironmentState
+        +getObservation(agentId: int) Observation
+        +getActionSpace(agentId: int) List[Action]
+        +render() void
     }
 
-        class Controller {
-            +agents: Map[int, Agent]
-            +env: Environment
-            +seed: int
-            +lastTimeStep: int
-            +maxRounds: int
-            +reset() void
-            +getAgentAction(agent: Agent) Action
-            +runEpisode() void
-        }
+    class EnvironmentState {
+        +graph: Graph
+        +paidLinks: Tensor
+    }
 
-        class Agent {
-            +id: int
-            +policy: Policy
-            +seed: int
-            +reset() void
-            +act(observation: object) Action
-        }
+    class Observation {
+        +graph: Graph
+        +ownedLinks: Tensor
+    }
 
-        class Policy {
-            <<interface>>
-            +reset() void
-            +getAction(state: object) Action
-            +getState() object
-        }
+    class ActionType {
+        <<enumeration>>
+        ADD
+        DELETE
+        PASS
+        BRIDGE
+    }
 
-        class FixedPolicy {
-            +history: List[Action]
-            +reset() void
-            +getAction(state: object) Action
-            +getState() object
-        }
+    class Action {
+        +type: ActionType
+        +source: int
+        +target: int | None
+    }
 
-        class SoftmaxPolicy {
-            +temperature: float
-            +seed: int
-            +reset() void
-            +getAction(state: object) Action
-            +getState() object
-        }
+    class EpisodeRunner {
+        +seed: int
+        +agents: Map[int, Agent]
+        +nbAgents: int
+        +env: Environment
+        +currentStep: int
+        +lastModifiedStep: int
+        +maxRounds: int
+        +reset() void
+        +getAction(agent: Agent) Action
+        +runEpisode() void
+    }
 
-        %% Relationships
-        Controller o-- Environment : manages
-        Controller o-- Agent : manages
-        Agent *-- Policy : executes
-        Policy <|.. FixedPolicy : implements
-        Policy <|.. SoftmaxPolicy : implements
+    class Agent {
+        +seed: int
+        +id: int
+        +policy: Policy
+        +reset() void
+        +act(observation: Observation) Action
+    }
+
+    class Policy {
+        <<interface>>
+        +reset() void
+        +getAction(observation: Observation, actionSpace: List[Action]) Action
+        +getParams() Tensor
+    }
+
+
+    %% Relationships
+    EpisodeRunner --> Environment : uses
+    EpisodeRunner --> Agent : schedules
+    Environment *-- EnvironmentState : owns
+    Environment --> Observation : produces
+    Agent *-- Policy : has
 ```

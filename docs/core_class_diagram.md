@@ -4,22 +4,28 @@
     class Environment {
         +seed: int
         +state: EnvironmentState
-        +agentIds: List[int]
-        +reset() void
-        +step(action: Action) EnvironmentState
-        +getObservation(agentId: int) Observation
-        +getActionSpace(agentId: int) List[Action]
+        +node_ids: List[int]
+        +reset() EnvironmentState
+        +step(actions: List[Action]) EnvironmentState
+        +get_observation(agent: Agent) Observation
+        +get_action_space(agent: Agent) ActionSpace
         +render() void
     }
 
     class EnvironmentState {
         +graph: Graph
-        +paidLinks: Tensor
+        +ownership_matrix: Tensor
     }
 
     class Observation {
+        +node_id: int
         +graph: Graph
-        +ownedLinks: Tensor
+        +outside_node_ids: Tensor
+        +paid_node_ids: Tensor
+    }
+
+    class ActionSpace {
+        +actions: Map[ActionType, List[Action]]
     }
 
     class ActionType {
@@ -36,39 +42,52 @@
         +target: int | None
     }
 
+    class SchedulingMode {
+        <<enumeration>>
+        SEQUENTIAL
+        SIMULTANEOUS
+    }
+
     class EpisodeRunner {
         +seed: int
         +agents: Map[int, Agent]
-        +nbAgents: int
+        +nb_agents: int
         +env: Environment
-        +currentStep: int
-        +lastModifiedStep: int
-        +maxRounds: int
+        +mode: SchedulingMode
+        +current_step: int
+        +last_modified_step: int
+        +max_steps: int
         +reset() void
-        +getAction(agent: Agent) Action
-        +runEpisode() void
+        +get_acting_agents() List[Agent]
+        +run_episode() void
     }
 
     class Agent {
         +seed: int
         +id: int
+        +radius: int
         +policy: Policy
         +reset() void
-        +act(observation: Observation) Action
+        +act(observation: Observation, action_space: ActionSpace) Action
     }
 
     class Policy {
         <<interface>>
         +reset() void
-        +getAction(observation: Observation, actionSpace: List[Action]) Action
-        +getParams() Tensor
+        +get_action(observation: Observation, action_space: ActionSpace) Action
+        +get_params() Tensor
     }
 
 
     %% Relationships
     EpisodeRunner --> Environment : uses
     EpisodeRunner --> Agent : schedules
+    EpisodeRunner --> SchedulingMode : mode
     Environment *-- EnvironmentState : owns
     Environment --> Observation : produces
+    Environment --> ActionSpace : produces
+    ActionSpace --> ActionType : keys
+    ActionSpace --> Action : groups
+    Action --> ActionType : type
     Agent *-- Policy : has
 ```

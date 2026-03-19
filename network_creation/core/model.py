@@ -21,7 +21,7 @@ class ActionType(str, Enum):
 
 
 class SchedulingMode(str, Enum):
-    """How a runner selects acting agents at each step."""
+    """How a simulator selects acting agents at each step."""
 
     SEQUENTIAL = "SEQUENTIAL"
     SIMULTANEOUS = "SIMULTANEOUS"

@@ -11,7 +11,7 @@ from numpy.typing import NDArray
 from .model import Action, ActionSpace, ActionType, EnvironmentState, Observation
 
 
-def graph_from_ownership_matrix(ownership_matrix: NDArray[np.int8]) -> ig.Graph:
+def build_graph_from_ownership_matrix(ownership_matrix: NDArray[np.int8]) -> ig.Graph:
     """Build the undirected structural graph implied by ownership data."""
 
     graph = ig.Graph.Adjacency(ownership_matrix.tolist(), mode="max")
@@ -19,37 +19,39 @@ def graph_from_ownership_matrix(ownership_matrix: NDArray[np.int8]) -> ig.Graph:
     return graph
 
 
-def state_from_ownership_matrix(ownership_matrix: NDArray[np.int8]) -> EnvironmentState:
+def build_state_from_ownership_matrix(
+    ownership_matrix: NDArray[np.int8],
+) -> EnvironmentState:
     """Create a full environment state from ownership data."""
 
     return EnvironmentState(
-        graph=graph_from_ownership_matrix(ownership_matrix),
+        graph=build_graph_from_ownership_matrix(ownership_matrix),
         ownership_matrix=ownership_matrix,
     )
 
 
-def empty_state(num_agents: int) -> EnvironmentState:
+def create_empty_state(n_agents: int) -> EnvironmentState:
     """Create the empty graph state for a fixed node set."""
 
-    return state_from_ownership_matrix(
-        np.zeros((num_agents, num_agents), dtype=np.int8)
+    return build_state_from_ownership_matrix(
+        np.zeros((n_agents, n_agents), dtype=np.int8)
     )
 
 
-def visible_nodes(graph: ig.Graph, node_id: int, radius: int) -> list[int]:
+def get_visible_node_ids(graph: ig.Graph, node_id: int, radius: int) -> list[int]:
     """Return the node ids visible from a node within a shortest-path radius."""
 
     visible_node_ids = graph.neighborhood(vertices=node_id, order=radius, mode="all")
     return sorted(int(visible_node_id) for visible_node_id in visible_node_ids)
 
 
-def observation_from_state(
+def build_observation_from_state(
     state: EnvironmentState, node_id: int, radius: int
 ) -> Observation:
     """Build the observation seen from one node."""
 
     visible_node_ids = np.asarray(
-        visible_nodes(state.graph, node_id, radius), dtype=np.int_
+        get_visible_node_ids(state.graph, node_id, radius), dtype=np.int_
     )
     visible_mask = np.zeros(state.graph.vcount(), dtype=bool)
     visible_mask[visible_node_ids] = True
@@ -65,7 +67,7 @@ def observation_from_state(
     )
 
 
-def _neighbor_node_ids(
+def _get_neighbor_node_ids(
     observation: Observation, visible_node_ids: np.ndarray
 ) -> np.ndarray:
     source_subgraph_idx = observation.graph.vs.find(name=observation.node_id).index
@@ -78,7 +80,7 @@ def _neighbor_node_ids(
     return visible_node_ids[neighbor_subgraph_indices]
 
 
-def _actions_for_node_ids(
+def _build_actions_for_node_ids(
     action_type: ActionType, source_node_id: int, target_node_ids: np.ndarray
 ) -> list[Action]:
     return [
@@ -91,17 +93,17 @@ def get_action_space(observation: Observation) -> ActionSpace:
     """Build a structured action space from one node observation."""
 
     visible_node_ids = np.asarray(observation.graph.vs["name"], dtype=np.int_)
-    neighbor_node_ids = _neighbor_node_ids(observation, visible_node_ids)
+    neighbor_node_ids = _get_neighbor_node_ids(observation, visible_node_ids)
     add_node_ids = visible_node_ids[visible_node_ids != observation.node_id]
 
     return ActionSpace(
         actions={
-            ActionType.ADD: _actions_for_node_ids(
+            ActionType.ADD: _build_actions_for_node_ids(
                 ActionType.ADD,
                 observation.node_id,
                 np.setdiff1d(add_node_ids, neighbor_node_ids, assume_unique=True),
             ),
-            ActionType.BRIDGE: _actions_for_node_ids(
+            ActionType.BRIDGE: _build_actions_for_node_ids(
                 ActionType.BRIDGE,
                 observation.node_id,
                 np.setdiff1d(
@@ -110,7 +112,7 @@ def get_action_space(observation: Observation) -> ActionSpace:
                     assume_unique=True,
                 ),
             ),
-            ActionType.DELETE: _actions_for_node_ids(
+            ActionType.DELETE: _build_actions_for_node_ids(
                 ActionType.DELETE,
                 observation.node_id,
                 observation.paid_node_ids,
@@ -137,4 +139,4 @@ def apply_actions(
             assert action.target is not None
             updated[action.source, action.target] = 1
 
-    return state_from_ownership_matrix(updated)
+    return build_state_from_ownership_matrix(updated)

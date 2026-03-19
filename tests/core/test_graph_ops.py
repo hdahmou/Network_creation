@@ -8,10 +8,10 @@ import numpy as np
 
 from network_creation.core.graph import (
     apply_actions,
+    build_observation_from_state,
+    build_state_from_ownership_matrix,
     get_action_space,
-    observation_from_state,
-    state_from_ownership_matrix,
-    visible_nodes,
+    get_visible_node_ids,
 )
 from network_creation.core.model import Action, ActionSpace, ActionType
 
@@ -30,9 +30,9 @@ class GraphOpsTest(unittest.TestCase):
             ],
             dtype=np.int8,
         )
-        return state_from_ownership_matrix(ownership)
+        return build_state_from_ownership_matrix(ownership)
 
-    def test_visible_nodes_uses_radius(self) -> None:
+    def test_get_visible_node_ids_uses_radius(self) -> None:
         ownership = np.array(
             [
                 [0, 1, 0, 0],
@@ -42,11 +42,11 @@ class GraphOpsTest(unittest.TestCase):
             ],
             dtype=np.int8,
         )
-        state = state_from_ownership_matrix(ownership)
+        state = build_state_from_ownership_matrix(ownership)
 
-        self.assertEqual(visible_nodes(state.graph, node_id=0, radius=0), [0])
-        self.assertEqual(visible_nodes(state.graph, node_id=0, radius=1), [0, 1])
-        self.assertEqual(visible_nodes(state.graph, node_id=0, radius=2), [0, 1, 2])
+        self.assertEqual(get_visible_node_ids(state.graph, node_id=0, radius=0), [0])
+        self.assertEqual(get_visible_node_ids(state.graph, node_id=0, radius=1), [0, 1])
+        self.assertEqual(get_visible_node_ids(state.graph, node_id=0, radius=2), [0, 1, 2])
 
     def test_observation_keeps_original_node_ids(self) -> None:
         ownership = np.array(
@@ -58,9 +58,9 @@ class GraphOpsTest(unittest.TestCase):
             ],
             dtype=np.int8,
         )
-        state = state_from_ownership_matrix(ownership)
+        state = build_state_from_ownership_matrix(ownership)
 
-        observation = observation_from_state(state, node_id=0, radius=2)
+        observation = build_observation_from_state(state, node_id=0, radius=2)
 
         self.assertEqual(observation.node_id, 0)
         self.assertEqual(observation.graph.vs["name"], [0, 1, 2])
@@ -77,8 +77,8 @@ class GraphOpsTest(unittest.TestCase):
             ],
             dtype=np.int8,
         )
-        state = state_from_ownership_matrix(ownership)
-        observation = observation_from_state(state, node_id=0, radius=2)
+        state = build_state_from_ownership_matrix(ownership)
+        observation = build_observation_from_state(state, node_id=0, radius=2)
 
         action_space = get_action_space(observation)
 
@@ -149,7 +149,7 @@ class GraphOpsTest(unittest.TestCase):
 
         for radius, expected in expected_by_radius.items():
             with self.subTest(radius=radius):
-                observation = observation_from_state(state, node_id=1, radius=radius)
+                observation = build_observation_from_state(state, node_id=1, radius=radius)
                 action_space = get_action_space(observation)
 
                 self.assertEqual(action_space[ActionType.ADD], expected[ActionType.ADD])
@@ -165,7 +165,7 @@ class GraphOpsTest(unittest.TestCase):
 
     def test_action_space_uses_global_node_ids_when_subgraph_indices_differ(self) -> None:
         state = self._larger_state()
-        observation = observation_from_state(state, node_id=4, radius=2)
+        observation = build_observation_from_state(state, node_id=4, radius=2)
 
         self.assertEqual(observation.graph.vs["name"], [2, 3, 4])
 
@@ -190,7 +190,7 @@ class GraphOpsTest(unittest.TestCase):
         )
 
     def test_apply_actions_supports_simultaneous_pre_step_decisions(self) -> None:
-        state = state_from_ownership_matrix(np.zeros((2, 2), dtype=np.int8))
+        state = build_state_from_ownership_matrix(np.zeros((2, 2), dtype=np.int8))
 
         updated = apply_actions(
             state,
@@ -219,7 +219,7 @@ class GraphOpsTest(unittest.TestCase):
             ],
             dtype=np.int8,
         )
-        state = state_from_ownership_matrix(ownership)
+        state = build_state_from_ownership_matrix(ownership)
 
         updated = apply_actions(
             state,

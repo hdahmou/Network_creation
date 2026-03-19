@@ -22,10 +22,12 @@ class ConstantPolicy(Policy):
     def reset(self) -> None:
         self.reset_calls += 1
 
-    def get_action(self, observation: Observation, action_space: ActionSpace) -> Action:
+    def get_actions(
+        self, observation: Observation, action_space: ActionSpace
+    ) -> list[Action]:
         del observation
         del action_space
-        return self.action
+        return [self.action]
 
     def get_params(self) -> dict[str, object]:
         return {}
@@ -39,11 +41,13 @@ class PreferAddElsePassPolicy(Policy):
     def reset(self) -> None:
         self.reset_calls += 1
 
-    def get_action(self, observation: Observation, action_space: ActionSpace) -> Action:
+    def get_actions(
+        self, observation: Observation, action_space: ActionSpace
+    ) -> list[Action]:
         self.observed_node_names.append(list(observation.graph.vs["name"]))
         if action_space[ActionType.ADD]:
-            return action_space[ActionType.ADD][0]
-        return action_space[ActionType.PASS][0]
+            return [action_space[ActionType.ADD][0]]
+        return [action_space[ActionType.PASS][0]]
 
     def get_params(self) -> dict[str, object]:
         return {}
@@ -64,6 +68,25 @@ class RecordingObserver:
 
     def on_episode_end(self, event: EpisodeEndEvent) -> None:
         self.episode_end_event = event
+
+
+class MultiActionPolicy(Policy):
+    def __init__(self, actions: list[Action]) -> None:
+        self.actions = actions
+        self.reset_calls = 0
+
+    def reset(self) -> None:
+        self.reset_calls += 1
+
+    def get_actions(
+        self, observation: Observation, action_space: ActionSpace
+    ) -> list[Action]:
+        del observation
+        del action_space
+        return list(self.actions)
+
+    def get_params(self) -> dict[str, object]:
+        return {}
 
 
 class SimulatorTest(unittest.TestCase):
@@ -155,6 +178,37 @@ class SimulatorTest(unittest.TestCase):
         self.assertEqual(simulator.env.state.ownership_matrix[1, 2], 1)
         self.assertEqual(simulator.env.state.ownership_matrix[0, 2], 0)
         self.assertTrue(simulator.env.state.graph.are_adjacent(1, 2))
+
+    def test_run_episode_applies_multiple_actions_from_one_agent(self) -> None:
+        env = Environment(np.zeros((3, 3), dtype=np.int8), seed=72)
+        simulator = Simulator(
+            env=env,
+            agents={
+                0: Agent(
+                    id=0,
+                    radius=2,
+                    policy=MultiActionPolicy(
+                        [
+                            Action(ActionType.BRIDGE, source=0, target=1),
+                            Action(ActionType.BRIDGE, source=0, target=2),
+                        ]
+                    ),
+                    seed=73,
+                ),
+                1: Agent(id=1, radius=0, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=74),
+                2: Agent(id=2, radius=0, policy=ConstantPolicy(Action(ActionType.PASS, source=2)), seed=75),
+            },
+            mode=SchedulingMode.SEQUENTIAL,
+            max_steps=1,
+            seed=76,
+        )
+
+        simulator.run_episode()
+
+        self.assertEqual(simulator.current_step, 1)
+        self.assertEqual(simulator.last_modified_step, 0)
+        self.assertEqual(simulator.env.state.ownership_matrix[0, 1], 1)
+        self.assertEqual(simulator.env.state.ownership_matrix[0, 2], 1)
 
     def test_reset_restores_environment_agents_and_counters(self) -> None:
         left_policy = ConstantPolicy(Action(ActionType.BRIDGE, source=0, target=1))

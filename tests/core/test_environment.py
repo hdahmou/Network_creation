@@ -22,9 +22,11 @@ class StubPolicy(Policy):
     def reset(self) -> None:
         self.reset_calls += 1
 
-    def get_action(self, observation: Observation, action_space: ActionSpace) -> Action:
+    def get_actions(
+        self, observation: Observation, action_space: ActionSpace
+    ) -> list[Action]:
         self.calls.append((observation, action_space))
-        return self._action
+        return [self._action]
 
     def get_params(self) -> dict[str, object]:
         return {}
@@ -115,10 +117,10 @@ class AgentPolicyIntegrationTest(unittest.TestCase):
             }
         )
 
-        action = agent.act(observation, action_space)
+        actions = agent.act(observation, action_space)
         agent.reset()
 
-        self.assertEqual(action, expected_action)
+        self.assertEqual(actions, [expected_action])
         self.assertEqual(policy.calls, [(observation, action_space)])
         self.assertEqual(policy.reset_calls, 1)
 
@@ -146,12 +148,12 @@ class AgentPolicyIntegrationTest(unittest.TestCase):
         }
 
         first_run = [
-            policy.get_action(observation, action_space)
+            policy.get_actions(observation, action_space)[0]
             for _ in range(5)
         ]
         policy.reset()
         second_run = [
-            policy.get_action(observation, action_space)
+            policy.get_actions(observation, action_space)[0]
             for _ in range(5)
         ]
 

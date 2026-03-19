@@ -99,8 +99,9 @@ class Simulator:
                 action_spaces[agent.id] = get_action_space(observation)
 
             actions = [
-                agent.act(observations[agent.id], action_spaces[agent.id])
+                action
                 for agent in acting_agents
+                for action in agent.act(observations[agent.id], action_spaces[agent.id])
             ]
 
             pre_state = StateSnapshot.from_state(self.env.state)

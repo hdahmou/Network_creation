@@ -21,7 +21,9 @@ class RandomPolicy(Policy):
 
         self._rng = np.random.default_rng(self.seed)
 
-    def get_action(self, observation: Observation, action_space: ActionSpace) -> Action:
+    def get_actions(
+        self, observation: Observation, action_space: ActionSpace
+    ) -> list[Action]:
         """Choose one available action uniformly at random."""
 
         del observation
@@ -30,7 +32,7 @@ class RandomPolicy(Policy):
             for action_type in ActionType
             for action in action_space.actions.get(action_type, [])
         ]
-        return actions[int(self._rng.integers(len(actions)))]
+        return [actions[int(self._rng.integers(len(actions)))]]
 
     def get_params(self) -> dict[str, object]:
         """Expose the random policy parameters."""

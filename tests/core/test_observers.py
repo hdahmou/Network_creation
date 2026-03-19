@@ -25,10 +25,12 @@ class ConstantPolicy(Policy):
     def reset(self) -> None:
         return None
 
-    def get_action(self, observation: Observation, action_space: ActionSpace) -> Action:
+    def get_actions(
+        self, observation: Observation, action_space: ActionSpace
+    ) -> list[Action]:
         del observation
         del action_space
-        return self.action
+        return [self.action]
 
     def get_params(self) -> dict[str, object]:
         return {}

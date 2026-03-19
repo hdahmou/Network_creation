@@ -72,13 +72,13 @@
             +radius: int
             +policy: Policy
             +reset() void
-            +act(observation: Observation, action_space: ActionSpace) Action
+            +act(observation: Observation, action_space: ActionSpace) List[Action]
         }
 
         class Policy {
             <<interface>>
             +reset() void
-            +get_action(observation: Observation, action_space: ActionSpace) Action
+            +get_actions(observation: Observation, action_space: ActionSpace) List[Action]
             +get_params() Dict
         }
     }

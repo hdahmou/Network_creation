@@ -28,7 +28,7 @@ class Agent:
 
         self.policy.reset()
 
-    def act(self, observation: Observation, action_space: ActionSpace) -> Action:
+    def act(self, observation: Observation, action_space: ActionSpace) -> list[Action]:
         """Delegate action choice to the current policy."""
 
-        return self.policy.get_action(observation, action_space)
+        return self.policy.get_actions(observation, action_space)

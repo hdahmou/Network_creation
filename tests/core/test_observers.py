@@ -37,18 +37,28 @@ class ConstantPolicy(Policy):
 
 
 class ObserverTest(unittest.TestCase):
-    def test_action_print_observer_prints_one_line_per_step(self) -> None:
-        env = Environment(np.zeros((2, 2), dtype=np.int8), seed=3)
+    def test_action_print_observer_can_print_initial_empty_step(self) -> None:
+        observer = ActionPrintObserver(1, True)
+        stdout = io.StringIO()
+
+        with redirect_stdout(stdout):
+            observer.on_episode_start(event=None)
+
+        self.assertIn("step 0", stdout.getvalue())
+
+    def test_action_print_observer_groups_actions_by_source_node(self) -> None:
+        env = Environment(np.zeros((3, 3), dtype=np.int8), seed=3)
         simulator = Simulator(
             env=env,
             agents={
                 0: Agent(id=0, radius=0, policy=ConstantPolicy(Action(ActionType.BRIDGE, source=0, target=1)), seed=5),
                 1: Agent(id=1, radius=0, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=7),
+                2: Agent(id=2, radius=0, policy=ConstantPolicy(Action(ActionType.BRIDGE, source=2, target=0)), seed=11),
             },
-            mode=SchedulingMode.SEQUENTIAL,
-            max_steps=2,
-            seed=11,
-            observers=[ActionPrintObserver(1)],
+            mode=SchedulingMode.SIMULTANEOUS,
+            max_steps=1,
+            seed=13,
+            observers=[ActionPrintObserver(1, False)],
         )
 
         stdout = io.StringIO()
@@ -56,8 +66,10 @@ class ObserverTest(unittest.TestCase):
             simulator.run_episode()
 
         output = stdout.getvalue()
-        self.assertIn("step 0: 0 BRIDGE 1", output)
-        self.assertIn("step 1: 1 PASS", output)
+        self.assertIn("step 1", output)
+        self.assertIn("  0: BRIDGE->1", output)
+        self.assertIn("  1: PASS", output)
+        self.assertIn("  2: BRIDGE->0", output)
 
     def test_density_observer_tracks_density_only(self) -> None:
         density_observer = DensityObserver(1)

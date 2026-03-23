@@ -11,12 +11,11 @@ class ReplayPolicy(Policy):
     """Return the recorded actions scheduled for each replay step."""
 
     def __init__(self, actions_by_step: dict[int, tuple[Action, ...]]) -> None:
-        self.actions_by_step = {
-            step: tuple(actions) for step, actions in actions_by_step.items()
-        }
+        self.actions_by_step = actions_by_step
         self.next_step_id = 1
 
-    def reset(self) -> None:
+    def reset(self, seed: int) -> None:
+        del seed
         self.next_step_id = 1
 
     def get_actions(
@@ -28,6 +27,3 @@ class ReplayPolicy(Policy):
         actions = list(self.actions_by_step.get(self.next_step_id, ()))
         self.next_step_id += 1
         return actions
-
-    def get_params(self) -> dict[str, object]:
-        return {}

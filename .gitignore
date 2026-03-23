@@ -6,5 +6,11 @@ dist/
 wheels/
 *.egg-info
 
+# Editor files
+.vscode/
+
 # Virtual environments
 .venv
+
+# Data that I don't own
+data/choi_2020

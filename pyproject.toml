@@ -17,3 +17,10 @@ dependencies = [
     "sbi>=0.25.0",
     "scienceplots>=2.2.1",
 ]
+
+[tool.mypy]
+python_version = "3.13"
+
+[[tool.mypy.overrides]]
+module = ["igraph"]
+ignore_missing_imports = true

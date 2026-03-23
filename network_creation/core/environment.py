@@ -41,24 +41,13 @@ class Environment:
         return self.state
 
     def step(self, actions: Sequence[Action]) -> EnvironmentState:
-        """Apply one step of already-validated actions."""
-
         self.state = apply_actions(self.state, actions)
         return self.state
 
     def get_observation(self, agent: Agent) -> Observation:
-        """Build the current observation for one agent."""
-
         return build_observation_from_state(
             self.state, node_id=agent.id, radius=agent.radius
         )
 
     def get_action_space(self, agent: Agent) -> ActionSpace:
-        """Build the current action space for one agent."""
-
         return get_action_space(self.get_observation(agent))
-
-    def render(self) -> None:
-        """Print a compact graph summary for debugging."""
-
-        print(self.state.graph.summary())

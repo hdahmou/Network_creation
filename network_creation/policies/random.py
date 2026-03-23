@@ -13,19 +13,14 @@ class RandomPolicy(Policy):
     """Uniform random choice over all currently available actions."""
 
     def __init__(self, seed: int) -> None:
-        self.seed = seed
         self._rng = np.random.default_rng(seed)
 
-    def reset(self) -> None:
-        """Reset the policy RNG to its initial seed."""
-
-        self._rng = np.random.default_rng(self.seed)
+    def reset(self, seed: int) -> None:
+        self._rng = np.random.default_rng(seed)
 
     def get_actions(
         self, observation: Observation, action_space: ActionSpace
     ) -> list[Action]:
-        """Choose one available action uniformly at random."""
-
         del observation
         actions = [
             action
@@ -33,8 +28,3 @@ class RandomPolicy(Policy):
             for action in action_space.actions.get(action_type, [])
         ]
         return [actions[int(self._rng.integers(len(actions)))]]
-
-    def get_params(self) -> dict[str, object]:
-        """Expose the random policy parameters."""
-
-        return {}

@@ -17,16 +17,10 @@ class Agent:
     policy: Policy
     seed: int
 
-    def __post_init__(self) -> None:
-        if self.id < 0:
-            raise ValueError("id must be non-negative")
-        if self.radius < 0:
-            raise ValueError("radius must be non-negative")
+    def reset(self, seed: int) -> None:
+        """Reset the internal policy state from one explicit seed."""
 
-    def reset(self) -> None:
-        """Reset the internal policy state."""
-
-        self.policy.reset()
+        self.policy.reset(seed=seed)
 
     def act(self, observation: Observation, action_space: ActionSpace) -> list[Action]:
         """Delegate action choice to the current policy."""

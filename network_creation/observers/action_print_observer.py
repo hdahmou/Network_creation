@@ -19,6 +19,10 @@ class ActionPrintObserver(SimulationObserver):
     def __init__(self, observation_frequency: int, print_empty_steps: bool) -> None:
         self.observation_frequency = observation_frequency
         self.print_empty_steps = print_empty_steps
+        self.reset()
+
+    def reset(self) -> None:
+        self.n_episodes = 0
 
     def on_episode_start(self, event: EpisodeStartEvent) -> None:
         del event
@@ -38,6 +42,10 @@ class ActionPrintObserver(SimulationObserver):
 
     def on_episode_end(self, event: EpisodeEndEvent) -> None:
         del event
+        self.n_episodes += 1
+
+    def get(self) -> None:
+        return None
 
     @staticmethod
     def _format_action(action) -> str:

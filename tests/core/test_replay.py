@@ -423,7 +423,7 @@ class ReplayTest(unittest.TestCase):
             ],
         )
 
-        policy.reset()
+        policy.reset(seed=11)
         self.assertEqual(
             policy.get_actions(observation, action_space),
             [Action(ActionType.ADD, source=0, target=1)],
@@ -484,7 +484,7 @@ class ReplayTest(unittest.TestCase):
                 config=config,
                 observers=(),
             )
-            simulator.run_episode()
+            simulator.run(n_episodes=1)
 
         self.assertEqual(simulator.mode, SchedulingMode.SIMULTANEOUS)
         self.assertEqual(simulator.max_steps, 2)

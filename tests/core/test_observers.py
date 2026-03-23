@@ -22,7 +22,8 @@ class ConstantPolicy(Policy):
     def __init__(self, action: Action) -> None:
         self.action = action
 
-    def reset(self) -> None:
+    def reset(self, seed: int) -> None:
+        del seed
         return None
 
     def get_actions(
@@ -31,9 +32,6 @@ class ConstantPolicy(Policy):
         del observation
         del action_space
         return [self.action]
-
-    def get_params(self) -> dict[str, object]:
-        return {}
 
 
 class ObserverTest(unittest.TestCase):
@@ -50,20 +48,20 @@ class ObserverTest(unittest.TestCase):
         env = Environment(np.zeros((3, 3), dtype=np.int8), seed=3)
         simulator = Simulator(
             env=env,
-            agents={
-                0: Agent(id=0, radius=0, policy=ConstantPolicy(Action(ActionType.BRIDGE, source=0, target=1)), seed=5),
-                1: Agent(id=1, radius=0, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=7),
-                2: Agent(id=2, radius=0, policy=ConstantPolicy(Action(ActionType.BRIDGE, source=2, target=0)), seed=11),
-            },
+            agents=(
+                Agent(id=0, radius=0, policy=ConstantPolicy(Action(ActionType.BRIDGE, source=0, target=1)), seed=5),
+                Agent(id=1, radius=0, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=7),
+                Agent(id=2, radius=0, policy=ConstantPolicy(Action(ActionType.BRIDGE, source=2, target=0)), seed=11),
+            ),
             mode=SchedulingMode.SIMULTANEOUS,
             max_steps=1,
-            seed=13,
-            observers=[ActionPrintObserver(1, False)],
+            rng=np.random.default_rng(13),
+            observers=(ActionPrintObserver(1, False),),
         )
 
         stdout = io.StringIO()
         with redirect_stdout(stdout):
-            simulator.run_episode()
+            simulator.run(n_episodes=1)
 
         output = stdout.getvalue()
         self.assertIn("step 1", output)
@@ -72,21 +70,24 @@ class ObserverTest(unittest.TestCase):
         self.assertIn("  2: BRIDGE->0", output)
 
     def test_density_observer_tracks_density_only(self) -> None:
-        density_observer = DensityObserver(1)
+        density_observer = DensityObserver(
+            observation_frequency=1,
+            aggregations=(),
+        )
         env = Environment(np.zeros((2, 2), dtype=np.int8), seed=13)
         simulator = Simulator(
             env=env,
-            agents={
-                0: Agent(id=0, radius=0, policy=ConstantPolicy(Action(ActionType.BRIDGE, source=0, target=1)), seed=17),
-                1: Agent(id=1, radius=0, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=19),
-            },
+            agents=(
+                Agent(id=0, radius=0, policy=ConstantPolicy(Action(ActionType.BRIDGE, source=0, target=1)), seed=17),
+                Agent(id=1, radius=0, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=19),
+            ),
             mode=SchedulingMode.SEQUENTIAL,
             max_steps=2,
-            seed=23,
-            observers=[density_observer],
+            rng=np.random.default_rng(23),
+            observers=(density_observer,),
         )
 
-        simulator.run_episode()
+        simulator.run(n_episodes=1)
 
         np.testing.assert_array_equal(density_observer.steps, np.array([0, 1, 2]))
         np.testing.assert_allclose(
@@ -95,21 +96,24 @@ class ObserverTest(unittest.TestCase):
         )
 
     def test_state_history_observer_tracks_graphs_and_ownership_matrices(self) -> None:
-        state_history_observer = StateHistoryObserver(1)
+        state_history_observer = StateHistoryObserver(
+            observation_frequency=1,
+            keep_runs=False,
+        )
         env = Environment(np.zeros((2, 2), dtype=np.int8), seed=29)
         simulator = Simulator(
             env=env,
-            agents={
-                0: Agent(id=0, radius=0, policy=ConstantPolicy(Action(ActionType.BRIDGE, source=0, target=1)), seed=31),
-                1: Agent(id=1, radius=0, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=37),
-            },
+            agents=(
+                Agent(id=0, radius=0, policy=ConstantPolicy(Action(ActionType.BRIDGE, source=0, target=1)), seed=31),
+                Agent(id=1, radius=0, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=37),
+            ),
             mode=SchedulingMode.SEQUENTIAL,
             max_steps=2,
-            seed=41,
-            observers=[state_history_observer],
+            rng=np.random.default_rng(41),
+            observers=(state_history_observer,),
         )
 
-        simulator.run_episode()
+        simulator.run(n_episodes=1)
 
         np.testing.assert_array_equal(state_history_observer.steps, np.array([0, 1, 2]))
         self.assertEqual(len(state_history_observer.graphs), 3)
@@ -126,22 +130,28 @@ class ObserverTest(unittest.TestCase):
         )
 
     def test_observers_record_sampled_step_ids_with_observation_frequency(self) -> None:
-        density_observer = DensityObserver(observation_frequency=2)
-        state_history_observer = StateHistoryObserver(observation_frequency=2)
+        density_observer = DensityObserver(
+            observation_frequency=2,
+            aggregations=(),
+        )
+        state_history_observer = StateHistoryObserver(
+            observation_frequency=2,
+            keep_runs=False,
+        )
         env = Environment(np.zeros((2, 2), dtype=np.int8), seed=43)
         simulator = Simulator(
             env=env,
-            agents={
-                0: Agent(id=0, radius=0, policy=ConstantPolicy(Action(ActionType.PASS, source=0)), seed=47),
-                1: Agent(id=1, radius=0, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=53),
-            },
+            agents=(
+                Agent(id=0, radius=0, policy=ConstantPolicy(Action(ActionType.PASS, source=0)), seed=47),
+                Agent(id=1, radius=0, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=53),
+            ),
             mode=SchedulingMode.SEQUENTIAL,
             max_steps=5,
-            seed=59,
-            observers=[density_observer, state_history_observer],
+            rng=np.random.default_rng(59),
+            observers=(density_observer, state_history_observer),
         )
 
-        simulator.run_episode()
+        simulator.run(n_episodes=1)
 
         np.testing.assert_array_equal(density_observer.steps, np.array([0, 2, 4]))
         np.testing.assert_allclose(
@@ -150,6 +160,98 @@ class ObserverTest(unittest.TestCase):
         )
         np.testing.assert_array_equal(state_history_observer.steps, np.array([0, 2, 4]))
         self.assertEqual(state_history_observer.ownership_matrices.shape, (3, 2, 2))
+
+    def test_density_observer_aggregates_selected_outputs_and_runs(self) -> None:
+        density_observer = DensityObserver(
+            observation_frequency=1,
+            aggregations=("mean", "runs"),
+        )
+        env = Environment(np.zeros((2, 2), dtype=np.int8), seed=61)
+        simulator = Simulator(
+            env=env,
+            agents=(
+                Agent(id=0, radius=0, policy=ConstantPolicy(Action(ActionType.BRIDGE, source=0, target=1)), seed=67),
+                Agent(id=1, radius=0, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=71),
+            ),
+            mode=SchedulingMode.SEQUENTIAL,
+            max_steps=2,
+            rng=np.random.default_rng(73),
+            observers=(density_observer,),
+        )
+
+        simulator.run(n_episodes=2)
+
+        result = density_observer.get()
+
+        self.assertEqual(result.n_episodes, 2)
+        np.testing.assert_array_equal(result.steps, np.array([0, 1, 2]))
+        self.assertEqual(set(result.outputs), {"mean", "runs"})
+        np.testing.assert_allclose(
+            result.outputs["mean"],
+            np.array([0.0, 1.0, 1.0], dtype=np.float32),
+        )
+        runs = result.outputs["runs"]
+        self.assertEqual(len(runs), 2)
+        np.testing.assert_allclose(
+            runs[0],
+            np.array([0.0, 1.0, 1.0], dtype=np.float32),
+        )
+
+    def test_density_observer_get_keeps_sampled_steps_for_aggregated_series(self) -> None:
+        density_observer = DensityObserver(
+            observation_frequency=2,
+            aggregations=("mean", "runs"),
+        )
+        env = Environment(np.zeros((2, 2), dtype=np.int8), seed=101)
+        simulator = Simulator(
+            env=env,
+            agents=(
+                Agent(id=0, radius=0, policy=ConstantPolicy(Action(ActionType.PASS, source=0)), seed=103),
+                Agent(id=1, radius=0, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=107),
+            ),
+            mode=SchedulingMode.SEQUENTIAL,
+            max_steps=5,
+            rng=np.random.default_rng(109),
+            observers=(density_observer,),
+        )
+
+        simulator.run(n_episodes=2)
+
+        result = density_observer.get()
+
+        np.testing.assert_array_equal(result.steps, np.array([0, 2, 4]))
+        np.testing.assert_allclose(
+            result.outputs["mean"],
+            np.array([0.0, 0.0, 0.0], dtype=np.float32),
+        )
+
+    def test_density_observer_can_request_std_without_mean(self) -> None:
+        density_observer = DensityObserver(
+            observation_frequency=1,
+            aggregations=("std",),
+        )
+        env = Environment(np.zeros((2, 2), dtype=np.int8), seed=79)
+        simulator = Simulator(
+            env=env,
+            agents=(
+                Agent(id=0, radius=0, policy=ConstantPolicy(Action(ActionType.BRIDGE, source=0, target=1)), seed=83),
+                Agent(id=1, radius=0, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=89),
+            ),
+            mode=SchedulingMode.SEQUENTIAL,
+            max_steps=2,
+            rng=np.random.default_rng(97),
+            observers=(density_observer,),
+        )
+
+        simulator.run(n_episodes=2)
+
+        result = density_observer.get()
+
+        self.assertEqual(set(result.outputs), {"std"})
+        np.testing.assert_allclose(
+            result.outputs["std"],
+            np.array([0.0, 0.0, 0.0], dtype=np.float32),
+        )
 
 
 if __name__ == "__main__":

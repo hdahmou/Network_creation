@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import igraph as ig
 import numpy as np
 from numpy.typing import NDArray
@@ -15,14 +17,32 @@ from network_creation.core.observability import (
 )
 
 
-class StateHistoryObserver(SimulationObserver):
-    """Accumulate sampled post-step ownership history for plotting."""
+@dataclass(frozen=True)
+class StateHistoryResult:
+    """Batch-aware ownership history output."""
 
-    def __init__(self, observation_frequency: int) -> None:
+    steps: NDArray[np.int_]
+    ownership_matrices: NDArray[np.int8]
+    n_episodes: int
+    runs_steps: tuple[NDArray[np.int_], ...] | None
+    runs_ownership_matrices: tuple[NDArray[np.int8], ...] | None
+
+
+class StateHistoryObserver(SimulationObserver):
+    """Accumulate sampled ownership history and optionally keep every episode."""
+
+    def __init__(self, observation_frequency: int, *, keep_runs: bool) -> None:
         self.observation_frequency = observation_frequency
+        self.keep_runs = keep_runs
+        self.reset()
+
+    def reset(self) -> None:
+        self.n_episodes = 0
         self.n_observations = 0
         self._steps = np.empty(0, dtype=np.int_)
         self._ownership_matrices = np.empty((0, 0, 0), dtype=np.int8)
+        self._runs_steps = [] if self.keep_runs else None
+        self._runs_ownership_matrices = [] if self.keep_runs else None
 
     @property
     def steps(self) -> NDArray[np.int_]:
@@ -58,3 +78,21 @@ class StateHistoryObserver(SimulationObserver):
 
     def on_episode_end(self, event: EpisodeEndEvent) -> None:
         del event
+        self.n_episodes += 1
+        if self._runs_steps is not None:
+            self._runs_steps.append(self.steps.copy())
+        if self._runs_ownership_matrices is not None:
+            self._runs_ownership_matrices.append(self.ownership_matrices.copy())
+
+    def get(self) -> StateHistoryResult:
+        return StateHistoryResult(
+            steps=self.steps.copy(),
+            ownership_matrices=self.ownership_matrices.copy(),
+            n_episodes=self.n_episodes,
+            runs_steps=None if self._runs_steps is None else tuple(self._runs_steps),
+            runs_ownership_matrices=(
+                None
+                if self._runs_ownership_matrices is None
+                else tuple(self._runs_ownership_matrices)
+            ),
+        )

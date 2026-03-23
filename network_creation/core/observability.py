@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import cached_property
-from typing import Protocol
+from typing import Any, Protocol
 
 import igraph as ig
 import numpy as np
@@ -41,6 +41,7 @@ class StateSnapshot:
 class EpisodeStartEvent:
     """Episode metadata emitted before the first step."""
 
+    episode_index: int
     seed: int
     mode: SchedulingMode
     max_steps: int
@@ -65,6 +66,7 @@ class StepEvent:
 class EpisodeEndEvent:
     """Episode summary emitted after the last executed step."""
 
+    episode_index: int
     seed: int
     mode: SchedulingMode
     current_step: int
@@ -72,10 +74,22 @@ class EpisodeEndEvent:
     final_state: StateSnapshot
 
 
+@dataclass(frozen=True)
+class StatisticResult:
+    """Aggregated observer output across all episodes seen since the last reset."""
+
+    steps: NDArray[np.int_] | None
+    n_episodes: int
+    outputs: dict[str, NDArray[np.float32] | tuple[NDArray[np.float32], ...]]
+
+
 class SimulationObserver(Protocol):
-    """Observer interface for simulator lifecycle events."""
+    """Observer interface for simulator lifecycle events across multiple episodes."""
 
     observation_frequency: int
+
+    def reset(self) -> None:
+        """Clear all observer state accumulated across episodes."""
 
     def on_episode_start(self, event: EpisodeStartEvent) -> None:
         """Handle the start of one episode."""
@@ -85,3 +99,6 @@ class SimulationObserver(Protocol):
 
     def on_episode_end(self, event: EpisodeEndEvent) -> None:
         """Handle the end of one episode."""
+
+    def get(self) -> Any:
+        """Return the observer's current batch-level result."""

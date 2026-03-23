@@ -183,30 +183,30 @@ def load_choi_2020_replay_data(config: Choi2020ReplayConfig) -> ReplayDataset:
 
 def build_replay_simulator(
     config: Choi2020ReplayConfig,
-    observers: tuple[SimulationObserver, ...] | list[SimulationObserver],
+    observers: tuple[SimulationObserver, ...],
 ) -> Simulator:
     """Create a simulator that replays one Choi 2020 game slice."""
 
     replay_dataset = load_choi_2020_replay_data(config)
     env = Environment(
         np.zeros((replay_dataset.n_agents, replay_dataset.n_agents), dtype=np.int8),
-        seed=-1,  # env_seed is ignored for deterministic replay
+        seed=0,
     )
-    agents = {
-        node_id: Agent(
+    agents = tuple(
+        Agent(
             id=node_id,
             radius=replay_dataset.n_agents,
             policy=ReplayPolicy(replay_dataset.trajectories[node_id].actions_by_step),
-            seed=-1,  # agent_seed is ignored for deterministic replay
+            seed=node_id,
         )
         for node_id in range(replay_dataset.n_agents)
-    }
+    )
     return Simulator(
         env=env,
         agents=agents,
         mode=SchedulingMode.SIMULTANEOUS,
         max_steps=replay_dataset.max_step,
-        seed=-1,  # simulator_seed is ignored for deterministic replay
+        rng=np.random.default_rng(0),
         observers=observers,
     )
 

@@ -17,19 +17,18 @@ class StubPolicy(Policy):
     def __init__(self, action: Action) -> None:
         self._action = action
         self.reset_calls = 0
+        self.reset_seeds: list[int] = []
         self.calls: list[tuple[Observation, ActionSpace]] = []
 
-    def reset(self) -> None:
+    def reset(self, seed: int) -> None:
         self.reset_calls += 1
+        self.reset_seeds.append(seed)
 
     def get_actions(
         self, observation: Observation, action_space: ActionSpace
     ) -> list[Action]:
         self.calls.append((observation, action_space))
         return [self._action]
-
-    def get_params(self) -> dict[str, object]:
-        return {}
 
 
 class EnvironmentTest(unittest.TestCase):
@@ -118,7 +117,7 @@ class AgentPolicyIntegrationTest(unittest.TestCase):
         )
 
         actions = agent.act(observation, action_space)
-        agent.reset()
+        agent.reset(seed=47)
 
         self.assertEqual(actions, [expected_action])
         self.assertEqual(policy.calls, [(observation, action_space)])
@@ -151,7 +150,7 @@ class AgentPolicyIntegrationTest(unittest.TestCase):
             policy.get_actions(observation, action_space)[0]
             for _ in range(5)
         ]
-        policy.reset()
+        policy.reset(seed=7)
         second_run = [
             policy.get_actions(observation, action_space)[0]
             for _ in range(5)
@@ -159,7 +158,6 @@ class AgentPolicyIntegrationTest(unittest.TestCase):
 
         self.assertEqual(first_run, second_run)
         self.assertTrue(all(action in available_actions for action in first_run))
-        self.assertEqual(policy.get_params(), {})
 
 
 if __name__ == "__main__":

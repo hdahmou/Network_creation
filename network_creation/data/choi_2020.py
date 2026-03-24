@@ -224,6 +224,7 @@ def build_replay_simulator(
         max_steps=replay_dataset.max_step,
         rng=np.random.default_rng(0),
         observers=observers,
+        stagnation_patience=None,
     )
 
 

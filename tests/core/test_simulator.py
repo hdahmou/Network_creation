@@ -19,6 +19,7 @@ class ConstantPolicy(Policy):
         self.action = action
         self.reset_calls = 0
         self.reset_seeds: list[int] = []
+        self.get_actions_calls = 0
 
     def reset(self, seed: int) -> None:
         self.reset_calls += 1
@@ -29,6 +30,7 @@ class ConstantPolicy(Policy):
     ) -> list[Action]:
         del observation
         del action_space
+        self.get_actions_calls += 1
         return [self.action]
 
 
@@ -104,6 +106,33 @@ class MultiActionPolicy(Policy):
         del observation
         del action_space
         return list(self.actions)
+
+
+class ScriptedPolicy(Policy):
+    def __init__(self, actions_by_call: list[list[Action]]) -> None:
+        self.actions_by_call = [list(actions) for actions in actions_by_call]
+        self.reset_calls = 0
+        self.reset_seeds: list[int] = []
+        self.get_actions_calls = 0
+        self._next_call_idx = 0
+
+    def reset(self, seed: int) -> None:
+        self.reset_calls += 1
+        self.reset_seeds.append(seed)
+        self._next_call_idx = 0
+
+    def get_actions(
+        self, observation: Observation, action_space: ActionSpace
+    ) -> list[Action]:
+        del observation
+        del action_space
+        if self._next_call_idx >= len(self.actions_by_call):
+            raise AssertionError("policy was queried more times than expected")
+
+        self.get_actions_calls += 1
+        actions = list(self.actions_by_call[self._next_call_idx])
+        self._next_call_idx += 1
+        return actions
 
 
 class SimulatorTest(unittest.TestCase):
@@ -399,6 +428,126 @@ class SimulatorTest(unittest.TestCase):
         snapshot_graph.delete_edges([(0, 1)])
 
         self.assertTrue(simulator.env.state.graph.are_adjacent(0, 1))
+
+    def test_stagnation_patience_must_be_positive_when_provided(self) -> None:
+        env = Environment(np.zeros((1, 1), dtype=np.int8), seed=173)
+
+        with self.assertRaises(ValueError):
+            Simulator(
+                env=env,
+                agents=(
+                    Agent(
+                        id=0,
+                        radius=0,
+                        policy=ConstantPolicy(Action(ActionType.PASS, source=0)),
+                        seed=179,
+                    ),
+                ),
+                mode=SchedulingMode.SEQUENTIAL,
+                max_steps=1,
+                rng=np.random.default_rng(181),
+                observers=(),
+                stagnation_patience=0,
+            )
+
+    def test_stagnation_skips_policy_queries_but_keeps_step_events_to_max_steps(self) -> None:
+        left_policy = ConstantPolicy(Action(ActionType.PASS, source=0))
+        right_policy = ConstantPolicy(Action(ActionType.PASS, source=1))
+        observer = RecordingObserver()
+        env = Environment(np.zeros((2, 2), dtype=np.int8), seed=183)
+        simulator = Simulator(
+            env=env,
+            agents=(
+                Agent(id=0, radius=0, policy=left_policy, seed=191),
+                Agent(id=1, radius=0, policy=right_policy, seed=193),
+            ),
+            mode=SchedulingMode.SEQUENTIAL,
+            max_steps=5,
+            rng=np.random.default_rng(197),
+            observers=(observer,),
+            stagnation_patience=2,
+        )
+
+        simulator.run(n_episodes=1)
+
+        self.assertEqual(left_policy.get_actions_calls, 1)
+        self.assertEqual(right_policy.get_actions_calls, 1)
+        self.assertEqual(
+            [event.acting_agent_ids for event in observer.step_events],
+            [(0,), (1,), (0,), (1,), (0,)],
+        )
+        self.assertEqual(
+            [event.actions for event in observer.step_events],
+            [
+                (Action(ActionType.PASS, source=0),),
+                (Action(ActionType.PASS, source=1),),
+                (),
+                (),
+                (),
+            ],
+        )
+        self.assertTrue(all(not event.modified for event in observer.step_events))
+        self.assertTrue(
+            all(
+                np.array_equal(
+                    event.pre_state.ownership_matrix,
+                    event.post_state.ownership_matrix,
+                )
+                for event in observer.step_events
+            )
+        )
+        end_event = observer.episode_end_event
+        assert end_event is not None
+        self.assertEqual(end_event.current_step, 5)
+        self.assertEqual(end_event.last_modified_step, -1)
+
+    def test_stagnation_counter_resets_after_modifying_step(self) -> None:
+        left_policy = ScriptedPolicy(
+            [
+                [Action(ActionType.BRIDGE, source=0, target=1)],
+                [Action(ActionType.DELETE, source=0, target=1)],
+                [Action(ActionType.PASS, source=0)],
+            ]
+        )
+        right_policy = ConstantPolicy(Action(ActionType.PASS, source=1))
+        observer = RecordingObserver()
+        env = Environment(np.zeros((2, 2), dtype=np.int8), seed=199)
+        simulator = Simulator(
+            env=env,
+            agents=(
+                Agent(id=0, radius=0, policy=left_policy, seed=211),
+                Agent(id=1, radius=0, policy=right_policy, seed=223),
+            ),
+            mode=SchedulingMode.SEQUENTIAL,
+            max_steps=6,
+            rng=np.random.default_rng(227),
+            observers=(observer,),
+            stagnation_patience=2,
+        )
+
+        simulator.run(n_episodes=1)
+
+        self.assertEqual(left_policy.get_actions_calls, 3)
+        self.assertEqual(right_policy.get_actions_calls, 2)
+        self.assertEqual(
+            [event.actions for event in observer.step_events],
+            [
+                (Action(ActionType.BRIDGE, source=0, target=1),),
+                (Action(ActionType.PASS, source=1),),
+                (Action(ActionType.DELETE, source=0, target=1),),
+                (Action(ActionType.PASS, source=1),),
+                (Action(ActionType.PASS, source=0),),
+                (),
+            ],
+        )
+        self.assertEqual(
+            [event.modified for event in observer.step_events],
+            [True, False, True, False, False, False],
+        )
+        end_event = observer.episode_end_event
+        assert end_event is not None
+        self.assertEqual(end_event.current_step, 6)
+        self.assertEqual(end_event.last_modified_step, 2)
 
 
 if __name__ == "__main__":

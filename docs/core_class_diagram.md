@@ -61,6 +61,7 @@ namespace Simulation {
         +mode: SchedulingMode
         +observers: Tuple[SimulationObserver]
         +max_steps: int
+        +stagnation_patience: int | None
         +reset() void
         +get_acting_agents(step: int) Sequence[Agent]
         +run(n_episodes: int) void

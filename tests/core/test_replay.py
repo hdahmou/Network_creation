@@ -567,6 +567,7 @@ class ReplayTest(unittest.TestCase):
 
         self.assertEqual(simulator.mode, SchedulingMode.SIMULTANEOUS)
         self.assertEqual(simulator.max_steps, 2)
+        self.assertIsNone(simulator.stagnation_patience)
         np.testing.assert_array_equal(
             simulator.env.state.ownership_matrix,
             np.array(
@@ -635,6 +636,56 @@ class ReplayTest(unittest.TestCase):
                     ),
                 ),
             ],
+        )
+
+    def test_build_replay_simulator_keeps_late_recorded_actions_after_silent_gaps(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            csv_path = self._write_csv(
+                Path(tmp_dir),
+                rows=[
+                    {
+                        "id": "1",
+                        "id_subj": "1000",
+                        "time": "3",
+                        "session": "1",
+                        "id_grp": "1",
+                        "grp": "1",
+                        "round": "2",
+                        "period": "1",
+                        "effort": "NULL",
+                        "links": "[2]",
+                    },
+                ],
+                scenario_name="Linking_2_1",
+            )
+            config = Choi2020ReplayConfig(
+                group_size=2,
+                session_id=1,
+                group_id=1,
+                round_id=2,
+                source_path=csv_path,
+            )
+            observer = StepActionsObserver()
+
+            simulator = build_replay_simulator(
+                config=config,
+                observers=(observer,),
+                max_steps=3,
+            )
+            simulator.run(n_episodes=1)
+
+        self.assertIsNone(simulator.stagnation_patience)
+        self.assertEqual(
+            observer.get(),
+            [
+                (1, ()),
+                (2, ()),
+                (3, (Action(ActionType.ADD, source=0, target=1),)),
+            ],
+        )
+        np.testing.assert_array_equal(
+            simulator.env.state.ownership_matrix,
+            np.array([[0, 1], [0, 0]], dtype=np.int8),
         )
 
     def test_grouped_replay_aggregation_works_with_standard_observers(

@@ -29,6 +29,7 @@ class Simulator:
         max_steps: int,
         rng: np.random.Generator,
         observers: tuple[SimulationObserver, ...],
+        stagnation_patience: int | None = None,
     ) -> None:
         self.rng = rng
         self.env = env
@@ -37,6 +38,7 @@ class Simulator:
         self.agents = agents
         self.n_agents = len(self.agents)
         self.observers = observers
+        self.stagnation_patience = stagnation_patience
         self.n_completed_episodes = 0
 
     def reset(self) -> None:
@@ -61,6 +63,7 @@ class Simulator:
         episode_seed = self._reset_for_episode()
         current_step = 0
         last_modified_step = -1
+        stagnation_steps = 0
 
         episode_start_event = EpisodeStartEvent(
             episode_index=episode_index,
@@ -75,19 +78,25 @@ class Simulator:
 
         while current_step < self.max_steps and self.n_agents > 0:
             acting_agents = self.get_acting_agents(step=current_step)
-            observations = {}
-            action_spaces = {}
+            if self._is_stagnated(stagnation_steps):
+                actions = []
+            else:
+                observations = {}
+                action_spaces = {}
 
-            for agent in acting_agents:
-                observation = self.env.get_observation(agent)
-                observations[agent.id] = observation
-                action_spaces[agent.id] = get_action_space(observation)
+                for agent in acting_agents:
+                    observation = self.env.get_observation(agent)
+                    observations[agent.id] = observation
+                    action_spaces[agent.id] = get_action_space(observation)
 
-            actions = [
-                action
-                for agent in acting_agents
-                for action in agent.act(observations[agent.id], action_spaces[agent.id])
-            ]
+                actions = [
+                    action
+                    for agent in acting_agents
+                    for action in agent.act(
+                        observations[agent.id],
+                        action_spaces[agent.id],
+                    )
+                ]
 
             pre_state = StateSnapshot.from_state(self.env.state)
             self.env.step(actions)
@@ -99,6 +108,9 @@ class Simulator:
             )
             if modified:
                 last_modified_step = current_step
+                stagnation_steps = 0
+            else:
+                stagnation_steps += 1
 
             step_event = StepEvent(
                 step=current_step,
@@ -125,6 +137,12 @@ class Simulator:
         )
         for observer in self.observers:
             observer.on_episode_end(episode_end_event)
+
+    def _is_stagnated(self, stagnation_steps: int) -> bool:
+        return (
+            self.stagnation_patience is not None
+            and stagnation_steps >= self.stagnation_patience
+        )
 
     def _reset_for_episode(self) -> int:
         episode_seed = self._next_seed()

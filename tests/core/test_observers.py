@@ -253,6 +253,39 @@ class ObserverTest(unittest.TestCase):
             np.array([0.0, 0.0, 0.0], dtype=np.float32),
         )
 
+    def test_observers_keep_sampling_tail_steps_after_early_stopping(self) -> None:
+        density_observer = DensityObserver(
+            observation_frequency=2,
+            aggregations=(),
+        )
+        state_history_observer = StateHistoryObserver(
+            observation_frequency=2,
+            keep_runs=False,
+        )
+        env = Environment(np.zeros((2, 2), dtype=np.int8), seed=113)
+        simulator = Simulator(
+            env=env,
+            agents=(
+                Agent(id=0, radius=0, policy=ConstantPolicy(Action(ActionType.PASS, source=0)), seed=127),
+                Agent(id=1, radius=0, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=131),
+            ),
+            mode=SchedulingMode.SEQUENTIAL,
+            max_steps=5,
+            rng=np.random.default_rng(137),
+            observers=(density_observer, state_history_observer),
+            stagnation_patience=1,
+        )
+
+        simulator.run(n_episodes=1)
+
+        np.testing.assert_array_equal(density_observer.steps, np.array([0, 2, 4]))
+        np.testing.assert_allclose(
+            density_observer.densities,
+            np.array([0.0, 0.0, 0.0], dtype=np.float32),
+        )
+        np.testing.assert_array_equal(state_history_observer.steps, np.array([0, 2, 4]))
+        self.assertEqual(state_history_observer.ownership_matrices.shape, (3, 2, 2))
+
 
 if __name__ == "__main__":
     unittest.main()

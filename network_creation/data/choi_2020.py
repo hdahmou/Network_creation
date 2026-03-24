@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from ast import literal_eval
+from collections.abc import Iterable
 from collections import defaultdict
 from dataclasses import dataclass
 import csv
@@ -156,10 +157,18 @@ def load_choi_2020_normalized_data(
     )
 
 
-def load_choi_2020_replay_data(config: Choi2020ReplayConfig) -> ReplayDataset:
+def load_choi_2020_replay_data(
+    config: Choi2020ReplayConfig,
+    max_steps: int,
+) -> ReplayDataset:
     """Build replay trajectories from one normalized Choi 2020 configuration."""
 
     normalized_data = load_choi_2020_normalized_data(config)
+    if max_steps < normalized_data.max_step:
+        raise ValueError(
+            f"max_steps must be at least the raw replay horizon ({normalized_data.max_step})"
+        )
+
     rows_by_node_id = _group_rows_by_node_id(normalized_data.rows)
 
     trajectories = {
@@ -172,11 +181,17 @@ def load_choi_2020_replay_data(config: Choi2020ReplayConfig) -> ReplayDataset:
         )
         for node_id in range(normalized_data.n_agents)
     }
+    if max_steps > normalized_data.max_step:
+        trajectories = _pad_tail_pass_actions(
+            trajectories=trajectories,
+            raw_max_step=normalized_data.max_step,
+            max_step=max_steps,
+        )
 
     return ReplayDataset(
         source_path=normalized_data.config.source_path,
         n_agents=normalized_data.n_agents,
-        max_step=normalized_data.max_step,
+        max_step=max_steps,
         trajectories=trajectories,
     )
 
@@ -184,10 +199,11 @@ def load_choi_2020_replay_data(config: Choi2020ReplayConfig) -> ReplayDataset:
 def build_replay_simulator(
     config: Choi2020ReplayConfig,
     observers: tuple[SimulationObserver, ...],
+    max_steps: int,
 ) -> Simulator:
     """Create a simulator that replays one Choi 2020 game slice."""
 
-    replay_dataset = load_choi_2020_replay_data(config)
+    replay_dataset = load_choi_2020_replay_data(config, max_steps=max_steps)
     env = Environment(
         np.zeros((replay_dataset.n_agents, replay_dataset.n_agents), dtype=np.int8),
         seed=0,
@@ -209,6 +225,22 @@ def build_replay_simulator(
         rng=np.random.default_rng(0),
         observers=observers,
     )
+
+
+def run_choi_2020_replay_batch(
+    configs: Iterable[Choi2020ReplayConfig],
+    observers: tuple[SimulationObserver, ...],
+    max_steps: int,
+) -> None:
+    """Run one replay episode per config through one shared observer tuple."""
+
+    for config in sorted(configs):
+        simulator = build_replay_simulator(
+            config=config,
+            observers=observers,
+            max_steps=max_steps,
+        )
+        simulator.run(n_episodes=1)
 
 
 def _get_group_size(csv_path: Path) -> int:
@@ -257,3 +289,23 @@ def _build_actions_by_step(
         previous_targets = current_targets
 
     return {step: tuple(actions) for step, actions in sorted(actions_by_step.items())}
+
+
+def _pad_tail_pass_actions(
+    *,
+    trajectories: dict[int, ReplayTrajectory],
+    raw_max_step: int,
+    max_step: int,
+) -> dict[int, ReplayTrajectory]:
+    padded_trajectories: dict[int, ReplayTrajectory] = {}
+    for node_id, trajectory in trajectories.items():
+        padded_actions_by_step = dict(trajectory.actions_by_step)
+        for step_id in range(raw_max_step + 1, max_step + 1):
+            padded_actions_by_step[step_id] = (Action(ActionType.PASS, source=node_id),)
+
+        padded_trajectories[node_id] = ReplayTrajectory(
+            node_id=node_id,
+            actions_by_step=padded_actions_by_step,
+        )
+
+    return padded_trajectories

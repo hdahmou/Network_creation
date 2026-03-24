@@ -82,6 +82,19 @@ namespace Simulation {
     }
 }
 
+namespace Policies {
+    class RandomPolicy {
+        +reset(seed: int) void
+        +get_actions(observation: Observation, action_space: ActionSpace) List[Action]
+    }
+
+    class ReplayPolicy {
+        +actions_by_step: Map[int, Tuple[Action]]
+        +reset(seed: int) void
+        +get_actions(observation: Observation, action_space: ActionSpace) List[Action]
+    }
+}
+
 namespace Observability {
     class StateSnapshot {
         +ownership_matrix: NDArray
@@ -204,6 +217,10 @@ Simulator --> Environment : uses
 Simulator --> Agent : schedules
 Simulator --> SchedulingMode : mode
 Simulator --> SimulationObserver : notifies
+RandomPolicy --|> Policy : extends
+ReplayPolicy --|> Policy : extends
+Agent *-- RandomPolicy : for randomized agents
+Agent *-- ReplayPolicy : for replay agents
 Environment *-- EnvironmentState : owns
 Environment --> Observation : produces
 Environment --> ActionSpace : produces

@@ -9,6 +9,11 @@ import unittest
 
 import numpy as np
 
+from network_creation.core.observability import (
+    EpisodeEndEvent,
+    EpisodeStartEvent,
+    StepEvent,
+)
 from network_creation.core.environment import Environment
 from network_creation.core.model import (
     Action,
@@ -25,8 +30,32 @@ from network_creation.data.choi_2020 import (
     list_choi_2020_configs,
     load_choi_2020_normalized_data,
     load_choi_2020_replay_data,
+    run_choi_2020_replay_batch,
 )
+from network_creation.observers.density_observer import DensityObserver
 from network_creation.policies.replay import ReplayPolicy
+
+
+class StepActionsObserver:
+    observation_frequency = 1
+
+    def __init__(self) -> None:
+        self.reset()
+
+    def reset(self) -> None:
+        self.actions_by_step: list[tuple[int, tuple[Action, ...]]] = []
+
+    def on_episode_start(self, event: EpisodeStartEvent) -> None:
+        del event
+
+    def on_step_end(self, event: StepEvent) -> None:
+        self.actions_by_step.append((event.step + 1, event.actions))
+
+    def on_episode_end(self, event: EpisodeEndEvent) -> None:
+        del event
+
+    def get(self) -> list[tuple[int, tuple[Action, ...]]]:
+        return self.actions_by_step
 
 
 class ReplayTest(unittest.TestCase):
@@ -274,7 +303,7 @@ class ReplayTest(unittest.TestCase):
                 source_path=csv_path,
             )
 
-            replay_data = load_choi_2020_replay_data(config)
+            replay_data = load_choi_2020_replay_data(config, max_steps=3)
 
         self.assertEqual(replay_data.n_agents, 3)
         self.assertEqual(replay_data.max_step, 3)
@@ -335,7 +364,7 @@ class ReplayTest(unittest.TestCase):
                 source_path=csv_path,
             )
 
-            replay_data = load_choi_2020_replay_data(config)
+            replay_data = load_choi_2020_replay_data(config, max_steps=5)
 
         self.assertEqual(
             replay_data.trajectories[0].actions_by_step[5],
@@ -386,7 +415,7 @@ class ReplayTest(unittest.TestCase):
                 source_path=csv_path,
             )
 
-            replay_data = load_choi_2020_replay_data(config)
+            replay_data = load_choi_2020_replay_data(config, max_steps=10)
 
         self.assertEqual(replay_data.max_step, 10)
         self.assertEqual(
@@ -427,6 +456,55 @@ class ReplayTest(unittest.TestCase):
         self.assertEqual(
             policy.get_actions(observation, action_space),
             [Action(ActionType.ADD, source=0, target=1)],
+        )
+
+    def test_load_choi_2020_replay_data_can_pad_tail_with_pass_actions(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            csv_path = self._write_csv(
+                Path(tmp_dir),
+                rows=[
+                    {
+                        "id": "1",
+                        "id_subj": "1000",
+                        "time": "1",
+                        "session": "1",
+                        "id_grp": "1",
+                        "grp": "1",
+                        "round": "2",
+                        "period": "1",
+                        "effort": "NULL",
+                        "links": "[2]",
+                    },
+                ],
+                scenario_name="Linking_2_1",
+            )
+            config = Choi2020ReplayConfig(
+                group_size=2,
+                session_id=1,
+                group_id=1,
+                round_id=2,
+                source_path=csv_path,
+            )
+
+            replay_data = load_choi_2020_replay_data(config, max_steps=3)
+
+        self.assertEqual(replay_data.max_step, 3)
+        self.assertEqual(
+            replay_data.trajectories[0].actions_by_step,
+            {
+                1: (Action(ActionType.ADD, source=0, target=1),),
+                2: (Action(ActionType.PASS, source=0),),
+                3: (Action(ActionType.PASS, source=0),),
+            },
+        )
+        self.assertEqual(
+            replay_data.trajectories[1].actions_by_step,
+            {
+                2: (Action(ActionType.PASS, source=1),),
+                3: (Action(ActionType.PASS, source=1),),
+            },
         )
 
     def test_build_replay_simulator_replays_final_state(self) -> None:
@@ -483,6 +561,7 @@ class ReplayTest(unittest.TestCase):
             simulator = build_replay_simulator(
                 config=config,
                 observers=(),
+                max_steps=2,
             )
             simulator.run(n_episodes=1)
 
@@ -498,6 +577,178 @@ class ReplayTest(unittest.TestCase):
                 ],
                 dtype=np.int8,
             ),
+        )
+
+    def test_build_replay_simulator_can_pad_tail_with_pass_actions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            csv_path = self._write_csv(
+                Path(tmp_dir),
+                rows=[
+                    {
+                        "id": "1",
+                        "id_subj": "1000",
+                        "time": "1",
+                        "session": "1",
+                        "id_grp": "1",
+                        "grp": "1",
+                        "round": "2",
+                        "period": "1",
+                        "effort": "NULL",
+                        "links": "[2]",
+                    },
+                ],
+                scenario_name="Linking_2_1",
+            )
+            config = Choi2020ReplayConfig(
+                group_size=2,
+                session_id=1,
+                group_id=1,
+                round_id=2,
+                source_path=csv_path,
+            )
+            observer = StepActionsObserver()
+
+            simulator = build_replay_simulator(
+                config=config,
+                observers=(observer,),
+                max_steps=3,
+            )
+            simulator.run(n_episodes=1)
+
+        self.assertEqual(simulator.max_steps, 3)
+        self.assertEqual(
+            observer.get(),
+            [
+                (1, (Action(ActionType.ADD, source=0, target=1),)),
+                (
+                    2,
+                    (
+                        Action(ActionType.PASS, source=0),
+                        Action(ActionType.PASS, source=1),
+                    ),
+                ),
+                (
+                    3,
+                    (
+                        Action(ActionType.PASS, source=0),
+                        Action(ActionType.PASS, source=1),
+                    ),
+                ),
+            ],
+        )
+
+    def test_grouped_replay_aggregation_works_with_standard_observers(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            group_two_csv = self._write_csv(
+                tmp_path,
+                rows=[
+                    {
+                        "id": "1",
+                        "id_subj": "1000",
+                        "time": "1",
+                        "session": "1",
+                        "id_grp": "1",
+                        "grp": "1",
+                        "round": "2",
+                        "period": "1",
+                        "effort": "NULL",
+                        "links": "[2]",
+                    },
+                ],
+                scenario_name="Linking_2_1",
+            )
+            group_two_second_csv = self._write_csv(
+                tmp_path,
+                rows=[
+                    {
+                        "id": "1",
+                        "id_subj": "2000",
+                        "time": "1",
+                        "session": "2",
+                        "id_grp": "1",
+                        "grp": "1",
+                        "round": "2",
+                        "period": "1",
+                        "effort": "NULL",
+                        "links": "[]",
+                    },
+                ],
+                scenario_name="Linking_2_2",
+            )
+            group_three_csv = self._write_csv(
+                tmp_path,
+                rows=[
+                    {
+                        "id": "1",
+                        "id_subj": "3000",
+                        "time": "1",
+                        "session": "3",
+                        "id_grp": "1",
+                        "grp": "1",
+                        "round": "2",
+                        "period": "1",
+                        "effort": "NULL",
+                        "links": "[]",
+                    },
+                ],
+                scenario_name="Linking_3_1",
+            )
+
+            configs = (
+                Choi2020ReplayConfig(
+                    group_size=2,
+                    session_id=1,
+                    group_id=1,
+                    round_id=2,
+                    source_path=group_two_csv,
+                ),
+                Choi2020ReplayConfig(
+                    group_size=2,
+                    session_id=2,
+                    group_id=1,
+                    round_id=2,
+                    source_path=group_two_second_csv,
+                ),
+                Choi2020ReplayConfig(
+                    group_size=3,
+                    session_id=3,
+                    group_id=1,
+                    round_id=2,
+                    source_path=group_three_csv,
+                ),
+            )
+
+            density_by_group_size: dict[int, DensityObserver] = {}
+            for group_size in (2, 3):
+                density_observer = DensityObserver(
+                    observation_frequency=1,
+                    aggregations=("mean",),
+                )
+                run_choi_2020_replay_batch(
+                    configs=tuple(
+                        config for config in configs if config.group_size == group_size
+                    ),
+                    observers=(density_observer,),
+                    max_steps=2,
+                )
+                density_by_group_size[group_size] = density_observer
+
+        result_group_two = density_by_group_size[2].get()
+        result_group_three = density_by_group_size[3].get()
+        self.assertEqual(result_group_two.n_episodes, 2)
+        self.assertEqual(result_group_three.n_episodes, 1)
+        np.testing.assert_array_equal(result_group_two.steps, np.array([0, 1, 2]))
+        np.testing.assert_allclose(
+            result_group_two.outputs["mean"],
+            np.array([0.0, 0.5, 0.5], dtype=np.float32),
+        )
+        np.testing.assert_array_equal(result_group_three.steps, np.array([0, 1, 2]))
+        np.testing.assert_allclose(
+            result_group_three.outputs["mean"],
+            np.array([0.0, 0.0, 0.0], dtype=np.float32),
         )
 
 

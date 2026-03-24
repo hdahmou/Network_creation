@@ -16,6 +16,8 @@ _BAND_COLOR = "#f6bd60"
 def plot_episode_series_observer(
     observer: EpisodeSeriesStatisticObserver,
     ax: Axes,
+    *,
+    show_runs: bool = False,
 ) -> Axes:
     """Plot one episode-series observer on one explicit matplotlib axis."""
 
@@ -24,7 +26,12 @@ def plot_episode_series_observer(
 
     if observer.aggregations:
         result = observer.get()
-        _plot_aggregated_outputs(observer=observer, result=result, ax=ax)
+        _plot_aggregated_outputs(
+            observer=observer,
+            result=result,
+            ax=ax,
+            show_runs=show_runs,
+        )
     else:
         ax.plot(
             observer.steps,
@@ -51,6 +58,8 @@ def _plot_aggregated_outputs(
     observer: EpisodeSeriesStatisticObserver,
     result: StatisticResult,
     ax: Axes,
+    *,
+    show_runs: bool,
 ) -> None:
     if result.steps is None:
         raise ValueError("episode-series statistic result must include steps")
@@ -60,6 +69,20 @@ def _plot_aggregated_outputs(
         if output_name in observer.aggregations:
             primary_output_name = output_name
             break
+
+    runs = result.outputs.get("runs")
+    if runs is not None and show_runs:
+        if not isinstance(runs, tuple):
+            raise ValueError("output 'runs' must be a tuple of series")
+        for run_values in runs:
+            ax.plot(
+                result.steps,
+                run_values,
+                color=_PRIMARY_COLOR,
+                alpha=0.2,
+                linewidth=1.5,
+            )
+
     if primary_output_name is None:
         if result.n_episodes == 1:
             ax.set_title(f"{observer.label} over one episode")

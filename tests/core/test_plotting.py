@@ -89,7 +89,9 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
         self.assertEqual(axis.get_title(), "Density over one episode")
         plt.close(figure)
 
-    def test_multi_episode_plot_draws_runs_mean_and_band(self) -> None:
+    def test_multi_episode_plot_draws_mean_and_band_without_individual_runs(
+        self,
+    ) -> None:
         observer = DensityObserver(
             observation_frequency=1,
             aggregations=("mean", "std", "runs"),
@@ -117,7 +119,7 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
         returned_axis = plot_episode_series_observer(observer=observer, ax=axis)
 
         self.assertIs(returned_axis, axis)
-        self.assertEqual(len(axis.lines), 5)
+        self.assertEqual(len(axis.lines), 1)
         self.assertEqual(len(axis.collections), 1)
         self.assertEqual(axis.get_title(), "Density across multiple episodes")
         plt.close(figure)
@@ -155,8 +157,47 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
         returned_axis = plot_episode_series_observer(observer=observer, ax=axis)
 
         self.assertIs(returned_axis, axis)
-        self.assertEqual(len(axis.lines), 1)
+        self.assertEqual(len(axis.lines), 0)
         self.assertEqual(axis.get_title(), "Density over one episode")
+        plt.close(figure)
+
+    def test_multi_episode_plot_can_overlay_individual_runs_when_requested(
+        self,
+    ) -> None:
+        observer = DensityObserver(
+            observation_frequency=1,
+            aggregations=("mean", "std", "runs"),
+        )
+        simulator = Simulator(
+            env=Environment(np.zeros((4, 4), dtype=np.int8), seed=47),
+            agents=tuple(
+                Agent(
+                    id=node_id,
+                    radius=2,
+                    policy=RandomPolicy(seed=53 + node_id),
+                    seed=53 + node_id,
+                )
+                for node_id in range(4)
+            ),
+            mode=SchedulingMode.SEQUENTIAL,
+            max_steps=8,
+            rng=np.random.default_rng(61),
+            observers=(observer,),
+        )
+
+        simulator.run(n_episodes=4)
+
+        figure, axis = plt.subplots()
+        returned_axis = plot_episode_series_observer(
+            observer=observer,
+            ax=axis,
+            show_runs=True,
+        )
+
+        self.assertIs(returned_axis, axis)
+        self.assertEqual(len(axis.lines), 5)
+        self.assertEqual(len(axis.collections), 1)
+        self.assertEqual(axis.get_title(), "Density across multiple episodes")
         plt.close(figure)
 
 

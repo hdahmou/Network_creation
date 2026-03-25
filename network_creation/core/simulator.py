@@ -31,6 +31,9 @@ class Simulator:
         observers: tuple[SimulationObserver, ...],
         stagnation_patience: int | None = None,
     ) -> None:
+        if stagnation_patience is not None and stagnation_patience < 1:
+            raise ValueError("stagnation_patience must be positive when provided")
+
         self.rng = rng
         self.env = env
         self.mode = mode

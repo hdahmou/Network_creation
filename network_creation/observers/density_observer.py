@@ -21,7 +21,7 @@ class DensityObserver(EpisodeSeriesStatisticObserver):
     x_label = "step"
     y_label = "density"
     y_min = 0.0
-    y_max = 1.0
+    y_max = None
 
     @property
     def densities(self) -> NDArray[np.float32]:

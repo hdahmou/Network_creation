@@ -12,8 +12,22 @@ from network_creation.core.agent import Agent
 from network_creation.core.environment import Environment
 from network_creation.core.model import Action, ActionSpace, ActionType, Observation, SchedulingMode
 from network_creation.core.simulator import Simulator
+from network_creation.observers.action_count_observer import (
+    ActionCountObserver,
+)
 from network_creation.observers.action_print_observer import ActionPrintObserver
+from network_creation.observers.central_point_of_dominance_observer import (
+    CentralPointOfDominanceObserver,
+)
 from network_creation.observers.density_observer import DensityObserver
+from network_creation.observers.distance_observer import DistanceObserver
+from network_creation.observers.global_closeness_centrality_observer import (
+    GlobalClosenessCentralityObserver,
+)
+from network_creation.observers.hub_persistence_observer import (
+    HubPersistenceObserver,
+)
+from network_creation.observers.indegree_observer import IndegreeObserver
 from network_creation.observers.state_history_observer import StateHistoryObserver
 from network_creation.policies.base import Policy
 
@@ -32,6 +46,47 @@ class ConstantPolicy(Policy):
         del observation
         del action_space
         return [self.action]
+
+
+class ActionListPolicy(Policy):
+    def __init__(self, actions: list[Action]) -> None:
+        self.actions = actions
+
+    def reset(self, seed: int) -> None:
+        del seed
+        return None
+
+    def get_actions(
+        self, observation: Observation, action_space: ActionSpace
+    ) -> list[Action]:
+        del observation
+        del action_space
+        return list(self.actions)
+
+
+class EpisodeCallPolicy(Policy):
+    def __init__(self, episode_actions: list[list[list[Action]]]) -> None:
+        self.episode_actions = episode_actions
+        self._episode_index = -1
+        self._call_index = 0
+
+    def reset(self, seed: int) -> None:
+        del seed
+        self._episode_index = min(
+            self._episode_index + 1,
+            len(self.episode_actions) - 1,
+        )
+        self._call_index = 0
+
+    def get_actions(
+        self, observation: Observation, action_space: ActionSpace
+    ) -> list[Action]:
+        del observation
+        del action_space
+        current_episode_actions = self.episode_actions[self._episode_index]
+        action_idx = min(self._call_index, len(current_episode_actions) - 1)
+        self._call_index += 1
+        return list(current_episode_actions[action_idx])
 
 
 class ObserverTest(unittest.TestCase):
@@ -94,6 +149,539 @@ class ObserverTest(unittest.TestCase):
             density_observer.densities,
             np.array([0.0, 1.0, 1.0], dtype=np.float32),
         )
+
+    def test_indegree_observer_uses_directed_ownership_matrix(self) -> None:
+        indegree_observer = IndegreeObserver(
+            observation_frequency=1,
+            aggregations=(),
+        )
+        env = Environment(
+            np.array(
+                [
+                    [0, 1, 0],
+                    [0, 0, 0],
+                    [0, 1, 0],
+                ],
+                dtype=np.int8,
+            ),
+            seed=17,
+        )
+        simulator = Simulator(
+            env=env,
+            agents=(),
+            mode=SchedulingMode.SEQUENTIAL,
+            max_steps=0,
+            rng=np.random.default_rng(19),
+            observers=(indegree_observer,),
+        )
+
+        simulator.run(n_episodes=1)
+
+        np.testing.assert_array_equal(
+            indegree_observer.steps,
+            np.array([0]),
+        )
+        np.testing.assert_allclose(
+            indegree_observer.average_indegrees,
+            np.array([2.0 / 3.0], dtype=np.float32),
+        )
+
+    def test_distance_observer_uses_giant_component_and_full_graph_scale(
+        self,
+    ) -> None:
+        distance_observer = DistanceObserver(
+            observation_frequency=1,
+            aggregations=(),
+        )
+        env = Environment(
+            np.array(
+                [
+                    [0, 1, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                ],
+                dtype=np.int8,
+            ),
+            seed=23,
+        )
+        simulator = Simulator(
+            env=env,
+            agents=(),
+            mode=SchedulingMode.SEQUENTIAL,
+            max_steps=0,
+            rng=np.random.default_rng(29),
+            observers=(distance_observer,),
+        )
+
+        simulator.run(n_episodes=1)
+
+        np.testing.assert_array_equal(
+            distance_observer.steps,
+            np.array([0]),
+        )
+        np.testing.assert_allclose(
+            distance_observer.average_distances,
+            np.array([1.0], dtype=np.float32),
+        )
+
+    def test_global_closeness_centrality_observer_uses_full_graph_harmonic_scores(
+        self,
+    ) -> None:
+        closeness_observer = GlobalClosenessCentralityObserver(
+            observation_frequency=1,
+            aggregations=(),
+        )
+        env = Environment(
+            np.array(
+                [
+                    [0, 1, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                ],
+                dtype=np.int8,
+            ),
+            seed=31,
+        )
+        simulator = Simulator(
+            env=env,
+            agents=(),
+            mode=SchedulingMode.SEQUENTIAL,
+            max_steps=0,
+            rng=np.random.default_rng(37),
+            observers=(closeness_observer,),
+        )
+
+        simulator.run(n_episodes=1)
+
+        np.testing.assert_array_equal(closeness_observer.steps, np.array([0]))
+        np.testing.assert_allclose(
+            closeness_observer.global_closeness_centralities,
+            np.array([2.0 / 3.0], dtype=np.float32),
+        )
+
+    def test_central_point_of_dominance_observer_matches_normalized_betweenness(
+        self,
+    ) -> None:
+        dominance_observer = CentralPointOfDominanceObserver(
+            observation_frequency=1,
+            aggregations=(),
+        )
+        env = Environment(
+            np.array(
+                [
+                    [0, 1, 0, 0],
+                    [0, 0, 1, 0],
+                    [0, 0, 0, 1],
+                    [0, 0, 0, 0],
+                ],
+                dtype=np.int8,
+            ),
+            seed=39,
+        )
+        simulator = Simulator(
+            env=env,
+            agents=(),
+            mode=SchedulingMode.SEQUENTIAL,
+            max_steps=0,
+            rng=np.random.default_rng(41),
+            observers=(dominance_observer,),
+        )
+
+        simulator.run(n_episodes=1)
+
+        np.testing.assert_array_equal(dominance_observer.steps, np.array([0]))
+        np.testing.assert_allclose(
+            dominance_observer.central_points_of_dominance,
+            np.array([4.0 / 9.0], dtype=np.float32),
+        )
+
+    def test_action_count_observer_normalizes_by_total_agents(self) -> None:
+        action_count_observer = ActionCountObserver(
+            observation_frequency=1,
+            aggregations=(),
+        )
+        env = Environment(np.zeros((2, 2), dtype=np.int8), seed=41)
+        simulator = Simulator(
+            env=env,
+            agents=(
+                Agent(
+                    id=0,
+                    radius=0,
+                    policy=ActionListPolicy(
+                        [Action(ActionType.BRIDGE, source=0, target=1)]
+                    ),
+                    seed=43,
+                ),
+                Agent(
+                    id=1,
+                    radius=0,
+                    policy=ActionListPolicy([Action(ActionType.PASS, source=1)]),
+                    seed=47,
+                ),
+            ),
+            mode=SchedulingMode.SEQUENTIAL,
+            max_steps=1,
+            rng=np.random.default_rng(53),
+            observers=(action_count_observer,),
+        )
+
+        simulator.run(n_episodes=1)
+
+        np.testing.assert_array_equal(action_count_observer.steps, np.array([0, 1]))
+        np.testing.assert_allclose(
+            action_count_observer.average_action_counts,
+            np.array([0.0, 0.5], dtype=np.float32),
+        )
+
+    def test_action_count_observer_excludes_pass_and_supports_multi_action(
+        self,
+    ) -> None:
+        action_count_observer = ActionCountObserver(
+            observation_frequency=1,
+            aggregations=(),
+        )
+        env = Environment(np.zeros((3, 3), dtype=np.int8), seed=59)
+        simulator = Simulator(
+            env=env,
+            agents=(
+                Agent(
+                    id=0,
+                    radius=0,
+                    policy=ActionListPolicy(
+                        [
+                            Action(ActionType.BRIDGE, source=0, target=1),
+                            Action(ActionType.BRIDGE, source=0, target=2),
+                        ]
+                    ),
+                    seed=61,
+                ),
+                Agent(
+                    id=1,
+                    radius=0,
+                    policy=ActionListPolicy([Action(ActionType.PASS, source=1)]),
+                    seed=67,
+                ),
+                Agent(
+                    id=2,
+                    radius=0,
+                    policy=ActionListPolicy(
+                        [Action(ActionType.BRIDGE, source=2, target=1)]
+                    ),
+                    seed=71,
+                ),
+            ),
+            mode=SchedulingMode.SIMULTANEOUS,
+            max_steps=1,
+            rng=np.random.default_rng(73),
+            observers=(action_count_observer,),
+        )
+
+        simulator.run(n_episodes=1)
+
+        np.testing.assert_array_equal(action_count_observer.steps, np.array([0, 1]))
+        np.testing.assert_allclose(
+            action_count_observer.average_action_counts,
+            np.array([0.0, 1.0], dtype=np.float32),
+        )
+
+    def test_distance_observer_aggregates_mean_and_runs(self) -> None:
+        distance_observer = DistanceObserver(
+            observation_frequency=1,
+            aggregations=("mean", "runs"),
+        )
+        env = Environment(
+            np.array(
+                [
+                    [0, 1, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                ],
+                dtype=np.int8,
+            ),
+            seed=79,
+        )
+        simulator = Simulator(
+            env=env,
+            agents=(),
+            mode=SchedulingMode.SEQUENTIAL,
+            max_steps=0,
+            rng=np.random.default_rng(83),
+            observers=(distance_observer,),
+        )
+
+        simulator.run(n_episodes=2)
+
+        result = distance_observer.get()
+
+        self.assertEqual(result.n_episodes, 2)
+        np.testing.assert_array_equal(result.steps, np.array([0]))
+        self.assertEqual(set(result.outputs), {"mean", "runs"})
+        np.testing.assert_allclose(
+            result.outputs["mean"],
+            np.array([1.0], dtype=np.float32),
+        )
+        runs = result.outputs["runs"]
+        self.assertEqual(len(runs), 2)
+        np.testing.assert_allclose(
+            runs[0],
+            np.array([1.0], dtype=np.float32),
+        )
+
+    def test_central_point_of_dominance_observer_aggregates_mean_and_runs(
+        self,
+    ) -> None:
+        dominance_observer = CentralPointOfDominanceObserver(
+            observation_frequency=1,
+            aggregations=("mean", "runs"),
+        )
+        env = Environment(
+            np.array(
+                [
+                    [0, 1, 1, 1],
+                    [0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                ],
+                dtype=np.int8,
+            ),
+            seed=89,
+        )
+        simulator = Simulator(
+            env=env,
+            agents=(),
+            mode=SchedulingMode.SEQUENTIAL,
+            max_steps=0,
+            rng=np.random.default_rng(97),
+            observers=(dominance_observer,),
+        )
+
+        simulator.run(n_episodes=2)
+
+        result = dominance_observer.get()
+
+        self.assertEqual(result.n_episodes, 2)
+        np.testing.assert_array_equal(result.steps, np.array([0]))
+        self.assertEqual(set(result.outputs), {"mean", "runs"})
+        np.testing.assert_allclose(
+            result.outputs["mean"],
+            np.array([1.0], dtype=np.float32),
+        )
+        runs = result.outputs["runs"]
+        self.assertEqual(len(runs), 2)
+        np.testing.assert_allclose(
+            runs[0],
+            np.array([1.0], dtype=np.float32),
+        )
+
+    def test_hub_persistence_observer_keeps_tied_hubs_and_uses_overlap_fraction(
+        self,
+    ) -> None:
+        hub_persistence_observer = HubPersistenceObserver(
+            observation_frequency=1,
+            window_size=1,
+            aggregations=(),
+        )
+        env = Environment(np.zeros((3, 3), dtype=np.int8), seed=211)
+        simulator = Simulator(
+            env=env,
+            agents=(
+                Agent(
+                    id=0,
+                    radius=0,
+                    policy=EpisodeCallPolicy(
+                        [[
+                            [Action(ActionType.ADD, source=0, target=1)],
+                            [Action(ActionType.PASS, source=0)],
+                        ]]
+                    ),
+                    seed=223,
+                ),
+                Agent(
+                    id=1,
+                    radius=0,
+                    policy=ConstantPolicy(Action(ActionType.PASS, source=1)),
+                    seed=227,
+                ),
+                Agent(
+                    id=2,
+                    radius=0,
+                    policy=EpisodeCallPolicy(
+                        [[
+                            [Action(ActionType.ADD, source=2, target=1)],
+                            [Action(ActionType.PASS, source=2)],
+                        ]]
+                    ),
+                    seed=229,
+                ),
+            ),
+            mode=SchedulingMode.SIMULTANEOUS,
+            max_steps=2,
+            rng=np.random.default_rng(233),
+            observers=(hub_persistence_observer,),
+        )
+
+        simulator.run(n_episodes=1)
+
+        np.testing.assert_array_equal(
+            hub_persistence_observer.steps,
+            np.arange(3),
+        )
+        np.testing.assert_allclose(
+            hub_persistence_observer.hub_persistence_scores,
+            np.array([1.0 / 3.0, 1.0, np.nan], dtype=np.float32),
+            equal_nan=True,
+        )
+
+    def test_hub_persistence_observer_uses_nan_borders_for_adjacent_ten_step_windows(
+        self,
+    ) -> None:
+        hub_persistence_observer = HubPersistenceObserver(
+            observation_frequency=1,
+            window_size=10,
+            aggregations=(),
+        )
+        env = Environment(np.zeros((3, 3), dtype=np.int8), seed=239)
+        simulator = Simulator(
+            env=env,
+            agents=(
+                Agent(
+                    id=0,
+                    radius=0,
+                    policy=ConstantPolicy(Action(ActionType.PASS, source=0)),
+                    seed=241,
+                ),
+                Agent(
+                    id=1,
+                    radius=0,
+                    policy=ConstantPolicy(Action(ActionType.PASS, source=1)),
+                    seed=251,
+                ),
+                Agent(
+                    id=2,
+                    radius=0,
+                    policy=ConstantPolicy(Action(ActionType.PASS, source=2)),
+                    seed=257,
+                ),
+            ),
+            mode=SchedulingMode.SIMULTANEOUS,
+            max_steps=19,
+            rng=np.random.default_rng(241),
+            observers=(hub_persistence_observer,),
+        )
+
+        simulator.run(n_episodes=1)
+
+        np.testing.assert_array_equal(
+            hub_persistence_observer.steps,
+            np.arange(20),
+        )
+        np.testing.assert_allclose(
+            hub_persistence_observer.hub_persistence_scores,
+            np.array([np.nan] * 9 + [1.0] + [np.nan] * 10, dtype=np.float32),
+            equal_nan=True,
+        )
+
+    def test_hub_persistence_observer_aggregates_series_outputs(self) -> None:
+        hub_persistence_observer = HubPersistenceObserver(
+            observation_frequency=1,
+            window_size=1,
+            aggregations=("mean", "std", "runs"),
+        )
+        env = Environment(np.zeros((3, 3), dtype=np.int8), seed=251)
+        simulator = Simulator(
+            env=env,
+            agents=(
+                Agent(
+                    id=0,
+                    radius=0,
+                    policy=EpisodeCallPolicy(
+                        [
+                            [
+                                [Action(ActionType.ADD, source=0, target=1)],
+                                [Action(ActionType.PASS, source=0)],
+                            ],
+                            [
+                                [Action(ActionType.PASS, source=0)],
+                                [Action(ActionType.PASS, source=0)],
+                            ],
+                        ]
+                    ),
+                    seed=257,
+                ),
+                Agent(
+                    id=1,
+                    radius=0,
+                    policy=ConstantPolicy(Action(ActionType.PASS, source=1)),
+                    seed=263,
+                ),
+                Agent(
+                    id=2,
+                    radius=0,
+                    policy=EpisodeCallPolicy(
+                        [
+                            [
+                                [Action(ActionType.ADD, source=2, target=1)],
+                                [Action(ActionType.PASS, source=2)],
+                            ],
+                            [
+                                [Action(ActionType.PASS, source=2)],
+                                [Action(ActionType.PASS, source=2)],
+                            ],
+                        ]
+                    ),
+                    seed=269,
+                ),
+            ),
+            mode=SchedulingMode.SIMULTANEOUS,
+            max_steps=2,
+            rng=np.random.default_rng(271),
+            observers=(hub_persistence_observer,),
+        )
+
+        simulator.run(n_episodes=2)
+
+        result = hub_persistence_observer.get()
+
+        np.testing.assert_array_equal(result.steps, np.arange(3))
+        self.assertEqual(result.n_episodes, 2)
+        self.assertEqual(set(result.outputs), {"mean", "std", "runs"})
+        np.testing.assert_allclose(
+            result.outputs["mean"],
+            np.array([2.0 / 3.0, 1.0, np.nan], dtype=np.float32),
+            equal_nan=True,
+        )
+        np.testing.assert_allclose(
+            result.outputs["std"],
+            np.array([1.0 / 3.0, 0.0, np.nan], dtype=np.float32),
+            atol=1e-7,
+            equal_nan=True,
+        )
+        runs = result.outputs["runs"]
+        self.assertEqual(len(runs), 2)
+        np.testing.assert_allclose(
+            runs[0],
+            np.array([1.0 / 3.0, 1.0, np.nan], dtype=np.float32),
+            equal_nan=True,
+        )
+        np.testing.assert_allclose(
+            runs[1],
+            np.array([1.0, 1.0, np.nan], dtype=np.float32),
+            equal_nan=True,
+        )
+
+    def test_hub_persistence_observer_requires_full_step_sampling(self) -> None:
+        with self.assertRaisesRegex(
+            ValueError,
+            "observation_frequency=1",
+        ):
+            HubPersistenceObserver(
+                observation_frequency=2,
+                window_size=10,
+                aggregations=(),
+            )
 
     def test_state_history_observer_tracks_graphs_and_ownership_matrices(self) -> None:
         state_history_observer = StateHistoryObserver(

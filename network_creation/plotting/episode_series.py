@@ -18,6 +18,10 @@ def plot_episode_series_observer(
     ax: Axes,
     *,
     show_runs: bool = False,
+    color: str | None = None,
+    band_color: str | None = None,
+    label: str | None = None,
+    set_title: bool = True,
 ) -> Axes:
     """Plot one episode-series observer on one explicit matplotlib axis."""
 
@@ -31,15 +35,21 @@ def plot_episode_series_observer(
             result=result,
             ax=ax,
             show_runs=show_runs,
+            color=color,
+            band_color=band_color,
+            label=label,
+            set_title=set_title,
         )
     else:
         ax.plot(
             observer.steps,
             observer.values,
             linewidth=2,
-            color=_PRIMARY_COLOR,
+            color=_PRIMARY_COLOR if color is None else color,
+            label=label,
         )
-        ax.set_title(f"{observer.label} over one episode")
+        if set_title:
+            ax.set_title(f"{observer.label} over one episode")
 
     ax.set_xlabel(observer.x_label)
     ax.set_ylabel(observer.y_label)
@@ -60,6 +70,10 @@ def _plot_aggregated_outputs(
     ax: Axes,
     *,
     show_runs: bool,
+    color: str | None,
+    band_color: str | None,
+    label: str | None,
+    set_title: bool,
 ) -> None:
     if result.steps is None:
         raise ValueError("episode-series statistic result must include steps")
@@ -70,6 +84,11 @@ def _plot_aggregated_outputs(
             primary_output_name = output_name
             break
 
+    primary_color = _PRIMARY_COLOR if color is None else color
+    fill_color = band_color
+    if fill_color is None:
+        fill_color = _BAND_COLOR if color is None else primary_color
+
     runs = result.outputs.get("runs")
     if runs is not None and show_runs:
         if not isinstance(runs, tuple):
@@ -78,12 +97,14 @@ def _plot_aggregated_outputs(
             ax.plot(
                 result.steps,
                 run_values,
-                color=_PRIMARY_COLOR,
+                color=primary_color,
                 alpha=0.2,
                 linewidth=1.5,
             )
 
     if primary_output_name is None:
+        if not set_title:
+            return
         if result.n_episodes == 1:
             ax.set_title(f"{observer.label} over one episode")
             return
@@ -110,22 +131,26 @@ def _plot_aggregated_outputs(
             result.steps,
             lower_band,
             upper_band,
-            color=_BAND_COLOR,
+            color=fill_color,
             alpha=0.35,
-            label="mean ± std",
+            label=None if label is not None else "mean ± std",
         )
 
     ax.plot(
         result.steps,
         primary_values,
-        color=_PRIMARY_COLOR,
+        color=primary_color,
         linewidth=2.5,
-        label={
+        label=label
+        if label is not None
+        else {
             "mean": f"mean {observer.y_label}",
             "std": f"std {observer.y_label}",
         }.get(primary_output_name, primary_output_name),
     )
     ax.set_xlim(result.steps[0], result.steps[-1])
+    if not set_title:
+        return
     if result.n_episodes == 1:
         ax.set_title(f"{observer.label} over one episode")
         return

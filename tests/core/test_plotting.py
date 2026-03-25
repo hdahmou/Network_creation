@@ -200,6 +200,50 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
         self.assertEqual(axis.get_title(), "Density across multiple episodes")
         plt.close(figure)
 
+    def test_multi_episode_plot_accepts_custom_label_color_and_title_control(
+        self,
+    ) -> None:
+        observer = DensityObserver(
+            observation_frequency=1,
+            aggregations=("mean", "std"),
+        )
+        simulator = Simulator(
+            env=Environment(np.zeros((4, 4), dtype=np.int8), seed=71),
+            agents=tuple(
+                Agent(
+                    id=node_id,
+                    radius=2,
+                    policy=RandomPolicy(seed=73 + node_id),
+                    seed=73 + node_id,
+                )
+                for node_id in range(4)
+            ),
+            mode=SchedulingMode.SEQUENTIAL,
+            max_steps=8,
+            rng=np.random.default_rng(89),
+            observers=(observer,),
+        )
+
+        simulator.run(n_episodes=3)
+
+        figure, axis = plt.subplots()
+        axis.set_title("Keep this title")
+        returned_axis = plot_episode_series_observer(
+            observer=observer,
+            ax=axis,
+            color="#123456",
+            band_color="#abcdef",
+            label="group size 10",
+            set_title=False,
+        )
+
+        self.assertIs(returned_axis, axis)
+        self.assertEqual(axis.get_title(), "Keep this title")
+        self.assertEqual(axis.lines[0].get_label(), "group size 10")
+        self.assertEqual(axis.lines[0].get_color(), "#123456")
+        self.assertEqual(len(axis.collections), 1)
+        plt.close(figure)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -37,7 +37,10 @@ from network_creation.observers.statistics.episode_series import (
 from network_creation.observers.statistics.episode_tensor_series import (
     EpisodeSeriesTensorStatisticObserver,
 )
-from network_creation.observers.triad_census_observer import TriadCensusObserver
+from network_creation.observers.triad_census_observer import (
+    TRIAD_TYPE_NAMES,
+    TriadCensusObserver,
+)
 from network_creation.policies.base import Policy
 
 
@@ -430,7 +433,7 @@ class ObserverTest(unittest.TestCase):
             np.array([2.0 / 3.0], dtype=np.float32),
         )
 
-    def test_triad_census_observer_uses_zero_vector_when_no_triads_exist(self) -> None:
+    def test_triad_census_observer_raises_when_no_triads_exist(self) -> None:
         triad_observer = TriadCensusObserver(
             observation_frequency=1,
             aggregations=(),
@@ -445,16 +448,10 @@ class ObserverTest(unittest.TestCase):
             observers=(triad_observer,),
         )
 
-        simulator.run(n_episodes=1)
+        with self.assertRaises(ZeroDivisionError):
+            simulator.run(n_episodes=1)
 
-        np.testing.assert_array_equal(triad_observer.steps, np.array([0]))
-        self.assertEqual(triad_observer.sample_shape, (16,))
-        np.testing.assert_allclose(
-            triad_observer.triad_counts,
-            np.zeros((1, 16), dtype=np.float32),
-        )
-
-    def test_triad_census_observer_tracks_count_series(self) -> None:
+    def test_triad_census_observer_tracks_proportion_series(self) -> None:
         triad_observer = TriadCensusObserver(
             observation_frequency=1,
             aggregations=(),
@@ -480,14 +477,14 @@ class ObserverTest(unittest.TestCase):
 
         simulator.run(n_episodes=1)
 
-        expected = np.zeros((2, 16), dtype=np.float32)
-        expected[0, 0] = 1.0
-        expected[1, 1] = 1.0
+        expected = np.zeros((2, len(TRIAD_TYPE_NAMES)), dtype=np.float32)
+        expected[0, TRIAD_TYPE_NAMES.index("003")] = 1.0
+        expected[1, TRIAD_TYPE_NAMES.index("012")] = 1.0
         np.testing.assert_array_equal(triad_observer.steps, np.array([0, 1]))
-        self.assertEqual(triad_observer.dimension_names[1], "012")
-        np.testing.assert_allclose(triad_observer.triad_counts, expected)
+        self.assertEqual(triad_observer.dimension_names, TRIAD_TYPE_NAMES)
+        np.testing.assert_allclose(triad_observer.triad_proportions, expected)
 
-    def test_triad_census_observer_detects_mutual_dyad(self) -> None:
+    def test_triad_census_observer_ignores_types_outside_configured_subset(self) -> None:
         triad_observer = TriadCensusObserver(
             observation_frequency=1,
             aggregations=(),
@@ -514,11 +511,12 @@ class ObserverTest(unittest.TestCase):
 
         simulator.run(n_episodes=1)
 
-        expected = np.zeros((1, 16), dtype=np.float32)
-        expected[0, 2] = 1.0
-        np.testing.assert_allclose(triad_observer.triad_counts, expected)
+        np.testing.assert_allclose(
+            triad_observer.triad_proportions,
+            np.zeros((1, len(TRIAD_TYPE_NAMES)), dtype=np.float32),
+        )
 
-    def test_triad_census_observer_reports_raw_counts(self) -> None:
+    def test_triad_census_observer_reports_selected_type_proportions(self) -> None:
         triad_observer = TriadCensusObserver(
             observation_frequency=1,
             aggregations=(),
@@ -535,9 +533,9 @@ class ObserverTest(unittest.TestCase):
 
         simulator.run(n_episodes=1)
 
-        expected = np.zeros((1, 16), dtype=np.float32)
-        expected[0, 0] = 4.0
-        np.testing.assert_allclose(triad_observer.triad_counts, expected)
+        expected = np.zeros((1, len(TRIAD_TYPE_NAMES)), dtype=np.float32)
+        expected[0, TRIAD_TYPE_NAMES.index("003")] = 1.0
+        np.testing.assert_allclose(triad_observer.triad_proportions, expected)
 
     def test_triad_census_observer_aggregates_vector_outputs(self) -> None:
         triad_observer = TriadCensusObserver(
@@ -566,18 +564,18 @@ class ObserverTest(unittest.TestCase):
         simulator.run(n_episodes=2)
 
         result = triad_observer.get()
-        expected = np.zeros((2, 16), dtype=np.float32)
-        expected[0, 0] = 1.0
-        expected[1, 1] = 1.0
+        expected = np.zeros((2, len(TRIAD_TYPE_NAMES)), dtype=np.float32)
+        expected[0, TRIAD_TYPE_NAMES.index("003")] = 1.0
+        expected[1, TRIAD_TYPE_NAMES.index("012")] = 1.0
 
         self.assertEqual(result.n_episodes, 2)
-        self.assertEqual(result.sample_shape, (16,))
+        self.assertEqual(result.sample_shape, (len(TRIAD_TYPE_NAMES),))
         self.assertEqual(result.dimension_names, triad_observer.triad_type_names)
         np.testing.assert_array_equal(result.steps, np.array([0, 1]))
         np.testing.assert_allclose(result.outputs["mean"], expected)
         np.testing.assert_allclose(
             result.outputs["std"],
-            np.zeros((2, 16), dtype=np.float32),
+            np.zeros((2, len(TRIAD_TYPE_NAMES)), dtype=np.float32),
         )
         runs = result.outputs["runs"]
         self.assertEqual(len(runs), 2)

@@ -7,9 +7,11 @@ import unittest
 from contextlib import redirect_stdout
 
 import numpy as np
+from numpy.typing import NDArray
 
 from network_creation.core.agent import Agent
 from network_creation.core.environment import Environment
+from network_creation.core.observability import EpisodeStartEvent, StepEvent
 from network_creation.core.model import Action, ActionSpace, ActionType, Observation, SchedulingMode
 from network_creation.core.simulator import Simulator
 from network_creation.observers.action_count_observer import (
@@ -29,6 +31,13 @@ from network_creation.observers.hub_persistence_observer import (
 )
 from network_creation.observers.indegree_observer import IndegreeObserver
 from network_creation.observers.state_history_observer import StateHistoryObserver
+from network_creation.observers.statistics.episode_series import (
+    EpisodeSeriesStatisticObserver,
+)
+from network_creation.observers.statistics.episode_tensor_series import (
+    EpisodeSeriesTensorStatisticObserver,
+)
+from network_creation.observers.triad_census_observer import TriadCensusObserver
 from network_creation.policies.base import Policy
 
 
@@ -87,6 +96,97 @@ class EpisodeCallPolicy(Policy):
         action_idx = min(self._call_index, len(current_episode_actions) - 1)
         self._call_index += 1
         return list(current_episode_actions[action_idx])
+
+
+class TensorMatrixObserver(EpisodeSeriesTensorStatisticObserver):
+    label = "Tensor Matrix"
+    x_label = "step"
+    y_label = "matrix value"
+    y_min = None
+    y_max = None
+    dimension_names = ("a", "b", "c", "d")
+
+    @property
+    def matrix_values(self) -> NDArray[np.float32]:
+        return self.values
+
+    def compute_initial_value(self, event: EpisodeStartEvent) -> NDArray[np.float32]:
+        del event
+        return np.array([[0.0, 1.0], [2.0, 3.0]], dtype=np.float32)
+
+    def compute_step_value(self, event: StepEvent) -> NDArray[np.float32]:
+        base = 10.0 * (event.step + 1)
+        return np.array(
+            [[base, base + 1.0], [base + 2.0, base + 3.0]],
+            dtype=np.float32,
+        )
+
+
+class ShapeMismatchObserver(EpisodeSeriesStatisticObserver):
+    label = "Shape Mismatch"
+    x_label = "step"
+    y_label = "value"
+    y_min = None
+    y_max = None
+
+    def compute_initial_value(self, event: EpisodeStartEvent) -> float:
+        del event
+        return 0.0
+
+    def compute_step_value(self, event: StepEvent) -> float:
+        del event
+        return 1.0
+
+
+class TensorShapeMismatchObserver(EpisodeSeriesTensorStatisticObserver):
+    label = "Shape Mismatch"
+    x_label = "step"
+    y_label = "value"
+    y_min = None
+    y_max = None
+    dimension_names = ("a", "b")
+
+    def compute_initial_value(self, event: EpisodeStartEvent) -> NDArray[np.float32]:
+        del event
+        return np.array([0.0, 1.0], dtype=np.float32)
+
+    def compute_step_value(self, event: StepEvent) -> NDArray[np.float32]:
+        del event
+        return np.array([0.0, 1.0, 2.0], dtype=np.float32)
+
+
+class TensorScalarValueObserver(EpisodeSeriesTensorStatisticObserver):
+    label = "Scalar Tensor"
+    x_label = "step"
+    y_label = "value"
+    y_min = None
+    y_max = None
+    dimension_names = ("a",)
+
+    def compute_initial_value(self, event: EpisodeStartEvent) -> NDArray[np.float32]:
+        del event
+        return np.array(1.0, dtype=np.float32)
+
+    def compute_step_value(self, event: StepEvent) -> NDArray[np.float32]:
+        del event
+        return np.array(1.0, dtype=np.float32)
+
+
+class TensorWrongDimensionNamesObserver(EpisodeSeriesTensorStatisticObserver):
+    label = "Wrong Names"
+    x_label = "step"
+    y_label = "value"
+    y_min = None
+    y_max = None
+    dimension_names = ("a",)
+
+    def compute_initial_value(self, event: EpisodeStartEvent) -> NDArray[np.float32]:
+        del event
+        return np.array([0.0, 1.0], dtype=np.float32)
+
+    def compute_step_value(self, event: StepEvent) -> NDArray[np.float32]:
+        del event
+        return np.array([0.0, 1.0], dtype=np.float32)
 
 
 class ObserverTest(unittest.TestCase):
@@ -150,6 +250,150 @@ class ObserverTest(unittest.TestCase):
             np.array([0.0, 1.0, 1.0], dtype=np.float32),
         )
 
+    def test_tensor_series_observer_tracks_matrix_values(self) -> None:
+        tensor_observer = TensorMatrixObserver(
+            observation_frequency=1,
+            aggregations=(),
+        )
+        env = Environment(np.zeros((2, 2), dtype=np.int8), seed=13)
+        simulator = Simulator(
+            env=env,
+            agents=(
+                Agent(
+                    id=0,
+                    radius=0,
+                    policy=ConstantPolicy(Action(ActionType.PASS, source=0)),
+                    seed=17,
+                ),
+            ),
+            mode=SchedulingMode.SEQUENTIAL,
+            max_steps=2,
+            rng=np.random.default_rng(23),
+            observers=(tensor_observer,),
+        )
+
+        simulator.run(n_episodes=1)
+
+        np.testing.assert_array_equal(tensor_observer.steps, np.array([0, 1, 2]))
+        self.assertEqual(tensor_observer.sample_shape, (2, 2))
+        self.assertEqual(tensor_observer.dimension_names, ("a", "b", "c", "d"))
+        np.testing.assert_allclose(
+            tensor_observer.matrix_values,
+            np.array(
+                [
+                    [[0.0, 1.0], [2.0, 3.0]],
+                    [[10.0, 11.0], [12.0, 13.0]],
+                    [[20.0, 21.0], [22.0, 23.0]],
+                ],
+                dtype=np.float32,
+            ),
+        )
+
+        result = tensor_observer.get()
+        self.assertEqual(result.sample_shape, (2, 2))
+        self.assertEqual(result.dimension_names, ("a", "b", "c", "d"))
+        self.assertEqual(result.outputs, {})
+
+    def test_scalar_series_observer_still_tracks_scalar_values(self) -> None:
+        scalar_observer = ShapeMismatchObserver(
+            observation_frequency=1,
+            aggregations=(),
+        )
+        env = Environment(np.zeros((1, 1), dtype=np.int8), seed=13)
+        simulator = Simulator(
+            env=env,
+            agents=(
+                Agent(
+                    id=0,
+                    radius=0,
+                    policy=ConstantPolicy(Action(ActionType.PASS, source=0)),
+                    seed=17,
+                ),
+            ),
+            mode=SchedulingMode.SEQUENTIAL,
+            max_steps=1,
+            rng=np.random.default_rng(19),
+            observers=(scalar_observer,),
+        )
+
+        simulator.run(n_episodes=1)
+
+        np.testing.assert_array_equal(scalar_observer.steps, np.array([0, 1]))
+        np.testing.assert_allclose(
+            scalar_observer.values,
+            np.array([0.0, 1.0], dtype=np.float32),
+        )
+
+    def test_tensor_series_observer_rejects_mismatched_step_shape(self) -> None:
+        mismatch_observer = TensorShapeMismatchObserver(
+            observation_frequency=1,
+            aggregations=(),
+        )
+        env = Environment(np.zeros((1, 1), dtype=np.int8), seed=13)
+        simulator = Simulator(
+            env=env,
+            agents=(
+                Agent(
+                    id=0,
+                    radius=0,
+                    policy=ConstantPolicy(Action(ActionType.PASS, source=0)),
+                    seed=17,
+                ),
+            ),
+            mode=SchedulingMode.SEQUENTIAL,
+            max_steps=1,
+            rng=np.random.default_rng(19),
+            observers=(mismatch_observer,),
+        )
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "all sampled tensor values must share the same shape",
+        ):
+            simulator.run(n_episodes=1)
+
+    def test_tensor_series_observer_rejects_scalar_values(self) -> None:
+        scalar_value_observer = TensorScalarValueObserver(
+            observation_frequency=1,
+            aggregations=(),
+        )
+        env = Environment(np.zeros((1, 1), dtype=np.int8), seed=13)
+        simulator = Simulator(
+            env=env,
+            agents=(),
+            mode=SchedulingMode.SEQUENTIAL,
+            max_steps=0,
+            rng=np.random.default_rng(19),
+            observers=(scalar_value_observer,),
+        )
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "require non-scalar",
+        ):
+            simulator.run(n_episodes=1)
+
+    def test_tensor_series_observer_rejects_wrong_dimension_name_count(self) -> None:
+        wrong_names_observer = TensorWrongDimensionNamesObserver(
+            observation_frequency=1,
+            aggregations=(),
+        )
+        env = Environment(np.zeros((1, 1), dtype=np.int8), seed=13)
+        simulator = Simulator(
+            env=env,
+            agents=(),
+            mode=SchedulingMode.SEQUENTIAL,
+            max_steps=0,
+            rng=np.random.default_rng(19),
+            observers=(wrong_names_observer,),
+        )
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "dimension_names must match",
+        ):
+            simulator.run(n_episodes=1)
+
     def test_indegree_observer_uses_directed_ownership_matrix(self) -> None:
         indegree_observer = IndegreeObserver(
             observation_frequency=1,
@@ -185,6 +429,159 @@ class ObserverTest(unittest.TestCase):
             indegree_observer.average_indegrees,
             np.array([2.0 / 3.0], dtype=np.float32),
         )
+
+    def test_triad_census_observer_uses_zero_vector_when_no_triads_exist(self) -> None:
+        triad_observer = TriadCensusObserver(
+            observation_frequency=1,
+            aggregations=(),
+        )
+        env = Environment(np.zeros((2, 2), dtype=np.int8), seed=17)
+        simulator = Simulator(
+            env=env,
+            agents=(),
+            mode=SchedulingMode.SEQUENTIAL,
+            max_steps=0,
+            rng=np.random.default_rng(19),
+            observers=(triad_observer,),
+        )
+
+        simulator.run(n_episodes=1)
+
+        np.testing.assert_array_equal(triad_observer.steps, np.array([0]))
+        self.assertEqual(triad_observer.sample_shape, (16,))
+        np.testing.assert_allclose(
+            triad_observer.triad_counts,
+            np.zeros((1, 16), dtype=np.float32),
+        )
+
+    def test_triad_census_observer_tracks_count_series(self) -> None:
+        triad_observer = TriadCensusObserver(
+            observation_frequency=1,
+            aggregations=(),
+        )
+        env = Environment(np.zeros((3, 3), dtype=np.int8), seed=17)
+        simulator = Simulator(
+            env=env,
+            agents=(
+                Agent(
+                    id=0,
+                    radius=0,
+                    policy=ConstantPolicy(
+                        Action(ActionType.BRIDGE, source=0, target=1)
+                    ),
+                    seed=19,
+                ),
+            ),
+            mode=SchedulingMode.SEQUENTIAL,
+            max_steps=1,
+            rng=np.random.default_rng(23),
+            observers=(triad_observer,),
+        )
+
+        simulator.run(n_episodes=1)
+
+        expected = np.zeros((2, 16), dtype=np.float32)
+        expected[0, 0] = 1.0
+        expected[1, 1] = 1.0
+        np.testing.assert_array_equal(triad_observer.steps, np.array([0, 1]))
+        self.assertEqual(triad_observer.dimension_names[1], "012")
+        np.testing.assert_allclose(triad_observer.triad_counts, expected)
+
+    def test_triad_census_observer_detects_mutual_dyad(self) -> None:
+        triad_observer = TriadCensusObserver(
+            observation_frequency=1,
+            aggregations=(),
+        )
+        env = Environment(
+            np.array(
+                [
+                    [0, 1, 0],
+                    [1, 0, 0],
+                    [0, 0, 0],
+                ],
+                dtype=np.int8,
+            ),
+            seed=29,
+        )
+        simulator = Simulator(
+            env=env,
+            agents=(),
+            mode=SchedulingMode.SEQUENTIAL,
+            max_steps=0,
+            rng=np.random.default_rng(31),
+            observers=(triad_observer,),
+        )
+
+        simulator.run(n_episodes=1)
+
+        expected = np.zeros((1, 16), dtype=np.float32)
+        expected[0, 2] = 1.0
+        np.testing.assert_allclose(triad_observer.triad_counts, expected)
+
+    def test_triad_census_observer_reports_raw_counts(self) -> None:
+        triad_observer = TriadCensusObserver(
+            observation_frequency=1,
+            aggregations=(),
+        )
+        env = Environment(np.zeros((4, 4), dtype=np.int8), seed=31)
+        simulator = Simulator(
+            env=env,
+            agents=(),
+            mode=SchedulingMode.SEQUENTIAL,
+            max_steps=0,
+            rng=np.random.default_rng(37),
+            observers=(triad_observer,),
+        )
+
+        simulator.run(n_episodes=1)
+
+        expected = np.zeros((1, 16), dtype=np.float32)
+        expected[0, 0] = 4.0
+        np.testing.assert_allclose(triad_observer.triad_counts, expected)
+
+    def test_triad_census_observer_aggregates_vector_outputs(self) -> None:
+        triad_observer = TriadCensusObserver(
+            observation_frequency=1,
+            aggregations=("mean", "std", "runs"),
+        )
+        env = Environment(np.zeros((3, 3), dtype=np.int8), seed=37)
+        simulator = Simulator(
+            env=env,
+            agents=(
+                Agent(
+                    id=0,
+                    radius=0,
+                    policy=ConstantPolicy(
+                        Action(ActionType.BRIDGE, source=0, target=1)
+                    ),
+                    seed=41,
+                ),
+            ),
+            mode=SchedulingMode.SEQUENTIAL,
+            max_steps=1,
+            rng=np.random.default_rng(43),
+            observers=(triad_observer,),
+        )
+
+        simulator.run(n_episodes=2)
+
+        result = triad_observer.get()
+        expected = np.zeros((2, 16), dtype=np.float32)
+        expected[0, 0] = 1.0
+        expected[1, 1] = 1.0
+
+        self.assertEqual(result.n_episodes, 2)
+        self.assertEqual(result.sample_shape, (16,))
+        self.assertEqual(result.dimension_names, triad_observer.triad_type_names)
+        np.testing.assert_array_equal(result.steps, np.array([0, 1]))
+        np.testing.assert_allclose(result.outputs["mean"], expected)
+        np.testing.assert_allclose(
+            result.outputs["std"],
+            np.zeros((2, 16), dtype=np.float32),
+        )
+        runs = result.outputs["runs"]
+        self.assertEqual(len(runs), 2)
+        np.testing.assert_allclose(runs[0], expected)
 
     def test_distance_observer_uses_giant_component_and_full_graph_scale(
         self,

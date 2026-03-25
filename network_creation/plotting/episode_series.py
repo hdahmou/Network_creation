@@ -8,15 +8,19 @@ from network_creation.core.observability import StatisticResult
 from network_creation.observers.statistics.episode_series import (
     EpisodeSeriesStatisticObserver,
 )
+from network_creation.observers.statistics.episode_tensor_series import (
+    EpisodeSeriesTensorStatisticObserver,
+)
 
 _PRIMARY_COLOR = "#1f4e79"
 _BAND_COLOR = "#f6bd60"
 
 
 def plot_episode_series_observer(
-    observer: EpisodeSeriesStatisticObserver,
+    observer: EpisodeSeriesStatisticObserver | EpisodeSeriesTensorStatisticObserver,
     ax: Axes,
     *,
+    dimension_name: str | None = None,
     show_runs: bool = False,
     color: str | None = None,
     band_color: str | None = None,
@@ -27,9 +31,16 @@ def plot_episode_series_observer(
 
     if observer.n_episodes == 0:
         raise ValueError("observer has not recorded any episode yet")
+    if (
+        not isinstance(observer, EpisodeSeriesTensorStatisticObserver)
+        and dimension_name is not None
+    ):
+        raise ValueError("dimension_name is only supported for tensor-valued observers")
 
     if observer.aggregations:
         result = observer.get()
+        if isinstance(observer, EpisodeSeriesTensorStatisticObserver):
+            result = _select_tensor_result_dimension(result, dimension_name)
         _plot_aggregated_outputs(
             observer=observer,
             result=result,
@@ -41,9 +52,22 @@ def plot_episode_series_observer(
             set_title=set_title,
         )
     else:
+        if isinstance(observer, EpisodeSeriesTensorStatisticObserver):
+            if dimension_name is None:
+                raise ValueError(
+                    "dimension_name must be provided for tensor-valued observers"
+                )
+            if dimension_name not in observer.dimension_names:
+                raise ValueError(f"unknown dimension name: {dimension_name}")
+            dimension_idx = observer.dimension_names.index(dimension_name)
+            selected_values = observer.values.reshape(observer.values.shape[0], -1)[
+                :, dimension_idx
+            ]
+        else:
+            selected_values = observer.values
         ax.plot(
             observer.steps,
-            observer.values,
+            selected_values,
             linewidth=2,
             color=_PRIMARY_COLOR if color is None else color,
             label=label,
@@ -65,7 +89,7 @@ def plot_episode_series_observer(
 
 
 def _plot_aggregated_outputs(
-    observer: EpisodeSeriesStatisticObserver,
+    observer: EpisodeSeriesStatisticObserver | EpisodeSeriesTensorStatisticObserver,
     result: StatisticResult,
     ax: Axes,
     *,
@@ -98,7 +122,7 @@ def _plot_aggregated_outputs(
                 result.steps,
                 run_values,
                 color=primary_color,
-                alpha=0.2,
+                alpha=0.02,
                 linewidth=1.5,
             )
 
@@ -114,14 +138,16 @@ def _plot_aggregated_outputs(
     primary_values = result.outputs[primary_output_name]
     if isinstance(primary_values, tuple):
         raise ValueError(f"output '{primary_output_name}' must be one series")
+    selected_primary_values = primary_values
 
     if primary_output_name == "mean" and "std" in observer.aggregations:
         std_values = result.outputs["std"]
         if isinstance(std_values, tuple):
             raise ValueError("output 'std' must be one series")
+        selected_std_values = std_values
 
-        lower_band = primary_values - std_values
-        upper_band = primary_values + std_values
+        lower_band = selected_primary_values - selected_std_values
+        upper_band = selected_primary_values + selected_std_values
         if observer.y_min is not None:
             lower_band = np.maximum(lower_band, observer.y_min)
         if observer.y_max is not None:
@@ -138,15 +164,17 @@ def _plot_aggregated_outputs(
 
     ax.plot(
         result.steps,
-        primary_values,
+        selected_primary_values,
         color=primary_color,
         linewidth=2.5,
-        label=label
-        if label is not None
-        else {
-            "mean": f"mean {observer.y_label}",
-            "std": f"std {observer.y_label}",
-        }.get(primary_output_name, primary_output_name),
+        label=(
+            label
+            if label is not None
+            else {
+                "mean": f"mean {observer.y_label}",
+                "std": f"std {observer.y_label}",
+            }.get(primary_output_name, primary_output_name)
+        ),
     )
     ax.set_xlim(result.steps[0], result.steps[-1])
     if not set_title:
@@ -155,3 +183,28 @@ def _plot_aggregated_outputs(
         ax.set_title(f"{observer.label} over one episode")
         return
     ax.set_title(f"{observer.label} across multiple episodes")
+
+
+def _select_tensor_result_dimension(
+    result: StatisticResult,
+    dimension_name: str | None,
+) -> StatisticResult:
+    dimension_idx = result.dimension_names.index(dimension_name)
+
+    def select(values: np.ndarray) -> np.ndarray:
+        return values.reshape(values.shape[0], -1)[:, dimension_idx]
+
+    return StatisticResult(
+        steps=result.steps,
+        n_episodes=result.n_episodes,
+        outputs={
+            output_name: (
+                tuple(select(run_values) for run_values in output_values)
+                if isinstance(output_values, tuple)
+                else select(output_values)
+            )
+            for output_name, output_values in result.outputs.items()
+        },
+        sample_shape=(),
+        dimension_names=None,
+    )

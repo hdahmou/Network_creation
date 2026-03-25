@@ -11,6 +11,7 @@ from .global_closeness_centrality_observer import (
 from .hub_persistence_observer import HubPersistenceObserver
 from .indegree_observer import IndegreeObserver
 from .state_history_observer import StateHistoryObserver
+from .triad_census_observer import TriadCensusObserver
 
 __all__ = [
     "ActionCountObserver",
@@ -22,4 +23,5 @@ __all__ = [
     "HubPersistenceObserver",
     "IndegreeObserver",
     "StateHistoryObserver",
+    "TriadCensusObserver",
 ]

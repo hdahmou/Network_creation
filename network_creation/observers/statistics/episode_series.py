@@ -17,7 +17,7 @@ from .episode import EpisodeStatisticObserver
 
 
 class EpisodeSeriesStatisticObserver(EpisodeStatisticObserver):
-    """Observer skeleton for episode statistics that produce one sampled series."""
+    """Observer skeleton for episode statistics that produce one scalar series."""
 
     label: str
     x_label: str

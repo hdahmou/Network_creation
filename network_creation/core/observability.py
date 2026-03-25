@@ -81,6 +81,8 @@ class StatisticResult:
     steps: NDArray[np.int_] | None
     n_episodes: int
     outputs: dict[str, NDArray[np.float32] | tuple[NDArray[np.float32], ...]]
+    sample_shape: tuple[int, ...] = ()
+    dimension_names: tuple[str, ...] | None = None
 
 
 class SimulationObserver(Protocol):

@@ -15,6 +15,10 @@ from network_creation.core.environment import Environment
 from network_creation.core.model import Action, ActionSpace, ActionType, Observation, SchedulingMode
 from network_creation.core.simulator import Simulator
 from network_creation.observers.density_observer import DensityObserver
+from network_creation.observers.statistics.episode_tensor_series import (
+    EpisodeSeriesTensorStatisticObserver,
+)
+from network_creation.observers.triad_census_observer import TriadCensusObserver
 from network_creation.plotting.episode_series import plot_episode_series_observer
 from network_creation.policies.base import Policy
 from network_creation.policies.random import RandomPolicy
@@ -35,6 +39,26 @@ class ConstantPolicy(Policy):
         del observation
         del action_space
         return [self.action]
+
+
+class MatrixObserver(EpisodeSeriesTensorStatisticObserver):
+    label = "Matrix Statistic"
+    x_label = "step"
+    y_label = "matrix value"
+    y_min = None
+    y_max = None
+    dimension_names = ("a", "b", "c", "d")
+
+    def compute_initial_value(self, event) -> np.ndarray:
+        del event
+        return np.array([[0.0, 1.0], [2.0, 3.0]], dtype=np.float32)
+
+    def compute_step_value(self, event) -> np.ndarray:
+        base = 10.0 * (event.step + 1)
+        return np.array(
+            [[base, base + 1.0], [base + 2.0, base + 3.0]],
+            dtype=np.float32,
+        )
 
 
 class PlotEpisodeSeriesObserverTest(unittest.TestCase):
@@ -242,6 +266,169 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
         self.assertEqual(axis.lines[0].get_label(), "group size 10")
         self.assertEqual(axis.lines[0].get_color(), "#123456")
         self.assertEqual(len(axis.collections), 1)
+        plt.close(figure)
+
+    def test_scalar_plot_rejects_dimension_argument(self) -> None:
+        observer = DensityObserver(
+            observation_frequency=1,
+            aggregations=(),
+        )
+        simulator = Simulator(
+            env=Environment(np.zeros((2, 2), dtype=np.int8), seed=97),
+            agents=(),
+            mode=SchedulingMode.SEQUENTIAL,
+            max_steps=0,
+            rng=np.random.default_rng(101),
+            observers=(observer,),
+        )
+
+        simulator.run(n_episodes=1)
+
+        figure, axis = plt.subplots()
+        with self.assertRaisesRegex(
+            ValueError,
+            "dimension_name is only supported",
+        ):
+            plot_episode_series_observer(
+                observer=observer,
+                ax=axis,
+                dimension_name="density",
+            )
+
+        plt.close(figure)
+
+    def test_tensor_plot_raises_without_dimension(self) -> None:
+        observer = TriadCensusObserver(
+            observation_frequency=1,
+            aggregations=(),
+        )
+        simulator = Simulator(
+            env=Environment(np.zeros((3, 3), dtype=np.int8), seed=97),
+            agents=(),
+            mode=SchedulingMode.SEQUENTIAL,
+            max_steps=0,
+            rng=np.random.default_rng(101),
+            observers=(observer,),
+        )
+
+        simulator.run(n_episodes=1)
+
+        figure, axis = plt.subplots()
+        with self.assertRaisesRegex(
+            ValueError,
+            "dimension_name must be provided",
+        ):
+            plot_episode_series_observer(observer=observer, ax=axis)
+
+        plt.close(figure)
+
+    def test_tensor_plot_selects_dimension_by_name(self) -> None:
+        observer = MatrixObserver(
+            observation_frequency=1,
+            aggregations=(),
+        )
+        simulator = Simulator(
+            env=Environment(np.zeros((2, 2), dtype=np.int8), seed=103),
+            agents=(
+                Agent(
+                    id=0,
+                    radius=0,
+                    policy=ConstantPolicy(Action(ActionType.PASS, source=0)),
+                    seed=107,
+                ),
+            ),
+            mode=SchedulingMode.SEQUENTIAL,
+            max_steps=1,
+            rng=np.random.default_rng(109),
+            observers=(observer,),
+        )
+
+        simulator.run(n_episodes=1)
+
+        figure, axis = plt.subplots()
+        returned_axis = plot_episode_series_observer(
+            observer=observer,
+            ax=axis,
+            dimension_name="c",
+        )
+
+        self.assertIs(returned_axis, axis)
+        self.assertEqual(axis.get_title(), "Matrix Statistic over one episode")
+        np.testing.assert_allclose(axis.lines[0].get_ydata(), np.array([2.0, 12.0]))
+        plt.close(figure)
+
+    def test_tensor_plot_selects_aggregated_dimension_by_name(self) -> None:
+        observer = MatrixObserver(
+            observation_frequency=1,
+            aggregations=("mean", "std", "runs"),
+        )
+        simulator = Simulator(
+            env=Environment(np.zeros((2, 2), dtype=np.int8), seed=113),
+            agents=(
+                Agent(
+                    id=0,
+                    radius=0,
+                    policy=ConstantPolicy(Action(ActionType.PASS, source=0)),
+                    seed=127,
+                ),
+            ),
+            mode=SchedulingMode.SEQUENTIAL,
+            max_steps=1,
+            rng=np.random.default_rng(131),
+            observers=(observer,),
+        )
+
+        simulator.run(n_episodes=2)
+
+        figure, axis = plt.subplots()
+        returned_axis = plot_episode_series_observer(
+            observer=observer,
+            ax=axis,
+            dimension_name="c",
+            show_runs=True,
+        )
+
+        self.assertIs(returned_axis, axis)
+        self.assertEqual(axis.get_title(), "Matrix Statistic across multiple episodes")
+        self.assertEqual(len(axis.lines), 3)
+        self.assertEqual(len(axis.collections), 1)
+        np.testing.assert_allclose(axis.lines[-1].get_ydata(), np.array([2.0, 12.0]))
+        plt.close(figure)
+
+    def test_tensor_plot_rejects_unknown_dimension_name(self) -> None:
+        observer = MatrixObserver(
+            observation_frequency=1,
+            aggregations=(),
+        )
+        simulator = Simulator(
+            env=Environment(np.zeros((2, 2), dtype=np.int8), seed=137),
+            agents=(
+                Agent(
+                    id=0,
+                    radius=0,
+                    policy=ConstantPolicy(Action(ActionType.PASS, source=0)),
+                    seed=139,
+                ),
+            ),
+            mode=SchedulingMode.SEQUENTIAL,
+            max_steps=1,
+            rng=np.random.default_rng(149),
+            observers=(observer,),
+        )
+
+        simulator.run(n_episodes=1)
+
+        figure, axis = plt.subplots()
+        with self.assertRaisesRegex(
+            ValueError,
+            "unknown dimension name",
+        ):
+            plot_episode_series_observer(
+                observer=observer,
+                ax=axis,
+                dimension_name="missing",
+            )
+
         plt.close(figure)
 
 

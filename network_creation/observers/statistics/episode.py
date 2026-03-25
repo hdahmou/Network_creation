@@ -65,6 +65,8 @@ class EpisodeStatisticObserver(SimulationObserver, ABC):
             steps=self._get_result_steps(),
             n_episodes=self.n_episodes,
             outputs=outputs,
+            sample_shape=self._get_result_sample_shape(),
+            dimension_names=self._get_result_dimension_names(),
         )
 
     def _export_outputs(self) -> AggregationOutputs:
@@ -86,6 +88,14 @@ class EpisodeStatisticObserver(SimulationObserver, ABC):
 
     def _get_result_steps(self) -> NDArray[np.int_] | None:
         """Return the x-axis values for exported results, if any."""
+        return None
+
+    def _get_result_sample_shape(self) -> tuple[int, ...]:
+        """Return the per-sample tensor shape for exported results."""
+        return ()
+
+    def _get_result_dimension_names(self) -> tuple[str, ...] | None:
+        """Return flattened scalar labels for exported results, if any."""
         return None
 
     @abstractmethod

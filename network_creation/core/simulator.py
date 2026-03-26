@@ -49,7 +49,7 @@ class Simulator:
         for agent in self.agents:
             agent.reset(seed=agent.seed)
 
-    def get_acting_agents(self, *, step: int) -> Sequence[Agent]:
+    def get_acting_agents(self, step: int) -> Sequence[Agent]:
         if self.n_agents == 0:
             return ()
         if self.mode is SchedulingMode.SEQUENTIAL:

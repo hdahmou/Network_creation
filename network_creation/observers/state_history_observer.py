@@ -31,7 +31,7 @@ class StateHistoryResult:
 class StateHistoryObserver(SimulationObserver):
     """Accumulate sampled ownership history and optionally keep every episode."""
 
-    def __init__(self, observation_frequency: int, *, keep_runs: bool) -> None:
+    def __init__(self, observation_frequency: int, keep_runs: bool) -> None:
         self.observation_frequency = observation_frequency
         self.keep_runs = keep_runs
         self.reset()

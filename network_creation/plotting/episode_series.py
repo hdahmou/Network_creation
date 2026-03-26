@@ -19,7 +19,6 @@ _BAND_COLOR = "#f6bd60"
 def plot_episode_series_observer(
     observer: EpisodeSeriesStatisticObserver | EpisodeSeriesTensorStatisticObserver,
     ax: Axes,
-    *,
     dimension_name: str | None = None,
     show_runs: bool = False,
     color: str | None = None,
@@ -92,7 +91,6 @@ def _plot_aggregated_outputs(
     observer: EpisodeSeriesStatisticObserver | EpisodeSeriesTensorStatisticObserver,
     result: StatisticResult,
     ax: Axes,
-    *,
     show_runs: bool,
     color: str | None,
     band_color: str | None,

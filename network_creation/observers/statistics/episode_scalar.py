@@ -17,7 +17,6 @@ class EpisodeScalarStatisticObserver(EpisodeStatisticObserver):
 
     def __init__(
         self,
-        *,
         aggregations: tuple[str, ...],
     ) -> None:
         super().__init__(observation_frequency=1, aggregations=aggregations)

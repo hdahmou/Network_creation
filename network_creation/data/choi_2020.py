@@ -293,7 +293,6 @@ def _build_actions_by_step(
 
 
 def _pad_tail_pass_actions(
-    *,
     trajectories: dict[int, ReplayTrajectory],
     raw_max_step: int,
     max_step: int,

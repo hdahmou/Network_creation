@@ -6,10 +6,7 @@ import igraph as ig
 import numpy as np
 from numpy.typing import NDArray
 
-from network_creation.core.observability import (
-    EpisodeStartEvent,
-    StepEvent,
-)
+from network_creation.core.observability import EpisodeStartEvent, StepEvent
 from network_creation.observers.statistics.episode_series import (
     EpisodeSeriesStatisticObserver,
 )
@@ -17,13 +14,14 @@ from network_creation.observers.statistics.episode_series import (
 
 def _compute_social_welfare(
     graph: ig.Graph,
-    ownership_matrix: NDArray[np.int8],
     link_cost: float,
     decay: float,
     per_link_benefit: float,
 ) -> float:
-    n_paid_links = float(ownership_matrix.sum(axis=None))
-    benefit = per_link_benefit * float(np.power(decay, graph.distances()).sum())
+    n_paid_links = float(graph.ecount())
+    benefit = per_link_benefit * float(
+        np.power(decay, graph.distances(mode="all")).sum()
+    )
     cost = link_cost * n_paid_links
     return benefit - cost
 
@@ -48,7 +46,7 @@ class SocialWelfareObserver(EpisodeSeriesStatisticObserver):
     where :math:`b` is ``per_link_benefit``, :math:`c` is ``link_cost``,
     :math:`\delta` is ``decay``, :math:`d(i, j)` is the undirected geodesic
     distance between nodes :math:`i` and :math:`j`, and :math:`A` is the
-    ownership matrix. Self-terms are included because :math:`d(i, i) = 0`, and
+    adjacency matrix. Self-terms are included because :math:`d(i, i) = 0`, and
     disconnected pairs contribute zero because :math:`\delta^{\infty} = 0` for
     :math:`0 \leq \delta < 1`. Each directed paid link in :math:`A` contributes
     one full unit of link cost.
@@ -108,7 +106,6 @@ class SocialWelfareObserver(EpisodeSeriesStatisticObserver):
         return self._normalize_welfare(
             _compute_social_welfare(
                 event.initial_state.graph,
-                event.initial_state.ownership_matrix,
                 link_cost=self.link_cost,
                 decay=self.decay,
                 per_link_benefit=self.per_link_benefit,
@@ -119,7 +116,6 @@ class SocialWelfareObserver(EpisodeSeriesStatisticObserver):
         return self._normalize_welfare(
             _compute_social_welfare(
                 event.post_state.graph,
-                event.post_state.ownership_matrix,
                 link_cost=self.link_cost,
                 decay=self.decay,
                 per_link_benefit=self.per_link_benefit,

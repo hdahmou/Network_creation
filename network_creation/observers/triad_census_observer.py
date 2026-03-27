@@ -25,11 +25,13 @@ TRIAD_TYPE_NAMES = (
 
 
 def _compute_triad_proportions(
-    ownership_matrix: NDArray[np.int8],
+    graph: ig.Graph,
 ) -> NDArray[np.float32]:
-    directed_graph = ig.Graph.Adjacency(ownership_matrix.tolist(), mode="directed")
-    triad_census = directed_graph.triad_census()
-    total_possible_triads = comb(ownership_matrix.shape[0], 3)
+    total_possible_triads = comb(graph.vcount(), 3)
+    if total_possible_triads == 0:
+        return np.zeros(len(TRIAD_TYPE_NAMES), dtype=np.float32)
+
+    triad_census = graph.triad_census()
     return np.array(
         [
             triad_census[triad_type_name] / total_possible_triads
@@ -58,7 +60,7 @@ class TriadCensusObserver(EpisodeSeriesTensorStatisticObserver):
         return self.values
 
     def compute_initial_value(self, event: EpisodeStartEvent) -> NDArray[np.float32]:
-        return _compute_triad_proportions(event.initial_state.ownership_matrix)
+        return _compute_triad_proportions(event.initial_state.graph)
 
     def compute_step_value(self, event: StepEvent) -> NDArray[np.float32]:
-        return _compute_triad_proportions(event.post_state.ownership_matrix)
+        return _compute_triad_proportions(event.post_state.graph)

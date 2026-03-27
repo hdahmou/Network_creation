@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
+import igraph as ig
 import numpy as np
 from numpy.typing import NDArray
 
-from network_creation.core.observability import (
-    EpisodeStartEvent,
-    StepEvent,
-)
+from network_creation.core.observability import EpisodeStartEvent, StepEvent
 from network_creation.observers.statistics.episode_series import (
     EpisodeSeriesStatisticObserver,
 )
+
+
+def compute_density(graph: ig.Graph) -> float:
+    return float(graph.as_undirected(mode="collapse").density(loops=False))
 
 
 class DensityObserver(EpisodeSeriesStatisticObserver):
@@ -28,15 +30,7 @@ class DensityObserver(EpisodeSeriesStatisticObserver):
         return self.values
 
     def compute_initial_value(self, event: EpisodeStartEvent) -> float:
-        n_nodes = event.initial_state.ownership_matrix.shape[0]
-        return (
-            0.0
-            if n_nodes < 2
-            else float(event.initial_state.graph.density(loops=False))
-        )
+        return compute_density(event.initial_state.graph)
 
     def compute_step_value(self, event: StepEvent) -> float:
-        n_nodes = event.post_state.ownership_matrix.shape[0]
-        return (
-            0.0 if n_nodes < 2 else float(event.post_state.graph.density(loops=False))
-        )
+        return compute_density(event.post_state.graph)

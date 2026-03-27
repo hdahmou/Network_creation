@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-import numpy as np
 from collections.abc import Sequence
+
+import numpy as np
 
 from .agent import Agent
 from .environment import Environment
 from .graph import get_action_space
-from .model import SchedulingMode
+from .model import ActionType, SchedulingMode
 from .observability import (
     EpisodeEndEvent,
     EpisodeStartEvent,
@@ -105,10 +106,7 @@ class Simulator:
             self.env.step(actions)
             post_state = StateSnapshot.from_state(self.env.state)
 
-            modified = not np.array_equal(
-                pre_state.ownership_matrix,
-                post_state.ownership_matrix,
-            )
+            modified = any(action.type is not ActionType.PASS for action in actions)
             if modified:
                 last_modified_step = current_step
                 stagnation_steps = 0

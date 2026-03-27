@@ -1,5 +1,3 @@
-This diagram shows the public API and stable extension points. Internal underscore-prefixed methods and internal stats-aggregation plumbing are intentionally omitted.
-
 ```mermaid
 classDiagram
 
@@ -15,14 +13,12 @@ namespace Core {
 
     class EnvironmentState {
         +graph: Graph
-        +ownershipMatrix: NDArray
     }
 
     class Observation {
         +nodeId: int
         +graph: Graph
         +outsideNodeIds: NDArray
-        +paidNodeIds: NDArray
     }
 
     class ActionSpace {
@@ -98,7 +94,6 @@ namespace Policies {
 
 namespace Observability {
     class StateSnapshot {
-        +ownershipMatrix: NDArray
         +graph: Graph
         +fromState(state: EnvironmentState) StateSnapshot
     }
@@ -189,17 +184,16 @@ namespace Observers {
 
     class StateHistoryResult {
         +steps: NDArray
-        +ownershipMatrices: NDArray
+        +graphs: Tuple[Graph]
         +nEpisodes: int
         +runsSteps: Tuple[NDArray] | None
-        +runsOwnershipMatrices: Tuple[NDArray] | None
+        +runsGraphs: Tuple[Tuple[Graph]] | None
     }
 
     class StateHistoryObserver {
         +observationFrequency: int
         +keepRuns: bool
         +steps: NDArray
-        +ownershipMatrices: NDArray
         +graphs: List[Graph]
         +reset() void
         +get() StateHistoryResult

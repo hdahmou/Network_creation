@@ -1,11 +1,14 @@
-"""Plot helpers for ownership-matrix history as directed graphs."""
+"""Plot helpers for directed graph history."""
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+from typing import Any
+
+import igraph as ig
 import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
-from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 from numpy.typing import NDArray
 
@@ -25,17 +28,19 @@ def build_circle_layout(n_nodes: int) -> dict[int, tuple[float, float]]:
     }
 
 
-def plot_ownership_history(
+def plot_graph_history(
     steps: NDArray[np.int_],
-    ownership_matrices: NDArray[np.int8],
+    graphs: Iterable[ig.Graph],
     layout: dict[int, tuple[float, float]],
     figure_title: str,
     max_cols: int,
-) -> tuple[Figure, NDArray[Axes]]:
-    """Plot one ownership graph per sampled step."""
+) -> tuple[Figure, np.ndarray[Any, Any]]:
+    """Plot one directed graph per sampled step."""
 
-    if len(steps) != len(ownership_matrices):
-        raise ValueError("steps and ownership_matrices must have the same length")
+    graph_history = list(graphs)
+
+    if len(steps) != len(graph_history):
+        raise ValueError("steps and graphs must have the same length")
 
     n_rows, n_cols = _compute_subplot_shape(
         n_plots=len(steps),
@@ -51,14 +56,9 @@ def plot_ownership_history(
     for axis in axes_grid.ravel():
         axis.axis("off")
 
-    for axis, step, ownership_matrix in zip(
-        axes_grid.ravel(),
-        steps,
-        ownership_matrices,
-        strict=False,
-    ):
+    for axis, step, graph in zip(axes_grid.ravel(), steps, graph_history, strict=False):
         nx.draw_networkx(
-            _build_ownership_graph(ownership_matrix),
+            graph.to_networkx(vertex_attr_hashable="name"),
             pos=layout,
             ax=axis,
             node_color=_NODE_COLOR,
@@ -82,13 +82,3 @@ def _compute_subplot_shape(n_plots: int, max_cols: int) -> tuple[int, int]:
     n_cols = min(max_cols, max(1, int(np.ceil(np.sqrt(n_plots)))))
     n_rows = int(np.ceil(n_plots / n_cols))
     return n_rows, n_cols
-
-
-def _build_ownership_graph(ownership_matrix: NDArray[np.int8]) -> nx.DiGraph:
-    graph = nx.DiGraph()
-    n_nodes = ownership_matrix.shape[0]
-    graph.add_nodes_from(range(n_nodes))
-    source_ids, target_ids = np.nonzero(ownership_matrix)
-    for source_id, target_id in zip(source_ids, target_ids, strict=False):
-        graph.add_edge(int(source_id), int(target_id))
-    return graph

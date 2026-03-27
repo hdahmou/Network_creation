@@ -3,38 +3,24 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from functools import cached_property
 from typing import Any, Protocol
 
 import igraph as ig
 import numpy as np
 from numpy.typing import NDArray
 
-from .graph import build_graph_from_ownership_matrix
 from .model import Action, EnvironmentState, SchedulingMode
-
-
-def _make_readonly_ownership_matrix(
-    ownership_matrix: NDArray[np.int8],
-) -> NDArray[np.int8]:
-    readonly_ownership_matrix = ownership_matrix.view()
-    readonly_ownership_matrix.setflags(write=False)
-    return readonly_ownership_matrix
 
 
 @dataclass(frozen=True)
 class StateSnapshot:
-    """Read-only ownership snapshot with lazy graph reconstruction."""
+    """Detached graph snapshot for observer events."""
 
-    ownership_matrix: NDArray[np.int8]
+    graph: ig.Graph
 
     @classmethod
     def from_state(cls, state: EnvironmentState) -> StateSnapshot:
-        return cls(_make_readonly_ownership_matrix(state.ownership_matrix))
-
-    @cached_property
-    def graph(self) -> ig.Graph:
-        return build_graph_from_ownership_matrix(self.ownership_matrix)
+        return cls(graph=state.graph.copy())
 
 
 @dataclass(frozen=True)

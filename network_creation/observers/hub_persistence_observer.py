@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import numpy as np
 import igraph as ig
+import numpy as np
 from numpy.typing import NDArray
 
 from network_creation.core.observability import (
@@ -19,10 +19,10 @@ from network_creation.observers.statistics.episode_series import (
 def _get_hub_node_ids(graph: ig.Graph) -> set[int]:
     """Return all tied hub node ids for one graph state."""
 
-    if graph.vcount() == 0:
-        return set()
-
-    degrees = graph.degree(loops=False)
+    degrees = [
+        len(set(graph.neighbors(node_id, mode="all")))
+        for node_id in range(graph.vcount())
+    ]
     max_degree = max(degrees)
     return {node_id for node_id, degree in enumerate(degrees) if degree == max_degree}
 

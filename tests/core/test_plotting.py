@@ -12,6 +12,7 @@ import numpy as np
 
 from network_creation.core.agent import Agent
 from network_creation.core.environment import Environment
+from network_creation.core.graph import create_empty_graph
 from network_creation.core.model import Action, ActionSpace, ActionType, Observation, SchedulingMode
 from network_creation.core.simulator import Simulator
 from network_creation.observers.density_observer import DensityObserver
@@ -80,17 +81,17 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
             aggregations=(),
         )
         simulator = Simulator(
-            env=Environment(np.zeros((2, 2), dtype=np.int8), seed=3),
+            env=Environment(create_empty_graph(2), seed=3),
             agents=(
                 Agent(
                     id=0,
-                    radius=0,
+                    radius=1,
                     policy=ConstantPolicy(Action(ActionType.BRIDGE, source=0, target=1)),
                     seed=5,
                 ),
                 Agent(
                     id=1,
-                    radius=0,
+                    radius=1,
                     policy=ConstantPolicy(Action(ActionType.PASS, source=1)),
                     seed=7,
                 ),
@@ -121,7 +122,7 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
             aggregations=("mean", "std", "runs"),
         )
         simulator = Simulator(
-            env=Environment(np.zeros((4, 4), dtype=np.int8), seed=13),
+            env=Environment(create_empty_graph(4), seed=13),
             agents=tuple(
                 Agent(
                     id=node_id,
@@ -154,17 +155,17 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
             aggregations=("runs",),
         )
         simulator = Simulator(
-            env=Environment(np.zeros((2, 2), dtype=np.int8), seed=31),
+            env=Environment(create_empty_graph(2), seed=31),
             agents=(
                 Agent(
                     id=0,
-                    radius=0,
+                    radius=1,
                     policy=ConstantPolicy(Action(ActionType.BRIDGE, source=0, target=1)),
                     seed=37,
                 ),
                 Agent(
                     id=1,
-                    radius=0,
+                    radius=1,
                     policy=ConstantPolicy(Action(ActionType.PASS, source=1)),
                     seed=41,
                 ),
@@ -193,7 +194,7 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
             aggregations=("mean", "std", "runs"),
         )
         simulator = Simulator(
-            env=Environment(np.zeros((4, 4), dtype=np.int8), seed=47),
+            env=Environment(create_empty_graph(4), seed=47),
             agents=tuple(
                 Agent(
                     id=node_id,
@@ -232,7 +233,7 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
             aggregations=("mean", "std"),
         )
         simulator = Simulator(
-            env=Environment(np.zeros((4, 4), dtype=np.int8), seed=71),
+            env=Environment(create_empty_graph(4), seed=71),
             agents=tuple(
                 Agent(
                     id=node_id,
@@ -274,7 +275,7 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
             aggregations=(),
         )
         simulator = Simulator(
-            env=Environment(np.zeros((2, 2), dtype=np.int8), seed=97),
+            env=Environment(create_empty_graph(2), seed=97),
             agents=(),
             mode=SchedulingMode.SEQUENTIAL,
             max_steps=0,
@@ -303,7 +304,7 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
             aggregations=(),
         )
         simulator = Simulator(
-            env=Environment(np.zeros((3, 3), dtype=np.int8), seed=97),
+            env=Environment(create_empty_graph(3), seed=97),
             agents=(),
             mode=SchedulingMode.SEQUENTIAL,
             max_steps=0,
@@ -328,11 +329,11 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
             aggregations=(),
         )
         simulator = Simulator(
-            env=Environment(np.zeros((2, 2), dtype=np.int8), seed=103),
+            env=Environment(create_empty_graph(2), seed=103),
             agents=(
                 Agent(
                     id=0,
-                    radius=0,
+                    radius=1,
                     policy=ConstantPolicy(Action(ActionType.PASS, source=0)),
                     seed=107,
                 ),
@@ -363,11 +364,11 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
             aggregations=("mean", "std", "runs"),
         )
         simulator = Simulator(
-            env=Environment(np.zeros((2, 2), dtype=np.int8), seed=113),
+            env=Environment(create_empty_graph(2), seed=113),
             agents=(
                 Agent(
                     id=0,
-                    radius=0,
+                    radius=1,
                     policy=ConstantPolicy(Action(ActionType.PASS, source=0)),
                     seed=127,
                 ),
@@ -401,11 +402,11 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
             aggregations=(),
         )
         simulator = Simulator(
-            env=Environment(np.zeros((2, 2), dtype=np.int8), seed=137),
+            env=Environment(create_empty_graph(2), seed=137),
             agents=(
                 Agent(
                     id=0,
-                    radius=0,
+                    radius=1,
                     policy=ConstantPolicy(Action(ActionType.PASS, source=0)),
                     seed=139,
                 ),

@@ -66,17 +66,15 @@ class ActionSpace:
 
 @dataclass(slots=True)
 class EnvironmentState:
-    """Structural graph plus global link ownership state."""
+    """Canonical directed graph state."""
 
     graph: ig.Graph
-    ownership_matrix: Annotated[NDArray[np.int8], "shape=(n_agents, n_agents)"]
 
 
 @dataclass(slots=True)
 class Observation:
-    """Agent-local structural view and ownership slice."""
+    """Agent-local structural view."""
 
     node_id: int
     graph: ig.Graph
     outside_node_ids: Annotated[NDArray[np.int_], "shape=(n_outside_nodes,)"]
-    paid_node_ids: Annotated[NDArray[np.int_], "shape=(n_paid_nodes,)"]

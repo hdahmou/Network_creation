@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import igraph as ig
 import numpy as np
 from numpy.typing import NDArray
 
@@ -14,12 +15,8 @@ from network_creation.observers.statistics.episode_series import (
 )
 
 
-def _compute_average_indegree(ownership_matrix: NDArray[np.int8]) -> float:
-    n_nodes = ownership_matrix.shape[0]
-    if n_nodes < 2:
-        return 0.0
-
-    indegrees = ownership_matrix.sum(axis=0, dtype=np.int_)
+def _compute_average_indegree(graph: ig.Graph) -> float:
+    indegrees = np.asarray(graph.degree(mode="in"), dtype=np.int_)
     return indegrees.mean()
 
 
@@ -37,7 +34,7 @@ class IndegreeObserver(EpisodeSeriesStatisticObserver):
         return self.values
 
     def compute_initial_value(self, event: EpisodeStartEvent) -> float:
-        return _compute_average_indegree(event.initial_state.ownership_matrix)
+        return _compute_average_indegree(event.initial_state.graph)
 
     def compute_step_value(self, event: StepEvent) -> float:
-        return _compute_average_indegree(event.post_state.ownership_matrix)
+        return _compute_average_indegree(event.post_state.graph)

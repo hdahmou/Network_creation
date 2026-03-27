@@ -15,6 +15,7 @@ from network_creation.core.observability import (
     StepEvent,
 )
 from network_creation.core.environment import Environment
+from network_creation.core.graph import create_empty_graph
 from network_creation.core.model import (
     Action,
     ActionSpace,
@@ -88,12 +89,11 @@ class ReplayTest(unittest.TestCase):
 
     @staticmethod
     def _dummy_observation() -> Observation:
-        env = Environment(np.zeros((1, 1), dtype=np.int8), seed=7)
+        env = Environment(create_empty_graph(1), seed=7)
         return Observation(
             node_id=0,
             graph=env.state.graph,
             outside_node_ids=np.array([], dtype=np.int_),
-            paid_node_ids=np.array([], dtype=np.int_),
         )
 
     @staticmethod
@@ -374,6 +374,69 @@ class ReplayTest(unittest.TestCase):
             ),
         )
 
+    def test_load_choi_2020_replay_data_preserves_duplicate_snapshots_in_one_step(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            csv_path = self._write_csv(
+                Path(tmp_dir),
+                rows=[
+                    {
+                        "id": "1",
+                        "id_subj": "1000",
+                        "time": "1",
+                        "session": "1",
+                        "id_grp": "1",
+                        "grp": "1",
+                        "round": "2",
+                        "period": "1",
+                        "effort": "NULL",
+                        "links": "[2]",
+                    },
+                    {
+                        "id": "2",
+                        "id_subj": "1000",
+                        "time": "1",
+                        "session": "1",
+                        "id_grp": "1",
+                        "grp": "1",
+                        "round": "2",
+                        "period": "1",
+                        "effort": "NULL",
+                        "links": "[]",
+                    },
+                ],
+                scenario_name="Linking_2_1",
+            )
+            config = Choi2020ReplayConfig(
+                group_size=2,
+                session_id=1,
+                group_id=1,
+                round_id=2,
+                source_path=csv_path,
+            )
+
+            replay_data = load_choi_2020_replay_data(config, max_steps=1)
+
+            self.assertEqual(
+                replay_data.trajectories[0].actions_by_step,
+                {
+                    1: (
+                        Action(ActionType.ADD, source=0, target=1),
+                        Action(ActionType.DELETE, source=0, target=1),
+                    ),
+                },
+            )
+
+            simulator = build_replay_simulator(
+                config=config,
+                observers=(),
+                max_steps=1,
+            )
+            simulator.run(n_episodes=1)
+
+        self.assertEqual(simulator.env.state.graph.get_edgelist(), [])
+
     def test_load_choi_2020_replay_data_preserves_raw_step_ids_with_empty_start(
         self,
     ) -> None:
@@ -568,17 +631,7 @@ class ReplayTest(unittest.TestCase):
         self.assertEqual(simulator.mode, SchedulingMode.SIMULTANEOUS)
         self.assertEqual(simulator.max_steps, 2)
         self.assertIsNone(simulator.stagnation_patience)
-        np.testing.assert_array_equal(
-            simulator.env.state.ownership_matrix,
-            np.array(
-                [
-                    [0, 0, 1],
-                    [1, 0, 0],
-                    [0, 0, 0],
-                ],
-                dtype=np.int8,
-            ),
-        )
+        self.assertEqual(sorted(simulator.env.state.graph.get_edgelist()), [(0, 2), (1, 0)])
 
     def test_build_replay_simulator_can_pad_tail_with_pass_actions(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -683,10 +736,7 @@ class ReplayTest(unittest.TestCase):
                 (3, (Action(ActionType.ADD, source=0, target=1),)),
             ],
         )
-        np.testing.assert_array_equal(
-            simulator.env.state.ownership_matrix,
-            np.array([[0, 1], [0, 0]], dtype=np.int8),
-        )
+        self.assertEqual(simulator.env.state.graph.get_edgelist(), [(0, 1)])
 
     def test_grouped_replay_aggregation_works_with_standard_observers(
         self,

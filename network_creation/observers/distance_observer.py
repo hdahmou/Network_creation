@@ -16,15 +16,11 @@ from network_creation.observers.statistics.episode_series import (
 
 
 def _compute_average_distance(graph: ig.Graph) -> float:
-    n_nodes = graph.vcount()
-    if n_nodes < 2:
-        return 0.0
-
-    giant_component = graph.connected_components().giant()
+    giant_component = graph.connected_components(mode="weak").giant()
     if giant_component.vcount() < 2:
         return 0.0
 
-    return giant_component.average_path_length()
+    return giant_component.average_path_length(directed=False)
 
 
 class DistanceObserver(EpisodeSeriesStatisticObserver):

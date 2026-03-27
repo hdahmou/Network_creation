@@ -6,43 +6,23 @@ from collections.abc import Sequence
 
 import igraph as ig
 import numpy as np
-from numpy.typing import NDArray
 
 from .model import Action, ActionSpace, ActionType, EnvironmentState, Observation
 
 
-def build_graph_from_ownership_matrix(ownership_matrix: NDArray[np.int8]) -> ig.Graph:
-    """Build the undirected structural graph implied by ownership data."""
-
-    graph = ig.Graph.Adjacency(ownership_matrix.tolist(), mode="max")
+def build_state_from_graph(graph: ig.Graph) -> EnvironmentState:
+    """Create a full environment state from a directed graph."""
+    graph = graph.copy()
     graph.vs["name"] = list(range(graph.vcount()))
+    return EnvironmentState(graph=graph)
+
+
+def create_empty_graph(n_agents: int) -> ig.Graph:
+    """Create the empty directed graph for a fixed node set."""
+
+    graph = ig.Graph(n=n_agents, directed=True)
+    graph.vs["name"] = list(range(n_agents))
     return graph
-
-
-def build_state_from_ownership_matrix(
-    ownership_matrix: NDArray[np.int8],
-) -> EnvironmentState:
-    """Create a full environment state from ownership data."""
-
-    return EnvironmentState(
-        graph=build_graph_from_ownership_matrix(ownership_matrix),
-        ownership_matrix=ownership_matrix,
-    )
-
-
-def create_empty_state(n_agents: int) -> EnvironmentState:
-    """Create the empty graph state for a fixed node set."""
-
-    return build_state_from_ownership_matrix(
-        np.zeros((n_agents, n_agents), dtype=np.int8)
-    )
-
-
-def get_visible_node_ids(graph: ig.Graph, node_id: int, radius: int) -> list[int]:
-    """Return the node ids visible from a node within a shortest-path radius."""
-
-    visible_node_ids = graph.neighborhood(vertices=node_id, order=radius, mode="all")
-    return sorted(int(visible_node_id) for visible_node_id in visible_node_ids)
 
 
 def build_observation_from_state(
@@ -51,72 +31,71 @@ def build_observation_from_state(
     """Build the observation seen from one node."""
 
     visible_node_ids = np.asarray(
-        get_visible_node_ids(state.graph, node_id, radius), dtype=np.int_
+        state.graph.neighborhood(vertices=node_id, order=radius, mode="all"),
+        dtype=np.int_,
     )
     visible_mask = np.zeros(state.graph.vcount(), dtype=bool)
     visible_mask[visible_node_ids] = True
 
     outside_node_ids = np.flatnonzero(~visible_mask)
-    paid_node_ids = np.flatnonzero(state.ownership_matrix[node_id])
 
     return Observation(
         node_id=node_id,
         graph=state.graph.induced_subgraph(visible_node_ids),
         outside_node_ids=outside_node_ids,
-        paid_node_ids=paid_node_ids,
     )
-
-
-def _get_neighbor_node_ids(
-    observation: Observation, visible_node_ids: np.ndarray
-) -> np.ndarray:
-    source_subgraph_idx = observation.graph.vs.find(name=observation.node_id).index
-    neighbor_subgraph_indices = np.asarray(
-        observation.graph.neighbors(source_subgraph_idx),
-        dtype=np.int_,
-    )
-    if neighbor_subgraph_indices.size == 0:
-        return np.array([], dtype=np.int_)
-    return visible_node_ids[neighbor_subgraph_indices]
-
-
-def _build_actions_for_node_ids(
-    action_type: ActionType, source_node_id: int, target_node_ids: np.ndarray
-) -> list[Action]:
-    return [
-        Action(action_type, source=source_node_id, target=int(target_node_id))
-        for target_node_id in target_node_ids
-    ]
 
 
 def get_action_space(observation: Observation) -> ActionSpace:
     """Build a structured action space from one node observation."""
 
     visible_node_ids = np.asarray(observation.graph.vs["name"], dtype=np.int_)
-    neighbor_node_ids = _get_neighbor_node_ids(observation, visible_node_ids)
-    add_node_ids = visible_node_ids[visible_node_ids != observation.node_id]
+    source_subgraph_idx = observation.graph.vs.find(name=observation.node_id).index
+    neighbor_node_ids = np.unique(
+        visible_node_ids[
+            np.asarray(
+                observation.graph.neighbors(source_subgraph_idx, mode="all"),
+                dtype=np.int_,
+            )
+        ]
+    )
+    delete_node_ids = np.unique(
+        visible_node_ids[
+            np.asarray(
+                observation.graph.neighbors(source_subgraph_idx, mode="out"),
+                dtype=np.int_,
+            )
+        ]
+    )
+    add_node_ids = np.setdiff1d(
+        visible_node_ids[visible_node_ids != observation.node_id],
+        neighbor_node_ids,
+        assume_unique=True,
+    )
+    bridge_node_ids = np.setdiff1d(
+        observation.outside_node_ids,
+        neighbor_node_ids,
+        assume_unique=True,
+    )
 
     return ActionSpace(
         actions={
-            ActionType.ADD: _build_actions_for_node_ids(
-                ActionType.ADD,
-                observation.node_id,
-                np.setdiff1d(add_node_ids, neighbor_node_ids, assume_unique=True),
-            ),
-            ActionType.BRIDGE: _build_actions_for_node_ids(
-                ActionType.BRIDGE,
-                observation.node_id,
-                np.setdiff1d(
-                    observation.outside_node_ids,
-                    neighbor_node_ids,
-                    assume_unique=True,
-                ),
-            ),
-            ActionType.DELETE: _build_actions_for_node_ids(
-                ActionType.DELETE,
-                observation.node_id,
-                observation.paid_node_ids,
-            ),
+            ActionType.ADD: [
+                Action(ActionType.ADD, source=observation.node_id, target=int(node_id))
+                for node_id in add_node_ids
+            ],
+            ActionType.BRIDGE: [
+                Action(
+                    ActionType.BRIDGE, source=observation.node_id, target=int(node_id)
+                )
+                for node_id in bridge_node_ids
+            ],
+            ActionType.DELETE: [
+                Action(
+                    ActionType.DELETE, source=observation.node_id, target=int(node_id)
+                )
+                for node_id in delete_node_ids
+            ],
             ActionType.PASS: [Action(ActionType.PASS, source=observation.node_id)],
         },
     )
@@ -127,16 +106,17 @@ def apply_actions(
 ) -> EnvironmentState:
     """Apply one step of already-validated actions."""
 
-    updated = state.ownership_matrix.copy()
-
-    for action in actions:
-        if action.type is ActionType.DELETE:
-            assert action.target is not None
-            updated[action.source, action.target] = 0
+    updated_graph = state.graph.copy()
 
     for action in actions:
         if action.type in {ActionType.ADD, ActionType.BRIDGE}:
-            assert action.target is not None
-            updated[action.source, action.target] = 1
+            updated_graph.add_edge(action.source, action.target)
 
-    return build_state_from_ownership_matrix(updated)
+    for action in actions:
+        if action.type is ActionType.DELETE:
+            edge_id = updated_graph.get_eid(
+                action.source, action.target, directed=True, error=True
+            )
+            updated_graph.delete_edges([edge_id])
+
+    return EnvironmentState(graph=updated_graph)

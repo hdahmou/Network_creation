@@ -13,6 +13,7 @@ import numpy as np
 
 from network_creation.core.agent import Agent
 from network_creation.core.environment import Environment
+from network_creation.core.graph import create_empty_graph
 from network_creation.core.model import Action, ActionType, SchedulingMode
 from network_creation.core.observability import SimulationObserver
 from network_creation.core.simulator import Simulator
@@ -204,10 +205,7 @@ def build_replay_simulator(
     """Create a simulator that replays one Choi 2020 game slice."""
 
     replay_dataset = load_choi_2020_replay_data(config, max_steps=max_steps)
-    env = Environment(
-        np.zeros((replay_dataset.n_agents, replay_dataset.n_agents), dtype=np.int8),
-        seed=0,
-    )
+    env = Environment(create_empty_graph(replay_dataset.n_agents), seed=0)
     agents = tuple(
         Agent(
             id=node_id,

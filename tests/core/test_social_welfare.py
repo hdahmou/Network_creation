@@ -9,6 +9,9 @@ import numpy as np
 
 from network_creation.core.agent import Agent
 from network_creation.core.environment import Environment
+from network_creation.core.graph import (
+    create_empty_graph,
+)
 from network_creation.core.model import (
     Action,
     ActionSpace,
@@ -22,6 +25,7 @@ from network_creation.observers.social_welfare_observer import (
     _compute_social_welfare,
 )
 from network_creation.policies.base import Policy
+from tests.graph_factories import graph_from_adjacency_matrix
 
 
 class ConstantPolicy(Policy):
@@ -45,12 +49,10 @@ class SocialWelfareTest(unittest.TestCase):
     def test_social_welfare_includes_self_terms_and_zero_for_disconnected_pairs(
         self,
     ) -> None:
-        graph = ig.Graph(n=2)
-        ownership_matrix = np.zeros((2, 2), dtype=np.int8)
+        graph = create_empty_graph(2)
 
         welfare = _compute_social_welfare(
             graph,
-            ownership_matrix,
             link_cost=3.0,
             decay=0.5,
             per_link_benefit=10.0,
@@ -58,20 +60,19 @@ class SocialWelfareTest(unittest.TestCase):
 
         self.assertEqual(welfare, 20.0)
 
-    def test_social_welfare_counts_bilateral_ownership_twice(self) -> None:
-        graph = ig.Graph(edges=[(0, 1)], directed=False)
-        graph.vs["name"] = [0, 1]
-        ownership_matrix = np.array(
-            [
-                [0, 1],
-                [1, 0],
-            ],
-            dtype=np.int8,
+    def test_social_welfare_counts_bilateral_links_twice(self) -> None:
+        graph = graph_from_adjacency_matrix(
+            np.array(
+                [
+                    [0, 1],
+                    [1, 0],
+                ],
+                dtype=np.int8,
+            )
         )
 
         welfare = _compute_social_welfare(
             graph,
-            ownership_matrix,
             link_cost=3.0,
             decay=0.5,
             per_link_benefit=10.0,
@@ -100,11 +101,11 @@ class SocialWelfareTest(unittest.TestCase):
             aggregations=(),
         )
         simulator = Simulator(
-            env=Environment(np.zeros((2, 2), dtype=np.int8), seed=3),
+            env=Environment(create_empty_graph(2), seed=3),
             agents=(
                 Agent(
                     id=0,
-                    radius=0,
+                    radius=1,
                     policy=ConstantPolicy(
                         Action(ActionType.BRIDGE, source=0, target=1)
                     ),
@@ -112,7 +113,7 @@ class SocialWelfareTest(unittest.TestCase):
                 ),
                 Agent(
                     id=1,
-                    radius=0,
+                    radius=1,
                     policy=ConstantPolicy(Action(ActionType.PASS, source=1)),
                     seed=7,
                 ),
@@ -142,11 +143,11 @@ class SocialWelfareTest(unittest.TestCase):
             aggregations=(),
         )
         simulator = Simulator(
-            env=Environment(np.zeros((2, 2), dtype=np.int8), seed=3),
+            env=Environment(create_empty_graph(2), seed=3),
             agents=(
                 Agent(
                     id=0,
-                    radius=0,
+                    radius=1,
                     policy=ConstantPolicy(
                         Action(ActionType.BRIDGE, source=0, target=1)
                     ),
@@ -154,7 +155,7 @@ class SocialWelfareTest(unittest.TestCase):
                 ),
                 Agent(
                     id=1,
-                    radius=0,
+                    radius=1,
                     policy=ConstantPolicy(Action(ActionType.PASS, source=1)),
                     seed=7,
                 ),

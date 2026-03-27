@@ -4,22 +4,23 @@ from __future__ import annotations
 
 import unittest
 
+import igraph as ig
 import numpy as np
 
 from network_creation.core.graph import (
     apply_actions,
     build_observation_from_state,
-    build_state_from_ownership_matrix,
+    build_state_from_graph,
     get_action_space,
-    get_visible_node_ids,
 )
 from network_creation.core.model import Action, ActionSpace, ActionType
+from tests.graph_factories import graph_from_adjacency_matrix
 
 
 class GraphOpsTest(unittest.TestCase):
     @staticmethod
     def _larger_state():
-        ownership = np.array(
+        adjacency = np.array(
             [
                 [0, 1, 0, 0, 0, 0],
                 [0, 0, 0, 0, 0, 0],
@@ -30,10 +31,10 @@ class GraphOpsTest(unittest.TestCase):
             ],
             dtype=np.int8,
         )
-        return build_state_from_ownership_matrix(ownership)
+        return build_state_from_graph(graph_from_adjacency_matrix(adjacency))
 
-    def test_get_visible_node_ids_uses_radius(self) -> None:
-        ownership = np.array(
+    def test_build_observation_from_state_uses_radius(self) -> None:
+        adjacency = np.array(
             [
                 [0, 1, 0, 0],
                 [0, 0, 1, 0],
@@ -42,14 +43,35 @@ class GraphOpsTest(unittest.TestCase):
             ],
             dtype=np.int8,
         )
-        state = build_state_from_ownership_matrix(ownership)
+        state = build_state_from_graph(graph_from_adjacency_matrix(adjacency))
 
-        self.assertEqual(get_visible_node_ids(state.graph, node_id=0, radius=0), [0])
-        self.assertEqual(get_visible_node_ids(state.graph, node_id=0, radius=1), [0, 1])
-        self.assertEqual(get_visible_node_ids(state.graph, node_id=0, radius=2), [0, 1, 2])
+        radius_one = build_observation_from_state(state, node_id=0, radius=1)
+        radius_two = build_observation_from_state(state, node_id=0, radius=2)
+
+        self.assertEqual(radius_one.graph.vs["name"], [0, 1])
+        np.testing.assert_array_equal(radius_one.outside_node_ids, np.array([2, 3]))
+        self.assertEqual(radius_two.graph.vs["name"], [0, 1, 2])
+        np.testing.assert_array_equal(radius_two.outside_node_ids, np.array([3]))
+
+    def test_build_state_from_graph_copies_graph_and_assigns_vertex_names(self) -> None:
+        graph = ig.Graph(n=2, edges=[(0, 1)], directed=True)
+
+        state = build_state_from_graph(graph)
+
+        self.assertIsNot(state.graph, graph)
+        self.assertNotIn("name", graph.vs.attributes())
+        self.assertEqual(state.graph.vs["name"], [0, 1])
+
+    def test_build_state_from_graph_accepts_reciprocal_arcs(self) -> None:
+        state = build_state_from_graph(
+            ig.Graph(n=2, edges=[(0, 1), (1, 0)], directed=True)
+        )
+
+        self.assertEqual(sorted(state.graph.get_edgelist()), [(0, 1), (1, 0)])
+        self.assertEqual({frozenset(edge) for edge in state.graph.get_edgelist()}, {frozenset((0, 1))})
 
     def test_observation_keeps_original_node_ids(self) -> None:
-        ownership = np.array(
+        adjacency = np.array(
             [
                 [0, 1, 0, 0],
                 [0, 0, 1, 0],
@@ -58,17 +80,16 @@ class GraphOpsTest(unittest.TestCase):
             ],
             dtype=np.int8,
         )
-        state = build_state_from_ownership_matrix(ownership)
+        state = build_state_from_graph(graph_from_adjacency_matrix(adjacency))
 
         observation = build_observation_from_state(state, node_id=0, radius=2)
 
         self.assertEqual(observation.node_id, 0)
         self.assertEqual(observation.graph.vs["name"], [0, 1, 2])
         np.testing.assert_array_equal(observation.outside_node_ids, np.array([3]))
-        np.testing.assert_array_equal(observation.paid_node_ids, np.array([1]))
 
     def test_action_space_separates_add_bridge_delete_and_pass(self) -> None:
-        ownership = np.array(
+        adjacency = np.array(
             [
                 [0, 1, 0, 0],
                 [0, 0, 1, 0],
@@ -77,7 +98,7 @@ class GraphOpsTest(unittest.TestCase):
             ],
             dtype=np.int8,
         )
-        state = build_state_from_ownership_matrix(ownership)
+        state = build_state_from_graph(graph_from_adjacency_matrix(adjacency))
         observation = build_observation_from_state(state, node_id=0, radius=2)
 
         action_space = get_action_space(observation)
@@ -104,18 +125,6 @@ class GraphOpsTest(unittest.TestCase):
         state = self._larger_state()
 
         expected_by_radius = {
-            0: {
-                ActionType.ADD: [],
-                ActionType.BRIDGE: [
-                    Action(ActionType.BRIDGE, source=1, target=0),
-                    Action(ActionType.BRIDGE, source=1, target=2),
-                    Action(ActionType.BRIDGE, source=1, target=3),
-                    Action(ActionType.BRIDGE, source=1, target=4),
-                    Action(ActionType.BRIDGE, source=1, target=5),
-                ],
-                ActionType.DELETE: [],
-                ActionType.PASS: [Action(ActionType.PASS, source=1)],
-            },
             1: {
                 ActionType.ADD: [],
                 ActionType.BRIDGE: [
@@ -190,7 +199,9 @@ class GraphOpsTest(unittest.TestCase):
         )
 
     def test_apply_actions_supports_simultaneous_pre_step_decisions(self) -> None:
-        state = build_state_from_ownership_matrix(np.zeros((2, 2), dtype=np.int8))
+        state = build_state_from_graph(
+            graph_from_adjacency_matrix(np.zeros((2, 2), dtype=np.int8))
+        )
 
         updated = apply_actions(
             state,
@@ -200,44 +211,30 @@ class GraphOpsTest(unittest.TestCase):
             ],
         )
 
-        expected = np.array(
-            [
-                [0, 1],
-                [1, 0],
-            ],
-            dtype=np.int8,
-        )
-        np.testing.assert_array_equal(updated.ownership_matrix, expected)
+        self.assertEqual(sorted(updated.graph.get_edgelist()), [(0, 1), (1, 0)])
         self.assertTrue(updated.graph.are_adjacent(0, 1))
-        self.assertEqual(updated.graph.ecount(), 1)
-
-    def test_apply_actions_applies_delete_before_add(self) -> None:
-        ownership = np.array(
-            [
-                [0, 1],
-                [0, 0],
-            ],
-            dtype=np.int8,
+        self.assertTrue(updated.graph.are_adjacent(1, 0))
+        self.assertEqual(updated.graph.ecount(), 2)
+        self.assertEqual(
+            {frozenset(edge) for edge in updated.graph.get_edgelist()},
+            {frozenset((0, 1))},
         )
-        state = build_state_from_ownership_matrix(ownership)
+
+    def test_apply_actions_applies_add_before_delete_for_same_edge(self) -> None:
+        state = build_state_from_graph(
+            graph_from_adjacency_matrix(np.zeros((2, 2), dtype=np.int8))
+        )
 
         updated = apply_actions(
             state,
             actions=[
+                Action(ActionType.ADD, source=0, target=1),
                 Action(ActionType.DELETE, source=0, target=1),
-                Action(ActionType.ADD, source=1, target=0),
             ],
         )
 
-        expected = np.array(
-            [
-                [0, 0],
-                [1, 0],
-            ],
-            dtype=np.int8,
-        )
-        np.testing.assert_array_equal(updated.ownership_matrix, expected)
-        self.assertTrue(updated.graph.are_adjacent(0, 1))
+        self.assertEqual(updated.graph.get_edgelist(), [])
+        self.assertEqual(updated.graph.ecount(), 0)
 
 
 if __name__ == "__main__":

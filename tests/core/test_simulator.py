@@ -8,10 +8,12 @@ import numpy as np
 
 from network_creation.core.agent import Agent
 from network_creation.core.environment import Environment
+from network_creation.core.graph import create_empty_graph
 from network_creation.core.model import Action, ActionSpace, ActionType, Observation, SchedulingMode
 from network_creation.core.observability import EpisodeEndEvent, EpisodeStartEvent, StepEvent
 from network_creation.core.simulator import Simulator
 from network_creation.policies.base import Policy
+from tests.graph_factories import graph_from_adjacency_matrix
 
 
 class ConstantPolicy(Policy):
@@ -137,13 +139,13 @@ class ScriptedPolicy(Policy):
 
 class SimulatorTest(unittest.TestCase):
     def test_get_acting_agents_sequential_cycles_by_sequence_order(self) -> None:
-        env = Environment(np.zeros((3, 3), dtype=np.int8), seed=3)
+        env = Environment(create_empty_graph(3), seed=3)
         simulator = Simulator(
             env=env,
             agents=(
-                Agent(id=2, radius=0, policy=ConstantPolicy(Action(ActionType.PASS, source=2)), seed=13),
-                Agent(id=0, radius=0, policy=ConstantPolicy(Action(ActionType.PASS, source=0)), seed=11),
-                Agent(id=1, radius=0, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=12),
+                Agent(id=2, radius=1, policy=ConstantPolicy(Action(ActionType.PASS, source=2)), seed=13),
+                Agent(id=0, radius=1, policy=ConstantPolicy(Action(ActionType.PASS, source=0)), seed=11),
+                Agent(id=1, radius=1, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=12),
             ),
             mode=SchedulingMode.SEQUENTIAL,
             max_steps=4,
@@ -157,12 +159,12 @@ class SimulatorTest(unittest.TestCase):
         self.assertEqual([agent.id for agent in simulator.get_acting_agents(step=3)], [2])
 
     def test_get_acting_agents_simultaneous_returns_all_agents_in_sequence_order(self) -> None:
-        env = Environment(np.zeros((2, 2), dtype=np.int8), seed=19)
+        env = Environment(create_empty_graph(2), seed=19)
         simulator = Simulator(
             env=env,
             agents=(
-                Agent(id=1, radius=0, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=23),
-                Agent(id=0, radius=0, policy=ConstantPolicy(Action(ActionType.PASS, source=0)), seed=29),
+                Agent(id=1, radius=1, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=23),
+                Agent(id=0, radius=1, policy=ConstantPolicy(Action(ActionType.PASS, source=0)), seed=29),
             ),
             mode=SchedulingMode.SIMULTANEOUS,
             max_steps=1,
@@ -173,13 +175,13 @@ class SimulatorTest(unittest.TestCase):
         self.assertEqual([agent.id for agent in simulator.get_acting_agents(step=0)], [1, 0])
 
     def test_run_sequential_tracks_final_state(self) -> None:
-        env = Environment(np.zeros((2, 2), dtype=np.int8), seed=37)
+        env = Environment(create_empty_graph(2), seed=37)
         observer = RecordingObserver()
         simulator = Simulator(
             env=env,
             agents=(
-                Agent(id=0, radius=0, policy=ConstantPolicy(Action(ActionType.BRIDGE, source=0, target=1)), seed=41),
-                Agent(id=1, radius=0, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=43),
+                Agent(id=0, radius=1, policy=ConstantPolicy(Action(ActionType.BRIDGE, source=0, target=1)), seed=41),
+                Agent(id=1, radius=1, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=43),
             ),
             mode=SchedulingMode.SEQUENTIAL,
             max_steps=2,
@@ -192,18 +194,20 @@ class SimulatorTest(unittest.TestCase):
         assert observer.episode_end_event is not None
         self.assertEqual(observer.episode_end_event.current_step, 2)
         self.assertEqual(observer.episode_end_event.last_modified_step, 0)
-        self.assertEqual(simulator.env.state.ownership_matrix[0, 1], 1)
+        self.assertEqual(simulator.env.state.graph.get_edgelist(), [(0, 1)])
         self.assertTrue(simulator.env.state.graph.are_adjacent(0, 1))
 
     def test_run_simultaneous_uses_same_pre_step_state(self) -> None:
         env = Environment(
-            np.array(
-                [
-                    [0, 1, 0],
-                    [0, 0, 0],
-                    [0, 0, 0],
-                ],
-                dtype=np.int8,
+            graph_from_adjacency_matrix(
+                np.array(
+                    [
+                        [0, 1, 0],
+                        [0, 0, 0],
+                        [0, 0, 0],
+                    ],
+                    dtype=np.int8,
+                )
             ),
             seed=53,
         )
@@ -213,7 +217,7 @@ class SimulatorTest(unittest.TestCase):
             agents=(
                 Agent(id=0, radius=2, policy=add_or_pass_policy, seed=59),
                 Agent(id=1, radius=1, policy=ConstantPolicy(Action(ActionType.BRIDGE, source=1, target=2)), seed=61),
-                Agent(id=2, radius=0, policy=ConstantPolicy(Action(ActionType.PASS, source=2)), seed=67),
+                Agent(id=2, radius=1, policy=ConstantPolicy(Action(ActionType.PASS, source=2)), seed=67),
             ),
             mode=SchedulingMode.SIMULTANEOUS,
             max_steps=1,
@@ -224,12 +228,11 @@ class SimulatorTest(unittest.TestCase):
         simulator.run(n_episodes=1)
 
         self.assertEqual(add_or_pass_policy.observed_node_names, [[0, 1]])
-        self.assertEqual(simulator.env.state.ownership_matrix[1, 2], 1)
-        self.assertEqual(simulator.env.state.ownership_matrix[0, 2], 0)
+        self.assertEqual(sorted(simulator.env.state.graph.get_edgelist()), [(0, 1), (1, 2)])
         self.assertTrue(simulator.env.state.graph.are_adjacent(1, 2))
 
     def test_run_applies_multiple_actions_from_one_agent(self) -> None:
-        env = Environment(np.zeros((3, 3), dtype=np.int8), seed=72)
+        env = Environment(create_empty_graph(3), seed=72)
         simulator = Simulator(
             env=env,
             agents=(
@@ -244,8 +247,8 @@ class SimulatorTest(unittest.TestCase):
                     ),
                     seed=73,
                 ),
-                Agent(id=1, radius=0, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=74),
-                Agent(id=2, radius=0, policy=ConstantPolicy(Action(ActionType.PASS, source=2)), seed=75),
+                Agent(id=1, radius=1, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=74),
+                Agent(id=2, radius=1, policy=ConstantPolicy(Action(ActionType.PASS, source=2)), seed=75),
             ),
             mode=SchedulingMode.SEQUENTIAL,
             max_steps=1,
@@ -255,18 +258,17 @@ class SimulatorTest(unittest.TestCase):
 
         simulator.run(n_episodes=1)
 
-        self.assertEqual(simulator.env.state.ownership_matrix[0, 1], 1)
-        self.assertEqual(simulator.env.state.ownership_matrix[0, 2], 1)
+        self.assertEqual(sorted(simulator.env.state.graph.get_edgelist()), [(0, 1), (0, 2)])
 
     def test_reset_restores_environment_agents_and_state(self) -> None:
         left_policy = ConstantPolicy(Action(ActionType.BRIDGE, source=0, target=1))
         right_policy = ConstantPolicy(Action(ActionType.PASS, source=1))
-        env = Environment(np.zeros((2, 2), dtype=np.int8), seed=73)
+        env = Environment(create_empty_graph(2), seed=73)
         simulator = Simulator(
             env=env,
             agents=(
-                Agent(id=0, radius=0, policy=left_policy, seed=79),
-                Agent(id=1, radius=0, policy=right_policy, seed=83),
+                Agent(id=0, radius=1, policy=left_policy, seed=79),
+                Agent(id=1, radius=1, policy=right_policy, seed=83),
             ),
             mode=SchedulingMode.SEQUENTIAL,
             max_steps=1,
@@ -281,21 +283,18 @@ class SimulatorTest(unittest.TestCase):
         self.assertEqual(right_policy.reset_calls, 2)
         self.assertEqual(left_policy.reset_seeds[-1], 79)
         self.assertEqual(right_policy.reset_seeds[-1], 83)
-        np.testing.assert_array_equal(
-            simulator.env.state.ownership_matrix,
-            np.zeros((2, 2), dtype=np.int8),
-        )
+        self.assertEqual(simulator.env.state.graph.ecount(), 0)
 
     def test_run_uses_distinct_policy_seeds_across_episodes_and_run_calls(self) -> None:
         left_policy = ConstantPolicy(Action(ActionType.PASS, source=0))
         right_policy = ConstantPolicy(Action(ActionType.PASS, source=1))
         observer = BatchRecordingObserver()
-        env = Environment(np.zeros((2, 2), dtype=np.int8), seed=137)
+        env = Environment(create_empty_graph(2), seed=137)
         simulator = Simulator(
             env=env,
             agents=(
-                Agent(id=0, radius=0, policy=left_policy, seed=139),
-                Agent(id=1, radius=0, policy=right_policy, seed=149),
+                Agent(id=0, radius=1, policy=left_policy, seed=139),
+                Agent(id=1, radius=1, policy=right_policy, seed=149),
             ),
             mode=SchedulingMode.SEQUENTIAL,
             max_steps=1,
@@ -323,12 +322,12 @@ class SimulatorTest(unittest.TestCase):
 
     def test_run_starts_from_a_fresh_reset_state(self) -> None:
         observer = RecordingObserver()
-        env = Environment(np.zeros((2, 2), dtype=np.int8), seed=90)
+        env = Environment(create_empty_graph(2), seed=90)
         simulator = Simulator(
             env=env,
             agents=(
-                Agent(id=0, radius=0, policy=ConstantPolicy(Action(ActionType.PASS, source=0)), seed=91),
-                Agent(id=1, radius=0, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=92),
+                Agent(id=0, radius=1, policy=ConstantPolicy(Action(ActionType.PASS, source=0)), seed=91),
+                Agent(id=1, radius=1, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=92),
             ),
             mode=SchedulingMode.SEQUENTIAL,
             max_steps=1,
@@ -340,14 +339,8 @@ class SimulatorTest(unittest.TestCase):
         simulator.run(n_episodes=1)
 
         assert observer.episode_start_event is not None
-        np.testing.assert_array_equal(
-            observer.episode_start_event.initial_state.ownership_matrix,
-            np.zeros((2, 2), dtype=np.int8),
-        )
-        np.testing.assert_array_equal(
-            simulator.env.state.ownership_matrix,
-            np.zeros((2, 2), dtype=np.int8),
-        )
+        self.assertEqual(observer.episode_start_event.initial_state.graph.ecount(), 0)
+        self.assertEqual(simulator.env.state.graph.ecount(), 0)
         end_event = observer.episode_end_event
         assert end_event is not None
         self.assertEqual(end_event.current_step, 1)
@@ -355,12 +348,12 @@ class SimulatorTest(unittest.TestCase):
 
     def test_observer_receives_episode_and_step_events(self) -> None:
         observer = RecordingObserver()
-        env = Environment(np.zeros((2, 2), dtype=np.int8), seed=97)
+        env = Environment(create_empty_graph(2), seed=97)
         simulator = Simulator(
             env=env,
             agents=(
-                Agent(id=0, radius=0, policy=ConstantPolicy(Action(ActionType.BRIDGE, source=0, target=1)), seed=101),
-                Agent(id=1, radius=0, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=103),
+                Agent(id=0, radius=1, policy=ConstantPolicy(Action(ActionType.BRIDGE, source=0, target=1)), seed=101),
+                Agent(id=1, radius=1, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=103),
             ),
             mode=SchedulingMode.SEQUENTIAL,
             max_steps=1,
@@ -380,10 +373,7 @@ class SimulatorTest(unittest.TestCase):
         self.assertEqual(start_event.seed, expected_episode_seed)
         self.assertEqual(start_event.episode_index, 0)
         self.assertEqual(start_event.n_agents, 2)
-        np.testing.assert_array_equal(
-            start_event.initial_state.ownership_matrix,
-            np.zeros((2, 2), dtype=np.int8),
-        )
+        self.assertEqual(start_event.initial_state.graph.ecount(), 0)
 
         step_event = observer.step_events[0]
         self.assertEqual(step_event.step, 0)
@@ -404,12 +394,12 @@ class SimulatorTest(unittest.TestCase):
 
     def test_observer_cannot_mutate_live_state_through_event_snapshots(self) -> None:
         observer = RecordingObserver()
-        env = Environment(np.zeros((2, 2), dtype=np.int8), seed=109)
+        env = Environment(create_empty_graph(2), seed=109)
         simulator = Simulator(
             env=env,
             agents=(
-                Agent(id=0, radius=0, policy=ConstantPolicy(Action(ActionType.BRIDGE, source=0, target=1)), seed=113),
-                Agent(id=1, radius=0, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=127),
+                Agent(id=0, radius=1, policy=ConstantPolicy(Action(ActionType.BRIDGE, source=0, target=1)), seed=113),
+                Agent(id=1, radius=1, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=127),
             ),
             mode=SchedulingMode.SEQUENTIAL,
             max_steps=1,
@@ -420,9 +410,7 @@ class SimulatorTest(unittest.TestCase):
         simulator.run(n_episodes=1)
 
         step_event = observer.step_events[0]
-
-        with self.assertRaises(ValueError):
-            step_event.post_state.ownership_matrix[0, 1] = 0
+        self.assertIsNot(step_event.post_state.graph, simulator.env.state.graph)
 
         snapshot_graph = step_event.post_state.graph
         snapshot_graph.delete_edges([(0, 1)])
@@ -430,7 +418,7 @@ class SimulatorTest(unittest.TestCase):
         self.assertTrue(simulator.env.state.graph.are_adjacent(0, 1))
 
     def test_stagnation_patience_must_be_positive_when_provided(self) -> None:
-        env = Environment(np.zeros((1, 1), dtype=np.int8), seed=173)
+        env = Environment(create_empty_graph(1), seed=173)
 
         with self.assertRaises(ValueError):
             Simulator(
@@ -438,7 +426,7 @@ class SimulatorTest(unittest.TestCase):
                 agents=(
                     Agent(
                         id=0,
-                        radius=0,
+                        radius=1,
                         policy=ConstantPolicy(Action(ActionType.PASS, source=0)),
                         seed=179,
                     ),
@@ -454,12 +442,12 @@ class SimulatorTest(unittest.TestCase):
         left_policy = ConstantPolicy(Action(ActionType.PASS, source=0))
         right_policy = ConstantPolicy(Action(ActionType.PASS, source=1))
         observer = RecordingObserver()
-        env = Environment(np.zeros((2, 2), dtype=np.int8), seed=183)
+        env = Environment(create_empty_graph(2), seed=183)
         simulator = Simulator(
             env=env,
             agents=(
-                Agent(id=0, radius=0, policy=left_policy, seed=191),
-                Agent(id=1, radius=0, policy=right_policy, seed=193),
+                Agent(id=0, radius=1, policy=left_policy, seed=191),
+                Agent(id=1, radius=1, policy=right_policy, seed=193),
             ),
             mode=SchedulingMode.SEQUENTIAL,
             max_steps=5,
@@ -489,10 +477,8 @@ class SimulatorTest(unittest.TestCase):
         self.assertTrue(all(not event.modified for event in observer.step_events))
         self.assertTrue(
             all(
-                np.array_equal(
-                    event.pre_state.ownership_matrix,
-                    event.post_state.ownership_matrix,
-                )
+                sorted(event.pre_state.graph.get_edgelist())
+                == sorted(event.post_state.graph.get_edgelist())
                 for event in observer.step_events
             )
         )
@@ -511,12 +497,12 @@ class SimulatorTest(unittest.TestCase):
         )
         right_policy = ConstantPolicy(Action(ActionType.PASS, source=1))
         observer = RecordingObserver()
-        env = Environment(np.zeros((2, 2), dtype=np.int8), seed=199)
+        env = Environment(create_empty_graph(2), seed=199)
         simulator = Simulator(
             env=env,
             agents=(
-                Agent(id=0, radius=0, policy=left_policy, seed=211),
-                Agent(id=1, radius=0, policy=right_policy, seed=223),
+                Agent(id=0, radius=1, policy=left_policy, seed=211),
+                Agent(id=1, radius=1, policy=right_policy, seed=223),
             ),
             mode=SchedulingMode.SEQUENTIAL,
             max_steps=6,

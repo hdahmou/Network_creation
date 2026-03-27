@@ -21,7 +21,7 @@ def _compute_global_closeness_centrality(graph: ig.Graph) -> float:
         return 0.0
 
     harmonic_scores = np.asarray(
-        graph.harmonic_centrality(normalized=True),
+        graph.harmonic_centrality(mode="all", normalized=True),
         dtype=np.float64,
     )
     max_score = float(harmonic_scores.max(initial=0.0))

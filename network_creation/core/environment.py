@@ -4,14 +4,13 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-import numpy as np
-from numpy.typing import NDArray
+import igraph as ig
 
 from .agent import Agent
 from .graph import (
     apply_actions,
     build_observation_from_state,
-    build_state_from_ownership_matrix,
+    build_state_from_graph,
     get_action_space,
 )
 from .model import Action, ActionSpace, EnvironmentState, Observation
@@ -20,24 +19,16 @@ from .model import Action, ActionSpace, EnvironmentState, Observation
 class Environment:
     """Thin stateful shell around the graph helpers."""
 
-    def __init__(self, ownership_matrix: NDArray[np.int8], seed: int) -> None:
+    def __init__(self, graph: ig.Graph, seed: int) -> None:
         self.seed = seed
-        self._initial_ownership_matrix = np.array(
-            ownership_matrix,
-            dtype=np.int8,
-            copy=True,
-        )
-        self.state = build_state_from_ownership_matrix(
-            self._initial_ownership_matrix.copy()
-        )
+        self._initial_graph = graph.copy()
+        self.state = build_state_from_graph(self._initial_graph)
         self.node_ids = [int(node_id) for node_id in self.state.graph.vs["name"]]
 
     def reset(self) -> EnvironmentState:
         """Restore the initial graph state."""
 
-        self.state = build_state_from_ownership_matrix(
-            self._initial_ownership_matrix.copy()
-        )
+        self.state = build_state_from_graph(self._initial_graph)
         return self.state
 
     def step(self, actions: Sequence[Action]) -> EnvironmentState:

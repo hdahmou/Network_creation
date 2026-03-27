@@ -52,6 +52,14 @@ class Action:
             raise ValueError("self-links are illegal")
 
 
+@dataclass(frozen=True, slots=True)
+class PolicyDecision:
+    """One policy-level decision for a single agent at one step."""
+
+    actions: tuple[Action, ...]
+    value: dict[str, object] | None = None
+
+
 @dataclass(slots=True)
 class ActionSpace:
     """Structured action-space representation for one agent."""

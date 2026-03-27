@@ -9,7 +9,13 @@ import numpy as np
 from network_creation.core.agent import Agent
 from network_creation.core.environment import Environment
 from network_creation.core.graph import create_empty_graph
-from network_creation.core.model import Action, ActionSpace, ActionType, Observation
+from network_creation.core.model import (
+    Action,
+    ActionSpace,
+    ActionType,
+    Observation,
+    PolicyDecision,
+)
 from network_creation.policies.base import Policy
 from network_creation.policies.random import RandomPolicy
 from tests.graph_factories import graph_from_adjacency_matrix
@@ -26,11 +32,11 @@ class StubPolicy(Policy):
         self.reset_calls += 1
         self.reset_seeds.append(seed)
 
-    def get_actions(
+    def get_decision(
         self, observation: Observation, action_space: ActionSpace
-    ) -> list[Action]:
+    ) -> PolicyDecision:
         self.calls.append((observation, action_space))
-        return [self._action]
+        return PolicyDecision(actions=(self._action,), value=None)
 
 
 class EnvironmentTest(unittest.TestCase):
@@ -122,10 +128,13 @@ class AgentPolicyIntegrationTest(unittest.TestCase):
             }
         )
 
-        actions = agent.act(observation, action_space)
+        decision = agent.act(observation, action_space)
         agent.reset(seed=47)
 
-        self.assertEqual(actions, [expected_action])
+        self.assertEqual(
+            decision,
+            PolicyDecision(actions=(expected_action,), value=None),
+        )
         self.assertEqual(policy.calls, [(observation, action_space)])
         self.assertEqual(policy.reset_calls, 1)
 
@@ -155,12 +164,12 @@ class AgentPolicyIntegrationTest(unittest.TestCase):
         }
 
         first_run = [
-            policy.get_actions(observation, action_space)[0]
+            policy.get_decision(observation, action_space).actions[0]
             for _ in range(5)
         ]
         policy.reset(seed=7)
         second_run = [
-            policy.get_actions(observation, action_space)[0]
+            policy.get_decision(observation, action_space).actions[0]
             for _ in range(5)
         ]
 

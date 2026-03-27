@@ -21,6 +21,7 @@ from network_creation.core.model import (
     ActionSpace,
     ActionType,
     Observation,
+    PolicyDecision,
     SchedulingMode,
 )
 from network_creation.data.choi_2020 import (
@@ -50,7 +51,12 @@ class StepActionsObserver:
         del event
 
     def on_step_end(self, event: StepEvent) -> None:
-        self.actions_by_step.append((event.step + 1, event.actions))
+        actions = tuple(
+            action
+            for decision in event.decisions
+            for action in decision.actions
+        )
+        self.actions_by_step.append((event.step + 1, actions))
 
     def on_episode_end(self, event: EpisodeEndEvent) -> None:
         del event
@@ -503,22 +509,34 @@ class ReplayTest(unittest.TestCase):
         action_space = self._dummy_action_space()
 
         self.assertEqual(
-            policy.get_actions(observation, action_space),
-            [Action(ActionType.ADD, source=0, target=1)],
+            policy.get_decision(observation, action_space),
+            PolicyDecision(
+                actions=(Action(ActionType.ADD, source=0, target=1),),
+                value=None,
+            ),
         )
-        self.assertEqual(policy.get_actions(observation, action_space), [])
         self.assertEqual(
-            policy.get_actions(observation, action_space),
-            [
-                Action(ActionType.DELETE, source=0, target=1),
-                Action(ActionType.ADD, source=0, target=2),
-            ],
+            policy.get_decision(observation, action_space),
+            PolicyDecision(actions=(), value=None),
+        )
+        self.assertEqual(
+            policy.get_decision(observation, action_space),
+            PolicyDecision(
+                actions=(
+                    Action(ActionType.DELETE, source=0, target=1),
+                    Action(ActionType.ADD, source=0, target=2),
+                ),
+                value=None,
+            ),
         )
 
         policy.reset(seed=11)
         self.assertEqual(
-            policy.get_actions(observation, action_space),
-            [Action(ActionType.ADD, source=0, target=1)],
+            policy.get_decision(observation, action_space),
+            PolicyDecision(
+                actions=(Action(ActionType.ADD, source=0, target=1),),
+                value=None,
+            ),
         )
 
     def test_load_choi_2020_replay_data_can_pad_tail_with_pass_actions(

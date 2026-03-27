@@ -4,7 +4,13 @@ from __future__ import annotations
 
 import numpy as np
 
-from network_creation.core.model import Action, ActionSpace, ActionType, Observation
+from network_creation.core.model import (
+    Action,
+    ActionSpace,
+    ActionType,
+    Observation,
+    PolicyDecision,
+)
 
 from .base import Policy
 
@@ -18,13 +24,14 @@ class RandomPolicy(Policy):
     def reset(self, seed: int) -> None:
         self._rng = np.random.default_rng(seed)
 
-    def get_actions(
+    def get_decision(
         self, observation: Observation, action_space: ActionSpace
-    ) -> list[Action]:
+    ) -> PolicyDecision:
         del observation
         actions = [
             action
             for action_type in ActionType
             for action in action_space.actions.get(action_type, [])
         ]
-        return [actions[int(self._rng.integers(len(actions)))]]
+        chosen_action = actions[int(self._rng.integers(len(actions)))]
+        return PolicyDecision(actions=(chosen_action,), value=None)

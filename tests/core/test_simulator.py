@@ -9,11 +9,24 @@ import numpy as np
 from network_creation.core.agent import Agent
 from network_creation.core.environment import Environment
 from network_creation.core.graph import create_empty_graph
-from network_creation.core.model import Action, ActionSpace, ActionType, Observation, SchedulingMode
+from network_creation.core.model import (
+    Action,
+    ActionSpace,
+    ActionType,
+    Observation,
+    PolicyDecision,
+    SchedulingMode,
+)
 from network_creation.core.observability import EpisodeEndEvent, EpisodeStartEvent, StepEvent
 from network_creation.core.simulator import Simulator
 from network_creation.policies.base import Policy
 from tests.graph_factories import graph_from_adjacency_matrix
+
+
+def _flatten_decisions(
+    decisions: tuple[PolicyDecision, ...],
+) -> tuple[Action, ...]:
+    return tuple(action for decision in decisions for action in decision.actions)
 
 
 class ConstantPolicy(Policy):
@@ -21,19 +34,19 @@ class ConstantPolicy(Policy):
         self.action = action
         self.reset_calls = 0
         self.reset_seeds: list[int] = []
-        self.get_actions_calls = 0
+        self.get_decision_calls = 0
 
     def reset(self, seed: int) -> None:
         self.reset_calls += 1
         self.reset_seeds.append(seed)
 
-    def get_actions(
+    def get_decision(
         self, observation: Observation, action_space: ActionSpace
-    ) -> list[Action]:
+    ) -> PolicyDecision:
         del observation
         del action_space
-        self.get_actions_calls += 1
-        return [self.action]
+        self.get_decision_calls += 1
+        return PolicyDecision(actions=(self.action,), value=None)
 
 
 class PreferAddElsePassPolicy(Policy):
@@ -46,13 +59,19 @@ class PreferAddElsePassPolicy(Policy):
         self.reset_calls += 1
         self.reset_seeds.append(seed)
 
-    def get_actions(
+    def get_decision(
         self, observation: Observation, action_space: ActionSpace
-    ) -> list[Action]:
+    ) -> PolicyDecision:
         self.observed_node_names.append(list(observation.graph.vs["name"]))
         if action_space[ActionType.ADD]:
-            return [action_space[ActionType.ADD][0]]
-        return [action_space[ActionType.PASS][0]]
+            return PolicyDecision(
+                actions=(action_space[ActionType.ADD][0],),
+                value=None,
+            )
+        return PolicyDecision(
+            actions=(action_space[ActionType.PASS][0],),
+            value=None,
+        )
 
 
 class RecordingObserver:
@@ -102,12 +121,12 @@ class MultiActionPolicy(Policy):
         self.reset_calls += 1
         self.reset_seeds.append(seed)
 
-    def get_actions(
+    def get_decision(
         self, observation: Observation, action_space: ActionSpace
-    ) -> list[Action]:
+    ) -> PolicyDecision:
         del observation
         del action_space
-        return list(self.actions)
+        return PolicyDecision(actions=tuple(self.actions), value=None)
 
 
 class ScriptedPolicy(Policy):
@@ -115,7 +134,7 @@ class ScriptedPolicy(Policy):
         self.actions_by_call = [list(actions) for actions in actions_by_call]
         self.reset_calls = 0
         self.reset_seeds: list[int] = []
-        self.get_actions_calls = 0
+        self.get_decision_calls = 0
         self._next_call_idx = 0
 
     def reset(self, seed: int) -> None:
@@ -123,18 +142,18 @@ class ScriptedPolicy(Policy):
         self.reset_seeds.append(seed)
         self._next_call_idx = 0
 
-    def get_actions(
+    def get_decision(
         self, observation: Observation, action_space: ActionSpace
-    ) -> list[Action]:
+    ) -> PolicyDecision:
         del observation
         del action_space
         if self._next_call_idx >= len(self.actions_by_call):
             raise AssertionError("policy was queried more times than expected")
 
-        self.get_actions_calls += 1
+        self.get_decision_calls += 1
         actions = list(self.actions_by_call[self._next_call_idx])
         self._next_call_idx += 1
-        return actions
+        return PolicyDecision(actions=tuple(actions), value=None)
 
 
 class SimulatorTest(unittest.TestCase):
@@ -379,7 +398,16 @@ class SimulatorTest(unittest.TestCase):
         self.assertEqual(step_event.step, 0)
         self.assertEqual(step_event.acting_agent_ids, (0,))
         self.assertEqual(
-            step_event.actions,
+            step_event.decisions,
+            (
+                PolicyDecision(
+                    actions=(Action(ActionType.BRIDGE, source=0, target=1),),
+                    value=None,
+                ),
+            ),
+        )
+        self.assertEqual(
+            _flatten_decisions(step_event.decisions),
             (Action(ActionType.BRIDGE, source=0, target=1),),
         )
         self.assertTrue(step_event.modified)
@@ -458,17 +486,27 @@ class SimulatorTest(unittest.TestCase):
 
         simulator.run(n_episodes=1)
 
-        self.assertEqual(left_policy.get_actions_calls, 1)
-        self.assertEqual(right_policy.get_actions_calls, 1)
+        self.assertEqual(left_policy.get_decision_calls, 1)
+        self.assertEqual(right_policy.get_decision_calls, 1)
         self.assertEqual(
             [event.acting_agent_ids for event in observer.step_events],
             [(0,), (1,), (0,), (1,), (0,)],
         )
         self.assertEqual(
-            [event.actions for event in observer.step_events],
+            [event.decisions for event in observer.step_events],
             [
-                (Action(ActionType.PASS, source=0),),
-                (Action(ActionType.PASS, source=1),),
+                (
+                    PolicyDecision(
+                        actions=(Action(ActionType.PASS, source=0),),
+                        value=None,
+                    ),
+                ),
+                (
+                    PolicyDecision(
+                        actions=(Action(ActionType.PASS, source=1),),
+                        value=None,
+                    ),
+                ),
                 (),
                 (),
                 (),
@@ -513,16 +551,41 @@ class SimulatorTest(unittest.TestCase):
 
         simulator.run(n_episodes=1)
 
-        self.assertEqual(left_policy.get_actions_calls, 3)
-        self.assertEqual(right_policy.get_actions_calls, 2)
+        self.assertEqual(left_policy.get_decision_calls, 3)
+        self.assertEqual(right_policy.get_decision_calls, 2)
         self.assertEqual(
-            [event.actions for event in observer.step_events],
+            [event.decisions for event in observer.step_events],
             [
-                (Action(ActionType.BRIDGE, source=0, target=1),),
-                (Action(ActionType.PASS, source=1),),
-                (Action(ActionType.DELETE, source=0, target=1),),
-                (Action(ActionType.PASS, source=1),),
-                (Action(ActionType.PASS, source=0),),
+                (
+                    PolicyDecision(
+                        actions=(Action(ActionType.BRIDGE, source=0, target=1),),
+                        value=None,
+                    ),
+                ),
+                (
+                    PolicyDecision(
+                        actions=(Action(ActionType.PASS, source=1),),
+                        value=None,
+                    ),
+                ),
+                (
+                    PolicyDecision(
+                        actions=(Action(ActionType.DELETE, source=0, target=1),),
+                        value=None,
+                    ),
+                ),
+                (
+                    PolicyDecision(
+                        actions=(Action(ActionType.PASS, source=1),),
+                        value=None,
+                    ),
+                ),
+                (
+                    PolicyDecision(
+                        actions=(Action(ActionType.PASS, source=0),),
+                        value=None,
+                    ),
+                ),
                 (),
             ],
         )

@@ -13,7 +13,14 @@ from network_creation.core.agent import Agent
 from network_creation.core.environment import Environment
 from network_creation.core.graph import create_empty_graph
 from network_creation.core.observability import EpisodeStartEvent, StepEvent
-from network_creation.core.model import Action, ActionSpace, ActionType, Observation, SchedulingMode
+from network_creation.core.model import (
+    Action,
+    ActionSpace,
+    ActionType,
+    Observation,
+    PolicyDecision,
+    SchedulingMode,
+)
 from network_creation.core.simulator import Simulator
 from network_creation.observers.action_count_observer import (
     ActionCountObserver,
@@ -47,19 +54,20 @@ from tests.graph_factories import graph_from_adjacency_matrix
 
 
 class ConstantPolicy(Policy):
-    def __init__(self, action: Action) -> None:
+    def __init__(self, action: Action, value: dict[str, object] | None = None) -> None:
         self.action = action
+        self.value = value
 
     def reset(self, seed: int) -> None:
         del seed
         return None
 
-    def get_actions(
+    def get_decision(
         self, observation: Observation, action_space: ActionSpace
-    ) -> list[Action]:
+    ) -> PolicyDecision:
         del observation
         del action_space
-        return [self.action]
+        return PolicyDecision(actions=(self.action,), value=self.value)
 
 
 class ActionListPolicy(Policy):
@@ -70,12 +78,12 @@ class ActionListPolicy(Policy):
         del seed
         return None
 
-    def get_actions(
+    def get_decision(
         self, observation: Observation, action_space: ActionSpace
-    ) -> list[Action]:
+    ) -> PolicyDecision:
         del observation
         del action_space
-        return list(self.actions)
+        return PolicyDecision(actions=tuple(self.actions), value=None)
 
 
 class EpisodeCallPolicy(Policy):
@@ -92,15 +100,18 @@ class EpisodeCallPolicy(Policy):
         )
         self._call_index = 0
 
-    def get_actions(
+    def get_decision(
         self, observation: Observation, action_space: ActionSpace
-    ) -> list[Action]:
+    ) -> PolicyDecision:
         del observation
         del action_space
         current_episode_actions = self.episode_actions[self._episode_index]
         action_idx = min(self._call_index, len(current_episode_actions) - 1)
         self._call_index += 1
-        return list(current_episode_actions[action_idx])
+        return PolicyDecision(
+            actions=tuple(current_episode_actions[action_idx]),
+            value=None,
+        )
 
 
 class TensorMatrixObserver(EpisodeSeriesTensorStatisticObserver):
@@ -228,6 +239,41 @@ class ObserverTest(unittest.TestCase):
         self.assertIn("  0: BRIDGE->1", output)
         self.assertIn("  1: PASS", output)
         self.assertIn("  2: BRIDGE->0", output)
+
+    def test_action_print_observer_shows_decision_value_on_same_line(self) -> None:
+        env = Environment(create_empty_graph(2), seed=3)
+        simulator = Simulator(
+            env=env,
+            agents=(
+                Agent(
+                    id=0,
+                    radius=1,
+                    policy=ConstantPolicy(
+                        Action(ActionType.BRIDGE, source=0, target=1),
+                        value={"score": 1.25},
+                    ),
+                    seed=5,
+                ),
+                Agent(
+                    id=1,
+                    radius=1,
+                    policy=ConstantPolicy(Action(ActionType.PASS, source=1)),
+                    seed=7,
+                ),
+            ),
+            mode=SchedulingMode.SIMULTANEOUS,
+            max_steps=1,
+            rng=np.random.default_rng(13),
+            observers=(ActionPrintObserver(1, False),),
+        )
+
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            simulator.run(n_episodes=1)
+
+        output = stdout.getvalue()
+        self.assertIn("  0: BRIDGE->1 (value={score=1.25})", output)
+        self.assertIn("  1: PASS", output)
 
     def test_density_observer_tracks_density_only(self) -> None:
         density_observer = DensityObserver(

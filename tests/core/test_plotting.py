@@ -13,7 +13,14 @@ import numpy as np
 from network_creation.core.agent import Agent
 from network_creation.core.environment import Environment
 from network_creation.core.graph import create_empty_graph
-from network_creation.core.model import Action, ActionSpace, ActionType, Observation, SchedulingMode
+from network_creation.core.model import (
+    Action,
+    ActionSpace,
+    ActionType,
+    Observation,
+    PolicyDecision,
+    SchedulingMode,
+)
 from network_creation.core.simulator import Simulator
 from network_creation.observers.density_observer import DensityObserver
 from network_creation.observers.statistics.episode_tensor_series import (
@@ -32,14 +39,14 @@ class ConstantPolicy(Policy):
     def reset(self, seed: int) -> None:
         del seed
 
-    def get_actions(
+    def get_decision(
         self,
         observation: Observation,
         action_space: ActionSpace,
-    ) -> list[Action]:
+    ) -> PolicyDecision:
         del observation
         del action_space
-        return [self.action]
+        return PolicyDecision(actions=(self.action,), value=None)
 
 
 class MatrixObserver(EpisodeSeriesTensorStatisticObserver):

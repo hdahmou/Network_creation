@@ -9,7 +9,7 @@ import igraph as ig
 import numpy as np
 from numpy.typing import NDArray
 
-from .model import Action, EnvironmentState, SchedulingMode
+from .model import EnvironmentState, PolicyDecision, SchedulingMode
 
 
 @dataclass(frozen=True)
@@ -42,7 +42,7 @@ class StepEvent:
     step: int
     mode: SchedulingMode
     acting_agent_ids: tuple[int, ...]
-    actions: tuple[Action, ...]
+    decisions: tuple[PolicyDecision, ...]
     modified: bool
     pre_state: StateSnapshot
     post_state: StateSnapshot

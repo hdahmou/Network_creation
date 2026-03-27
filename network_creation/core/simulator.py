@@ -83,30 +83,28 @@ class Simulator:
         while current_step < self.max_steps and self.n_agents > 0:
             acting_agents = self.get_acting_agents(step=current_step)
             if self._is_stagnated(stagnation_steps):
-                actions = []
+                decisions = ()
             else:
-                observations = {}
-                action_spaces = {}
-
+                decision_list = []
                 for agent in acting_agents:
                     observation = self.env.get_observation(agent)
-                    observations[agent.id] = observation
-                    action_spaces[agent.id] = get_action_space(observation)
+                    action_space = get_action_space(observation)
+                    decision_list.append(agent.act(observation, action_space))
+                decisions = tuple(decision_list)
 
-                actions = [
-                    action
-                    for agent in acting_agents
-                    for action in agent.act(
-                        observations[agent.id],
-                        action_spaces[agent.id],
-                    )
-                ]
+            step_actions = tuple(
+                action
+                for decision in decisions
+                for action in decision.actions
+            )
 
             pre_state = StateSnapshot.from_state(self.env.state)
-            self.env.step(actions)
+            self.env.step(step_actions)
             post_state = StateSnapshot.from_state(self.env.state)
 
-            modified = any(action.type is not ActionType.PASS for action in actions)
+            modified = any(
+                action.type is not ActionType.PASS for action in step_actions
+            )
             if modified:
                 last_modified_step = current_step
                 stagnation_steps = 0
@@ -117,7 +115,7 @@ class Simulator:
                 step=current_step,
                 mode=self.mode,
                 acting_agent_ids=tuple(agent.id for agent in acting_agents),
-                actions=tuple(actions),
+                decisions=decisions,
                 modified=modified,
                 pre_state=pre_state,
                 post_state=post_state,

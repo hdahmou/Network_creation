@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from network_creation.core.model import Action, ActionSpace, Observation
+from network_creation.core.model import (
+    Action,
+    ActionSpace,
+    Observation,
+    PolicyDecision,
+)
 
 from .base import Policy
 
@@ -18,12 +23,12 @@ class ReplayPolicy(Policy):
         del seed
         self.next_step_id = 1
 
-    def get_actions(
+    def get_decision(
         self, observation: Observation, action_space: ActionSpace
-    ) -> list[Action]:
+    ) -> PolicyDecision:
         del observation
         del action_space
 
-        actions = list(self.actions_by_step.get(self.next_step_id, ()))
+        actions = self.actions_by_step.get(self.next_step_id, ())
         self.next_step_id += 1
-        return actions
+        return PolicyDecision(actions=actions, value=None)

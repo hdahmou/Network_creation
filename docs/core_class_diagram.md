@@ -5,10 +5,11 @@ namespace Core {
     class Environment {
         +seed: int
         +state: EnvironmentState
+        +node_ids: list[int]
         +reset() EnvironmentState
         +step(actions: Sequence[Action]) EnvironmentState
-        +getObservation(agent: Agent) Observation
-        +getActionSpace(agent: Agent) ActionSpace
+        +get_observation(agent: Agent) Observation
+        +get_action_space(agent: Agent) ActionSpace
     }
 
     class EnvironmentState {
@@ -16,14 +17,14 @@ namespace Core {
     }
 
     class Observation {
-        +nodeId: int
+        +node_id: int
         +graph: Graph
-        +outsideNodeIds: NDArray
+        +outside_node_ids: NDArray
     }
 
     class ActionSpace {
-        +actions: Map[ActionType, List[Action]]
-        +__getitem__(actionType: ActionType) List[Action]
+        +actions: dict[ActionType, list[Action]]
+        +__getitem__(action_type: ActionType) list[Action]
     }
 
     class ActionType {
@@ -39,6 +40,11 @@ namespace Core {
         +source: int
         +target: int | None
     }
+
+    class PolicyDecision {
+        +actions: tuple[Action, ...]
+        +value: dict[str, object] | None
+    }
 }
 
 namespace Simulation {
@@ -50,17 +56,17 @@ namespace Simulation {
 
     class Simulator {
         +rng: Generator
-        +agents: Tuple[Agent]
-        +nAgents: int
-        +nCompletedEpisodes: int
+        +agents: tuple[Agent, ...]
+        +n_agents: int
+        +n_completed_episodes: int
         +env: Environment
         +mode: SchedulingMode
-        +observers: Tuple[SimulationObserver]
-        +maxSteps: int
-        +stagnationPatience: int | None
+        +observers: tuple[SimulationObserver, ...]
+        +max_steps: int
+        +stagnation_patience: int | None
         +reset() void
-        +getActingAgents(step: int) Sequence[Agent]
-        +run(nEpisodes: int) void
+        +get_acting_agents(step: int) Sequence[Agent]
+        +run(n_episodes: int) void
     }
 
     class Agent {
@@ -69,76 +75,88 @@ namespace Simulation {
         +policy: Policy
         +seed: int
         +reset(seed: int) void
-        +act(observation: Observation, actionSpace: ActionSpace) List[Action]
+        +act(observation: Observation, action_space: ActionSpace) PolicyDecision
     }
 
     class Policy {
         <<abstract>>
         +reset(seed: int) void
-        +getActions(observation: Observation, actionSpace: ActionSpace) List[Action]
+        +get_decision(observation: Observation, action_space: ActionSpace) PolicyDecision
     }
 }
 
 namespace Policies {
     class RandomPolicy {
         +reset(seed: int) void
-        +getActions(observation: Observation, actionSpace: ActionSpace) List[Action]
+        +get_decision(observation: Observation, action_space: ActionSpace) PolicyDecision
     }
 
     class ReplayPolicy {
-        +actionsByStep: Map[int, Tuple[Action]]
+        +actions_by_step: dict[int, tuple[Action, ...]]
+        +next_step_id: int
         +reset(seed: int) void
-        +getActions(observation: Observation, actionSpace: ActionSpace) List[Action]
+        +get_decision(observation: Observation, action_space: ActionSpace) PolicyDecision
+    }
+
+    class MyopicPayoffPolicy {
+        +link_cost: float
+        +decay: float
+        +per_link_benefit: float
+        +bridge_probability: float
+        +reset(seed: int) void
+        +get_decision(observation: Observation, action_space: ActionSpace) PolicyDecision
     }
 }
 
 namespace Observability {
     class StateSnapshot {
         +graph: Graph
-        +fromState(state: EnvironmentState) StateSnapshot
+        +from_state(state: EnvironmentState) StateSnapshot
     }
 
     class EpisodeStartEvent {
-        +episodeIndex: int
+        +episode_index: int
         +seed: int
         +mode: SchedulingMode
-        +maxSteps: int
-        +nAgents: int
-        +initialState: StateSnapshot
+        +max_steps: int
+        +n_agents: int
+        +initial_state: StateSnapshot
     }
 
     class StepEvent {
         +step: int
         +mode: SchedulingMode
-        +actingAgentIds: Tuple[int]
-        +actions: Tuple[Action]
+        +acting_agent_ids: tuple[int, ...]
+        +decisions: tuple[PolicyDecision, ...]
         +modified: bool
-        +preState: StateSnapshot
-        +postState: StateSnapshot
+        +pre_state: StateSnapshot
+        +post_state: StateSnapshot
     }
 
     class EpisodeEndEvent {
-        +episodeIndex: int
+        +episode_index: int
         +seed: int
         +mode: SchedulingMode
-        +currentStep: int
-        +lastModifiedStep: int
-        +finalState: StateSnapshot
+        +current_step: int
+        +last_modified_step: int
+        +final_state: StateSnapshot
     }
 
     class StatisticResult {
         +steps: NDArray | None
-        +nEpisodes: int
-        +outputs: Map[str, NDArray | Tuple[NDArray]]
+        +n_episodes: int
+        +outputs: dict[str, NDArray | tuple[NDArray, ...]]
+        +sample_shape: tuple[int, ...]
+        +dimension_names: tuple[str, ...] | None
     }
 
     class SimulationObserver {
         <<interface>>
-        +observationFrequency: int
+        +observation_frequency: int
         +reset() void
-        +onEpisodeStart(event: EpisodeStartEvent) void
-        +onStepEnd(event: StepEvent) void
-        +onEpisodeEnd(event: EpisodeEndEvent) void
+        +on_episode_start(event: EpisodeStartEvent) void
+        +on_step_end(event: StepEvent) void
+        +on_episode_end(event: EpisodeEndEvent) void
         +get() Any
     }
 }
@@ -147,9 +165,9 @@ namespace Observers {
     class EpisodeStatisticObserver {
         <<abstract>>
         +name: str
-        +observationFrequency: int
-        +aggregations: Tuple[str]
-        +nEpisodes: int
+        +observation_frequency: int
+        +aggregations: tuple[str, ...]
+        +n_episodes: int
         +reset() void
         +get() StatisticResult
     }
@@ -157,51 +175,61 @@ namespace Observers {
     class EpisodeSeriesStatisticObserver {
         <<abstract>>
         +label: str
-        +xLabel: str
-        +yLabel: str
-        +yMin: float | None
-        +yMax: float | None
+        +x_label: str
+        +y_label: str
+        +y_min: float | None
+        +y_max: float | None
         +steps: NDArray
         +values: NDArray
-        +computeInitialValue(event: EpisodeStartEvent) float
-        +computeStepValue(event: StepEvent) float
+        +compute_initial_value(event: EpisodeStartEvent) float
+        +compute_step_value(event: StepEvent) float
     }
 
     class EpisodeScalarStatisticObserver {
         <<abstract>>
-        +computeTerminalValue(event: EpisodeEndEvent) float
+        +compute_terminal_value(event: EpisodeEndEvent) float
     }
 
     class DensityObserver {
         +label: str
-        +xLabel: str
-        +yLabel: str
-        +yMin: float
-        +yMax: float
+        +x_label: str
+        +y_label: str
+        +y_min: float
+        +y_max: float | None
         +steps: NDArray
         +densities: NDArray
     }
 
+    class ActionCountObserver {
+        +label: str
+        +x_label: str
+        +y_label: str
+        +y_min: float
+        +y_max: float | None
+        +steps: NDArray
+        +average_action_counts: NDArray
+    }
+
     class StateHistoryResult {
         +steps: NDArray
-        +graphs: Tuple[Graph]
-        +nEpisodes: int
-        +runsSteps: Tuple[NDArray] | None
-        +runsGraphs: Tuple[Tuple[Graph]] | None
+        +graphs: tuple[Graph, ...]
+        +n_episodes: int
+        +runs_steps: tuple[NDArray, ...] | None
+        +runs_graphs: tuple[tuple[Graph, ...], ...] | None
     }
 
     class StateHistoryObserver {
-        +observationFrequency: int
-        +keepRuns: bool
+        +observation_frequency: int
+        +keep_runs: bool
         +steps: NDArray
-        +graphs: List[Graph]
+        +graphs: NDArray
         +reset() void
         +get() StateHistoryResult
     }
 
     class ActionPrintObserver {
-        +observationFrequency: int
-        +printEmptySteps: bool
+        +observation_frequency: int
+        +print_empty_steps: bool
         +reset() void
         +get() None
     }
@@ -214,14 +242,15 @@ Simulator --> SchedulingMode : mode
 Simulator --> SimulationObserver : notifies
 RandomPolicy --|> Policy : extends
 ReplayPolicy --|> Policy : extends
-Agent *-- RandomPolicy : for randomized agents
-Agent *-- ReplayPolicy : for replay agents
+MyopicPayoffPolicy --|> Policy : extends
 Environment *-- EnvironmentState : owns
 Environment --> Observation : produces
 Environment --> ActionSpace : produces
-EpisodeStartEvent *-- StateSnapshot : initialState
+PolicyDecision --> Action : contains
+EpisodeStartEvent *-- StateSnapshot : initial_state
 StepEvent *-- StateSnapshot : pre/post
-EpisodeEndEvent *-- StateSnapshot : finalState
+StepEvent --> PolicyDecision : decisions
+EpisodeEndEvent *-- StateSnapshot : final_state
 SimulationObserver ..> StateSnapshot : reads via events
 EpisodeStatisticObserver ..> StatisticResult : returns
 StateHistoryObserver ..> StateHistoryResult : returns
@@ -229,6 +258,7 @@ EpisodeStatisticObserver ..|> SimulationObserver : implements
 EpisodeSeriesStatisticObserver --|> EpisodeStatisticObserver : extends
 EpisodeScalarStatisticObserver --|> EpisodeStatisticObserver : extends
 DensityObserver --|> EpisodeSeriesStatisticObserver : extends
+ActionCountObserver --|> EpisodeSeriesStatisticObserver : extends
 StateHistoryObserver ..|> SimulationObserver : implements
 ActionPrintObserver ..|> SimulationObserver : implements
 ActionSpace --> ActionType : keys

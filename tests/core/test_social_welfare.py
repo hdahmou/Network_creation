@@ -17,6 +17,7 @@ from network_creation.core.model import (
     ActionSpace,
     ActionType,
     Observation,
+    PolicyDecision,
     SchedulingMode,
 )
 from network_creation.core.simulator import Simulator
@@ -35,14 +36,14 @@ class ConstantPolicy(Policy):
     def reset(self, seed: int) -> None:
         del seed
 
-    def get_actions(
+    def get_decision(
         self,
         observation: Observation,
         action_space: ActionSpace,
-    ) -> list[Action]:
+    ) -> PolicyDecision:
         del observation
         del action_space
-        return [self.action]
+        return PolicyDecision(actions=(self.action,), value=None)
 
 
 class SocialWelfareTest(unittest.TestCase):

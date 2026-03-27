@@ -45,6 +45,9 @@ class ActionCountObserver(EpisodeSeriesStatisticObserver):
             return 0.0
 
         n_non_pass_actions = sum(
-            1 for action in event.actions if action.type is not ActionType.PASS
+            1
+            for decision in event.decisions
+            for action in decision.actions
+            if action.type is not ActionType.PASS
         )
         return float(n_non_pass_actions / self._n_agents)

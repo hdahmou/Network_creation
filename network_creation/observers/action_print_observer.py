@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-from collections import defaultdict
-
-from network_creation.core.model import ActionType
+from network_creation.core.model import Action, ActionType, PolicyDecision
 from network_creation.core.observability import (
     EpisodeEndEvent,
     EpisodeStartEvent,
@@ -30,15 +28,24 @@ class ActionPrintObserver(SimulationObserver):
             print("step 0")
 
     def on_step_end(self, event: StepEvent) -> None:
-        actions_by_node_id: dict[int, list[str]] = defaultdict(list)
-        for action in event.actions:
-            actions_by_node_id[action.source].append(self._format_action(action))
+        rendered_decisions_by_node_id = {
+            node_id: self._format_decision(decision)
+            for node_id, decision in zip(
+                event.acting_agent_ids,
+                event.decisions,
+                strict=True,
+            )
+        }
 
-        if self.print_empty_steps or event.actions:
+        if self.print_empty_steps or any(
+            rendered_decision
+            for rendered_decision in rendered_decisions_by_node_id.values()
+        ):
             print(f"\nstep {event.step + 1}")
-        for node_id in sorted(actions_by_node_id):
-            rendered_actions = ", ".join(actions_by_node_id[node_id])
-            print(f"  {node_id}: {rendered_actions}")
+        for node_id in sorted(rendered_decisions_by_node_id):
+            rendered_decision = rendered_decisions_by_node_id[node_id]
+            if rendered_decision:
+                print(f"  {node_id}: {rendered_decision}")
 
     def on_episode_end(self, event: EpisodeEndEvent) -> None:
         del event
@@ -48,7 +55,37 @@ class ActionPrintObserver(SimulationObserver):
         return None
 
     @staticmethod
-    def _format_action(action) -> str:
+    def _format_decision(decision: PolicyDecision) -> str:
+        rendered_actions = ", ".join(
+            ActionPrintObserver._format_action(action) for action in decision.actions
+        )
+        if decision.value is None:
+            return rendered_actions
+        if rendered_actions:
+            return (
+                f"{rendered_actions} "
+                f"(value={ActionPrintObserver._format_value(decision.value)})"
+            )
+        return f"value={ActionPrintObserver._format_value(decision.value)}"
+
+    @staticmethod
+    def _format_value(value: object) -> str:
+        if isinstance(value, dict):
+            rendered_items = ", ".join(
+                (
+                    f"{key}={ActionPrintObserver._format_value(item_value)}"
+                    for key, item_value in value.items()
+                )
+            )
+            return "{" + rendered_items + "}"
+        if isinstance(value, Action):
+            return ActionPrintObserver._format_action(value)
+        if isinstance(value, float):
+            return str(round(value, 2))
+        return str(value)
+
+    @staticmethod
+    def _format_action(action: Action) -> str:
         if action.type is ActionType.PASS:
             return "PASS"
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from ..policies.base import Policy
-from .model import Action, ActionSpace, Observation
+from .model import ActionSpace, Observation, PolicyDecision
 
 
 @dataclass
@@ -26,7 +26,9 @@ class Agent:
 
         self.policy.reset(seed=seed)
 
-    def act(self, observation: Observation, action_space: ActionSpace) -> list[Action]:
-        """Delegate action choice to the current policy."""
+    def act(
+        self, observation: Observation, action_space: ActionSpace
+    ) -> PolicyDecision:
+        """Delegate decision choice to the current policy."""
 
-        return self.policy.get_actions(observation, action_space)
+        return self.policy.get_decision(observation, action_space)

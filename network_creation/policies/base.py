@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from network_creation.core.model import Action, ActionSpace, Observation
+from network_creation.core.model import ActionSpace, Observation, PolicyDecision
 
 
 class Policy(ABC):
@@ -15,7 +15,7 @@ class Policy(ABC):
         """Reset any internal policy state from one explicit seed."""
 
     @abstractmethod
-    def get_actions(
+    def get_decision(
         self, observation: Observation, action_space: ActionSpace
-    ) -> list[Action]:
-        """Choose one or more actions from the current observation and action space."""
+    ) -> PolicyDecision:
+        """Choose a policy decision from the current observation and action space."""

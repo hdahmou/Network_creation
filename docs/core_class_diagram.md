@@ -1,38 +1,19 @@
 ```mermaid
 classDiagram
 
-namespace Core {
-    class Environment {
-        +seed: int
-        +state: EnvironmentState
-        +node_ids: list[int]
-        +reset() EnvironmentState
-        +step(actions: Sequence[Action]) EnvironmentState
-        +get_observation(agent: Agent) Observation
-        +get_action_space(agent: Agent) ActionSpace
-    }
-
-    class EnvironmentState {
-        +graph: Graph
-    }
-
-    class Observation {
-        +node_id: int
-        +graph: Graph
-        +outside_node_ids: NDArray
-    }
-
-    class ActionSpace {
-        +actions: dict[ActionType, list[Action]]
-        +__getitem__(action_type: ActionType) list[Action]
-    }
-
+namespace CoreModel {
     class ActionType {
         <<enumeration>>
         ADD
         DELETE
         PASS
         BRIDGE
+    }
+
+    class SchedulingMode {
+        <<enumeration>>
+        SEQUENTIAL
+        SIMULTANEOUS
     }
 
     class Action {
@@ -45,28 +26,32 @@ namespace Core {
         +actions: tuple[Action, ...]
         +value: dict[str, object] | None
     }
-}
 
-namespace Simulation {
-    class SchedulingMode {
-        <<enumeration>>
-        SEQUENTIAL
-        SIMULTANEOUS
+    class ActionSpace {
+        +actions: dict[ActionType, list[Action]]
+        +__getitem__(action_type: ActionType) list[Action]
     }
 
-    class Simulator {
-        +rng: Generator
-        +agents: tuple[Agent, ...]
-        +n_agents: int
-        +n_completed_episodes: int
-        +env: Environment
-        +mode: SchedulingMode
-        +observers: tuple[SimulationObserver, ...]
-        +max_steps: int
-        +stagnation_patience: int | None
-        +reset() void
-        +get_acting_agents(step: int) Sequence[Agent]
-        +run(n_episodes: int) void
+    class EnvironmentState {
+        +graph: Graph
+    }
+
+    class Observation {
+        +node_id: int
+        +graph: Graph
+        +outside_node_ids: NDArray
+    }
+}
+
+namespace Runtime {
+    class Environment {
+        +seed: int
+        +state: EnvironmentState
+        +node_ids: list[int]
+        +reset() EnvironmentState
+        +step(actions: Sequence[Action]) EnvironmentState
+        +get_observation(agent: Agent) Observation
+        +get_action_space(agent: Agent) ActionSpace
     }
 
     class Agent {
@@ -83,32 +68,38 @@ namespace Simulation {
         +reset(seed: int) void
         +get_decision(observation: Observation, action_space: ActionSpace) PolicyDecision
     }
+
+    class Simulator {
+        +rng: Generator
+        +agents: tuple[Agent, ...]
+        +n_agents: int
+        +n_completed_episodes: int
+        +env: Environment
+        +mode: SchedulingMode
+        +observers: tuple[SimulationObserver, ...]
+        +max_steps: int
+        +stagnation_patience: int | None
+        +reset() void
+        +get_acting_agents(step: int) Sequence[Agent]
+        +run(n_episodes: int, reset_observers: bool) void
+    }
 }
 
 namespace Policies {
-    class RandomPolicy {
-        +reset(seed: int) void
-        +get_decision(observation: Observation, action_space: ActionSpace) PolicyDecision
-    }
-
+    class RandomPolicy
     class ReplayPolicy {
         +actions_by_step: dict[int, tuple[Action, ...]]
         +next_step_id: int
-        +reset(seed: int) void
-        +get_decision(observation: Observation, action_space: ActionSpace) PolicyDecision
     }
-
     class MyopicPayoffPolicy {
         +link_cost: float
         +decay: float
         +per_link_benefit: float
         +bridge_probability: float
-        +reset(seed: int) void
-        +get_decision(observation: Observation, action_space: ActionSpace) PolicyDecision
     }
 }
 
-namespace Observability {
+namespace ObserverAPI {
     class StateSnapshot {
         +graph: Graph
         +from_state(state: EnvironmentState) StateSnapshot
@@ -161,7 +152,7 @@ namespace Observability {
     }
 }
 
-namespace Observers {
+namespace ObserverStatistics {
     class EpisodeStatisticObserver {
         <<abstract>>
         +name: str
@@ -185,29 +176,49 @@ namespace Observers {
         +compute_step_value(event: StepEvent) float
     }
 
+    class EpisodeSeriesTensorStatisticObserver {
+        <<abstract>>
+        +label: str
+        +x_label: str
+        +y_label: str
+        +y_min: float | None
+        +y_max: float | None
+        +dimension_names: tuple[str, ...]
+        +sample_shape: tuple[int, ...]
+        +steps: NDArray
+        +values: NDArray
+        +compute_initial_value(event: EpisodeStartEvent) NDArray
+        +compute_step_value(event: StepEvent) NDArray
+    }
+
     class EpisodeScalarStatisticObserver {
         <<abstract>>
         +compute_terminal_value(event: EpisodeEndEvent) float
     }
+}
 
-    class DensityObserver {
-        +label: str
-        +x_label: str
-        +y_label: str
-        +y_min: float
-        +y_max: float | None
-        +steps: NDArray
-        +densities: NDArray
+namespace Observers {
+    class DensityObserver
+    class ActionCountObserver
+    class DistanceObserver
+    class IndegreeObserver
+    class GlobalClosenessCentralityObserver
+    class CentralPointOfDominanceObserver
+
+    class SocialWelfareObserver {
+        +link_cost: float
+        +decay: float
+        +per_link_benefit: float
+        +max_welfare: float | None
+        +baseline_welfare: float | None
     }
 
-    class ActionCountObserver {
-        +label: str
-        +x_label: str
-        +y_label: str
-        +y_min: float
-        +y_max: float | None
-        +steps: NDArray
-        +average_action_counts: NDArray
+    class HubPersistenceObserver {
+        -_window_size: int
+    }
+
+    class TriadCensusObserver {
+        +dimension_names: tuple[str, ...]
     }
 
     class StateHistoryResult {
@@ -236,33 +247,46 @@ namespace Observers {
 }
 
 %% Relationships
+Environment *-- EnvironmentState : owns
+Environment --> Observation : produces
+Environment --> ActionSpace : produces
+ActionSpace --> ActionType : keys
+ActionSpace --> Action : groups
+PolicyDecision --> Action : contains
+Action --> ActionType : type
+
+Agent *-- Policy : has
 Simulator --> Environment : uses
 Simulator --> Agent : schedules
 Simulator --> SchedulingMode : mode
 Simulator --> SimulationObserver : notifies
+
 RandomPolicy --|> Policy : extends
 ReplayPolicy --|> Policy : extends
 MyopicPayoffPolicy --|> Policy : extends
-Environment *-- EnvironmentState : owns
-Environment --> Observation : produces
-Environment --> ActionSpace : produces
-PolicyDecision --> Action : contains
+
 EpisodeStartEvent *-- StateSnapshot : initial_state
 StepEvent *-- StateSnapshot : pre/post
 StepEvent --> PolicyDecision : decisions
 EpisodeEndEvent *-- StateSnapshot : final_state
 SimulationObserver ..> StateSnapshot : reads via events
-EpisodeStatisticObserver ..> StatisticResult : returns
-StateHistoryObserver ..> StateHistoryResult : returns
+
 EpisodeStatisticObserver ..|> SimulationObserver : implements
+EpisodeStatisticObserver ..> StatisticResult : returns
 EpisodeSeriesStatisticObserver --|> EpisodeStatisticObserver : extends
+EpisodeSeriesTensorStatisticObserver --|> EpisodeStatisticObserver : extends
 EpisodeScalarStatisticObserver --|> EpisodeStatisticObserver : extends
+
 DensityObserver --|> EpisodeSeriesStatisticObserver : extends
 ActionCountObserver --|> EpisodeSeriesStatisticObserver : extends
+DistanceObserver --|> EpisodeSeriesStatisticObserver : extends
+IndegreeObserver --|> EpisodeSeriesStatisticObserver : extends
+GlobalClosenessCentralityObserver --|> EpisodeSeriesStatisticObserver : extends
+CentralPointOfDominanceObserver --|> EpisodeSeriesStatisticObserver : extends
+SocialWelfareObserver --|> EpisodeSeriesStatisticObserver : extends
+HubPersistenceObserver --|> EpisodeSeriesStatisticObserver : extends
+TriadCensusObserver --|> EpisodeSeriesTensorStatisticObserver : extends
 StateHistoryObserver ..|> SimulationObserver : implements
+StateHistoryObserver ..> StateHistoryResult : returns
 ActionPrintObserver ..|> SimulationObserver : implements
-ActionSpace --> ActionType : keys
-ActionSpace --> Action : groups
-Action --> ActionType : type
-Agent *-- Policy : has
 ```

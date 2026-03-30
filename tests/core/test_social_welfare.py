@@ -125,11 +125,11 @@ class SocialWelfareTest(unittest.TestCase):
             observers=(observer,),
         )
 
-        simulator.run(n_episodes=1)
+        simulator.run(n_episodes=1, reset_observers=False)
 
         np.testing.assert_array_equal(observer.steps, np.array([0, 1, 2]))
         np.testing.assert_allclose(
-            observer.social_welfares,
+            observer.values,
             np.array([20.0, 27.0, 27.0], dtype=np.float32),
         )
 
@@ -167,10 +167,10 @@ class SocialWelfareTest(unittest.TestCase):
             observers=(observer,),
         )
 
-        simulator.run(n_episodes=1)
+        simulator.run(n_episodes=1, reset_observers=False)
 
         np.testing.assert_allclose(
-            observer.social_welfares,
+            observer.values,
             np.array([0.0, 0.7, 0.7], dtype=np.float32),
         )
 

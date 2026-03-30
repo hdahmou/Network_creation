@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import igraph as ig
 import numpy as np
-from numpy.typing import NDArray
 
 from network_creation.core.observability import (
     EpisodeStartEvent,
@@ -38,10 +37,6 @@ class GlobalClosenessCentralityObserver(EpisodeSeriesStatisticObserver):
     y_label = "global closeness centrality"
     y_min = 0.0
     y_max = 1.0
-
-    @property
-    def global_closeness_centralities(self) -> NDArray[np.float32]:
-        return self.values
 
     def compute_initial_value(self, event: EpisodeStartEvent) -> float:
         return _compute_global_closeness_centrality(event.initial_state.graph)

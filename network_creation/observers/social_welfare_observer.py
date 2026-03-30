@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import igraph as ig
 import numpy as np
-from numpy.typing import NDArray
 
 from network_creation.core.observability import EpisodeStartEvent, StepEvent
 from network_creation.observers.statistics.episode_series import (
@@ -90,10 +89,6 @@ class SocialWelfareObserver(EpisodeSeriesStatisticObserver):
             observation_frequency=observation_frequency,
             aggregations=aggregations,
         )
-
-    @property
-    def social_welfares(self) -> NDArray[np.float32]:
-        return self.values
 
     def _normalize_welfare(self, welfare: float) -> float:
         if self.max_welfare is None or self.baseline_welfare is None:

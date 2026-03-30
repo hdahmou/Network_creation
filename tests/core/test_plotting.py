@@ -109,7 +109,7 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
             observers=(observer,),
         )
 
-        simulator.run(n_episodes=1)
+        simulator.run(n_episodes=1, reset_observers=False)
 
         figure, axis = plt.subplots()
         returned_axis = plot_episode_series_observer(observer=observer, ax=axis)
@@ -145,7 +145,7 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
             observers=(observer,),
         )
 
-        simulator.run(n_episodes=4)
+        simulator.run(n_episodes=4, reset_observers=False)
 
         figure, axis = plt.subplots()
         returned_axis = plot_episode_series_observer(observer=observer, ax=axis)
@@ -183,7 +183,7 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
             observers=(observer,),
         )
 
-        simulator.run(n_episodes=1)
+        simulator.run(n_episodes=1, reset_observers=False)
 
         figure, axis = plt.subplots()
         returned_axis = plot_episode_series_observer(observer=observer, ax=axis)
@@ -217,7 +217,7 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
             observers=(observer,),
         )
 
-        simulator.run(n_episodes=4)
+        simulator.run(n_episodes=4, reset_observers=False)
 
         figure, axis = plt.subplots()
         returned_axis = plot_episode_series_observer(
@@ -256,7 +256,7 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
             observers=(observer,),
         )
 
-        simulator.run(n_episodes=3)
+        simulator.run(n_episodes=3, reset_observers=False)
 
         figure, axis = plt.subplots()
         axis.set_title("Keep this title")
@@ -290,7 +290,7 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
             observers=(observer,),
         )
 
-        simulator.run(n_episodes=1)
+        simulator.run(n_episodes=1, reset_observers=False)
 
         figure, axis = plt.subplots()
         with self.assertRaisesRegex(
@@ -319,7 +319,7 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
             observers=(observer,),
         )
 
-        simulator.run(n_episodes=1)
+        simulator.run(n_episodes=1, reset_observers=False)
 
         figure, axis = plt.subplots()
         with self.assertRaisesRegex(
@@ -351,7 +351,7 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
             observers=(observer,),
         )
 
-        simulator.run(n_episodes=1)
+        simulator.run(n_episodes=1, reset_observers=False)
 
         figure, axis = plt.subplots()
         returned_axis = plot_episode_series_observer(
@@ -386,7 +386,7 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
             observers=(observer,),
         )
 
-        simulator.run(n_episodes=2)
+        simulator.run(n_episodes=2, reset_observers=False)
 
         figure, axis = plt.subplots()
         returned_axis = plot_episode_series_observer(
@@ -424,7 +424,7 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
             observers=(observer,),
         )
 
-        simulator.run(n_episodes=1)
+        simulator.run(n_episodes=1, reset_observers=False)
 
         figure, axis = plt.subplots()
         with self.assertRaisesRegex(

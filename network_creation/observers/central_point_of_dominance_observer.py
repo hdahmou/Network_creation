@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import igraph as ig
 import numpy as np
-from numpy.typing import NDArray
 
 from network_creation.core.observability import (
     EpisodeStartEvent,
@@ -37,10 +36,6 @@ class CentralPointOfDominanceObserver(EpisodeSeriesStatisticObserver):
     y_label = "central point of dominance"
     y_min = 0.0
     y_max = 1.0
-
-    @property
-    def central_points_of_dominance(self) -> NDArray[np.float32]:
-        return self.values
 
     def compute_initial_value(self, event: EpisodeStartEvent) -> float:
         return _compute_central_point_of_dominance(event.initial_state.graph)

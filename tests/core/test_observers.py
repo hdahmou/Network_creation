@@ -122,10 +122,6 @@ class TensorMatrixObserver(EpisodeSeriesTensorStatisticObserver):
     y_max = None
     dimension_names = ("a", "b", "c", "d")
 
-    @property
-    def matrix_values(self) -> NDArray[np.float32]:
-        return self.values
-
     def compute_initial_value(self, event: EpisodeStartEvent) -> NDArray[np.float32]:
         del event
         return np.array([[0.0, 1.0], [2.0, 3.0]], dtype=np.float32)
@@ -232,7 +228,7 @@ class ObserverTest(unittest.TestCase):
 
         stdout = io.StringIO()
         with redirect_stdout(stdout):
-            simulator.run(n_episodes=1)
+            simulator.run(n_episodes=1, reset_observers=False)
 
         output = stdout.getvalue()
         self.assertIn("step 1", output)
@@ -269,7 +265,7 @@ class ObserverTest(unittest.TestCase):
 
         stdout = io.StringIO()
         with redirect_stdout(stdout):
-            simulator.run(n_episodes=1)
+            simulator.run(n_episodes=1, reset_observers=False)
 
         output = stdout.getvalue()
         self.assertIn("  0: BRIDGE->1 (value={score=1.25})", output)
@@ -293,11 +289,11 @@ class ObserverTest(unittest.TestCase):
             observers=(density_observer,),
         )
 
-        simulator.run(n_episodes=1)
+        simulator.run(n_episodes=1, reset_observers=False)
 
         np.testing.assert_array_equal(density_observer.steps, np.array([0, 1, 2]))
         np.testing.assert_allclose(
-            density_observer.densities,
+            density_observer.values,
             np.array([0.0, 1.0, 1.0], dtype=np.float32),
         )
 
@@ -323,13 +319,13 @@ class ObserverTest(unittest.TestCase):
             observers=(tensor_observer,),
         )
 
-        simulator.run(n_episodes=1)
+        simulator.run(n_episodes=1, reset_observers=False)
 
         np.testing.assert_array_equal(tensor_observer.steps, np.array([0, 1, 2]))
         self.assertEqual(tensor_observer.sample_shape, (2, 2))
         self.assertEqual(tensor_observer.dimension_names, ("a", "b", "c", "d"))
         np.testing.assert_allclose(
-            tensor_observer.matrix_values,
+            tensor_observer.values,
             np.array(
                 [
                     [[0.0, 1.0], [2.0, 3.0]],
@@ -367,7 +363,7 @@ class ObserverTest(unittest.TestCase):
             observers=(scalar_observer,),
         )
 
-        simulator.run(n_episodes=1)
+        simulator.run(n_episodes=1, reset_observers=False)
 
         np.testing.assert_array_equal(scalar_observer.steps, np.array([0, 1]))
         np.testing.assert_allclose(
@@ -401,7 +397,7 @@ class ObserverTest(unittest.TestCase):
             ValueError,
             "all sampled tensor values must share the same shape",
         ):
-            simulator.run(n_episodes=1)
+            simulator.run(n_episodes=1, reset_observers=False)
 
     def test_tensor_series_observer_rejects_scalar_values(self) -> None:
         scalar_value_observer = TensorScalarValueObserver(
@@ -422,7 +418,7 @@ class ObserverTest(unittest.TestCase):
             ValueError,
             "require non-scalar",
         ):
-            simulator.run(n_episodes=1)
+            simulator.run(n_episodes=1, reset_observers=False)
 
     def test_tensor_series_observer_rejects_wrong_dimension_name_count(self) -> None:
         wrong_names_observer = TensorWrongDimensionNamesObserver(
@@ -443,7 +439,7 @@ class ObserverTest(unittest.TestCase):
             ValueError,
             "dimension_names must match",
         ):
-            simulator.run(n_episodes=1)
+            simulator.run(n_episodes=1, reset_observers=False)
 
     def test_indegree_observer_uses_directed_adjacency_matrix(self) -> None:
         indegree_observer = IndegreeObserver(
@@ -472,14 +468,14 @@ class ObserverTest(unittest.TestCase):
             observers=(indegree_observer,),
         )
 
-        simulator.run(n_episodes=1)
+        simulator.run(n_episodes=1, reset_observers=False)
 
         np.testing.assert_array_equal(
             indegree_observer.steps,
             np.array([0]),
         )
         np.testing.assert_allclose(
-            indegree_observer.average_indegrees,
+            indegree_observer.values,
             np.array([2.0 / 3.0], dtype=np.float32),
         )
 
@@ -498,10 +494,10 @@ class ObserverTest(unittest.TestCase):
             observers=(triad_observer,),
         )
 
-        simulator.run(n_episodes=1)
+        simulator.run(n_episodes=1, reset_observers=False)
 
         np.testing.assert_allclose(
-            triad_observer.triad_proportions,
+            triad_observer.values,
             np.zeros((1, len(TRIAD_TYPE_NAMES)), dtype=np.float32),
         )
 
@@ -529,14 +525,14 @@ class ObserverTest(unittest.TestCase):
             observers=(triad_observer,),
         )
 
-        simulator.run(n_episodes=1)
+        simulator.run(n_episodes=1, reset_observers=False)
 
         expected = np.zeros((2, len(TRIAD_TYPE_NAMES)), dtype=np.float32)
         expected[0, TRIAD_TYPE_NAMES.index("003")] = 1.0
         expected[1, TRIAD_TYPE_NAMES.index("012")] = 1.0
         np.testing.assert_array_equal(triad_observer.steps, np.array([0, 1]))
         self.assertEqual(triad_observer.dimension_names, TRIAD_TYPE_NAMES)
-        np.testing.assert_allclose(triad_observer.triad_proportions, expected)
+        np.testing.assert_allclose(triad_observer.values, expected)
 
     def test_triad_census_observer_ignores_types_outside_configured_subset(self) -> None:
         triad_observer = TriadCensusObserver(
@@ -565,10 +561,10 @@ class ObserverTest(unittest.TestCase):
             observers=(triad_observer,),
         )
 
-        simulator.run(n_episodes=1)
+        simulator.run(n_episodes=1, reset_observers=False)
 
         np.testing.assert_allclose(
-            triad_observer.triad_proportions,
+            triad_observer.values,
             np.zeros((1, len(TRIAD_TYPE_NAMES)), dtype=np.float32),
         )
 
@@ -587,11 +583,11 @@ class ObserverTest(unittest.TestCase):
             observers=(triad_observer,),
         )
 
-        simulator.run(n_episodes=1)
+        simulator.run(n_episodes=1, reset_observers=False)
 
         expected = np.zeros((1, len(TRIAD_TYPE_NAMES)), dtype=np.float32)
         expected[0, TRIAD_TYPE_NAMES.index("003")] = 1.0
-        np.testing.assert_allclose(triad_observer.triad_proportions, expected)
+        np.testing.assert_allclose(triad_observer.values, expected)
 
     def test_triad_census_observer_aggregates_vector_outputs(self) -> None:
         triad_observer = TriadCensusObserver(
@@ -617,7 +613,7 @@ class ObserverTest(unittest.TestCase):
             observers=(triad_observer,),
         )
 
-        simulator.run(n_episodes=2)
+        simulator.run(n_episodes=2, reset_observers=False)
 
         result = triad_observer.get()
         expected = np.zeros((2, len(TRIAD_TYPE_NAMES)), dtype=np.float32)
@@ -667,14 +663,14 @@ class ObserverTest(unittest.TestCase):
             observers=(distance_observer,),
         )
 
-        simulator.run(n_episodes=1)
+        simulator.run(n_episodes=1, reset_observers=False)
 
         np.testing.assert_array_equal(
             distance_observer.steps,
             np.array([0]),
         )
         np.testing.assert_allclose(
-            distance_observer.average_distances,
+            distance_observer.values,
             np.array([1.0], dtype=np.float32),
         )
 
@@ -708,11 +704,11 @@ class ObserverTest(unittest.TestCase):
             observers=(closeness_observer,),
         )
 
-        simulator.run(n_episodes=1)
+        simulator.run(n_episodes=1, reset_observers=False)
 
         np.testing.assert_array_equal(closeness_observer.steps, np.array([0]))
         np.testing.assert_allclose(
-            closeness_observer.global_closeness_centralities,
+            closeness_observer.values,
             np.array([2.0 / 3.0], dtype=np.float32),
         )
 
@@ -746,11 +742,11 @@ class ObserverTest(unittest.TestCase):
             observers=(dominance_observer,),
         )
 
-        simulator.run(n_episodes=1)
+        simulator.run(n_episodes=1, reset_observers=False)
 
         np.testing.assert_array_equal(dominance_observer.steps, np.array([0]))
         np.testing.assert_allclose(
-            dominance_observer.central_points_of_dominance,
+            dominance_observer.values,
             np.array([4.0 / 9.0], dtype=np.float32),
         )
 
@@ -784,11 +780,11 @@ class ObserverTest(unittest.TestCase):
             observers=(action_count_observer,),
         )
 
-        simulator.run(n_episodes=1)
+        simulator.run(n_episodes=1, reset_observers=False)
 
         np.testing.assert_array_equal(action_count_observer.steps, np.array([0, 1]))
         np.testing.assert_allclose(
-            action_count_observer.average_action_counts,
+            action_count_observer.values,
             np.array([0.0, 0.5], dtype=np.float32),
         )
 
@@ -835,11 +831,11 @@ class ObserverTest(unittest.TestCase):
             observers=(action_count_observer,),
         )
 
-        simulator.run(n_episodes=1)
+        simulator.run(n_episodes=1, reset_observers=False)
 
         np.testing.assert_array_equal(action_count_observer.steps, np.array([0, 1]))
         np.testing.assert_allclose(
-            action_count_observer.average_action_counts,
+            action_count_observer.values,
             np.array([0.0, 1.0], dtype=np.float32),
         )
 
@@ -871,7 +867,7 @@ class ObserverTest(unittest.TestCase):
             observers=(distance_observer,),
         )
 
-        simulator.run(n_episodes=2)
+        simulator.run(n_episodes=2, reset_observers=False)
 
         result = distance_observer.get()
 
@@ -919,7 +915,7 @@ class ObserverTest(unittest.TestCase):
             observers=(dominance_observer,),
         )
 
-        simulator.run(n_episodes=2)
+        simulator.run(n_episodes=2, reset_observers=False)
 
         result = dominance_observer.get()
 
@@ -984,14 +980,14 @@ class ObserverTest(unittest.TestCase):
             observers=(hub_persistence_observer,),
         )
 
-        simulator.run(n_episodes=1)
+        simulator.run(n_episodes=1, reset_observers=False)
 
         np.testing.assert_array_equal(
             hub_persistence_observer.steps,
             np.arange(3),
         )
         np.testing.assert_allclose(
-            hub_persistence_observer.hub_persistence_scores,
+            hub_persistence_observer.values,
             np.array([1.0 / 3.0, 1.0, np.nan], dtype=np.float32),
             equal_nan=True,
         )
@@ -1033,14 +1029,14 @@ class ObserverTest(unittest.TestCase):
             observers=(hub_persistence_observer,),
         )
 
-        simulator.run(n_episodes=1)
+        simulator.run(n_episodes=1, reset_observers=False)
 
         np.testing.assert_array_equal(
             hub_persistence_observer.steps,
             np.arange(20),
         )
         np.testing.assert_allclose(
-            hub_persistence_observer.hub_persistence_scores,
+            hub_persistence_observer.values,
             np.array([np.nan] * 9 + [1.0] + [np.nan] * 10, dtype=np.float32),
             equal_nan=True,
         )
@@ -1102,7 +1098,7 @@ class ObserverTest(unittest.TestCase):
             observers=(hub_persistence_observer,),
         )
 
-        simulator.run(n_episodes=2)
+        simulator.run(n_episodes=2, reset_observers=False)
 
         result = hub_persistence_observer.get()
 
@@ -1162,7 +1158,7 @@ class ObserverTest(unittest.TestCase):
             observers=(state_history_observer,),
         )
 
-        simulator.run(n_episodes=1)
+        simulator.run(n_episodes=1, reset_observers=False)
 
         np.testing.assert_array_equal(state_history_observer.steps, np.array([0, 1, 2]))
         self.assertEqual(len(state_history_observer.graphs), 3)
@@ -1193,11 +1189,11 @@ class ObserverTest(unittest.TestCase):
             observers=(density_observer, state_history_observer),
         )
 
-        simulator.run(n_episodes=1)
+        simulator.run(n_episodes=1, reset_observers=False)
 
         np.testing.assert_array_equal(density_observer.steps, np.array([0, 2, 4]))
         np.testing.assert_allclose(
-            density_observer.densities,
+            density_observer.values,
             np.array([0.0, 0.0, 0.0], dtype=np.float32),
         )
         np.testing.assert_array_equal(state_history_observer.steps, np.array([0, 2, 4]))
@@ -1221,7 +1217,7 @@ class ObserverTest(unittest.TestCase):
             observers=(density_observer,),
         )
 
-        simulator.run(n_episodes=2)
+        simulator.run(n_episodes=2, reset_observers=False)
 
         result = density_observer.get()
 
@@ -1257,7 +1253,7 @@ class ObserverTest(unittest.TestCase):
             observers=(density_observer,),
         )
 
-        simulator.run(n_episodes=2)
+        simulator.run(n_episodes=2, reset_observers=False)
 
         result = density_observer.get()
 
@@ -1285,7 +1281,7 @@ class ObserverTest(unittest.TestCase):
             observers=(density_observer,),
         )
 
-        simulator.run(n_episodes=2)
+        simulator.run(n_episodes=2, reset_observers=False)
 
         result = density_observer.get()
 
@@ -1318,11 +1314,11 @@ class ObserverTest(unittest.TestCase):
             stagnation_patience=1,
         )
 
-        simulator.run(n_episodes=1)
+        simulator.run(n_episodes=1, reset_observers=False)
 
         np.testing.assert_array_equal(density_observer.steps, np.array([0, 2, 4]))
         np.testing.assert_allclose(
-            density_observer.densities,
+            density_observer.values,
             np.array([0.0, 0.0, 0.0], dtype=np.float32),
         )
         np.testing.assert_array_equal(state_history_observer.steps, np.array([0, 2, 4]))

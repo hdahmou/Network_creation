@@ -295,7 +295,7 @@ class MyopicPayoffPolicyTest(unittest.TestCase):
             observers=(),
         )
 
-        simulator.run(n_episodes=1)
+        simulator.run(n_episodes=1, reset_observers=False)
 
         self.assertIn((0, 2), simulator.env.state.graph.get_edgelist())
 

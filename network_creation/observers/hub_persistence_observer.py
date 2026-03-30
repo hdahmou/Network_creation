@@ -74,10 +74,6 @@ class HubPersistenceObserver(EpisodeSeriesStatisticObserver):
         self._hub_node_ids_by_state: list[set[int]] = []
         super()._reset_episode_state()
 
-    @property
-    def hub_persistence_scores(self) -> NDArray[np.float32]:
-        return self.values
-
     def _start_episode(self, event: EpisodeStartEvent) -> None:
         n_slots = 1 + event.max_steps
         self.n_observations = 1

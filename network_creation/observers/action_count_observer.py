@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import numpy as np
-from numpy.typing import NDArray
 
 from network_creation.core.model import ActionType
 from network_creation.core.observability import (
@@ -31,10 +30,6 @@ class ActionCountObserver(EpisodeSeriesStatisticObserver):
     def _start_episode(self, event: EpisodeStartEvent) -> None:
         self._n_agents = event.n_agents
         super()._start_episode(event)
-
-    @property
-    def average_action_counts(self) -> NDArray[np.float32]:
-        return self.values
 
     def compute_initial_value(self, event: EpisodeStartEvent) -> float:
         del event

@@ -239,7 +239,7 @@ def run_choi_2020_replay_batch(
             observers=observers,
             max_steps=max_steps,
         )
-        simulator.run(n_episodes=1)
+        simulator.run(n_episodes=1, reset_observers=False)
 
 
 def _get_group_size(csv_path: Path) -> int:

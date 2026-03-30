@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import igraph as ig
 import numpy as np
-from numpy.typing import NDArray
 
 from network_creation.core.observability import EpisodeStartEvent, StepEvent
 from network_creation.observers.statistics.episode_series import (
@@ -24,10 +23,6 @@ class DensityObserver(EpisodeSeriesStatisticObserver):
     y_label = "density"
     y_min = 0.0
     y_max = None
-
-    @property
-    def densities(self) -> NDArray[np.float32]:
-        return self.values
 
     def compute_initial_value(self, event: EpisodeStartEvent) -> float:
         return compute_density(event.initial_state.graph)

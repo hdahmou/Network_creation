@@ -57,7 +57,13 @@ class Simulator:
             return (self.agents[step % self.n_agents],)
         return self.agents
 
-    def run(self, n_episodes: int) -> None:
+    def run(self, n_episodes: int, *, reset_observers: bool) -> None:
+        """Run a batch of episodes, optionally clearing observer state first."""
+
+        if reset_observers:
+            for observer in self.observers:
+                observer.reset()
+
         for _ in range(n_episodes):
             episode_index = self.n_completed_episodes
             self._run_one_episode(episode_index)

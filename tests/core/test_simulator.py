@@ -208,7 +208,7 @@ class SimulatorTest(unittest.TestCase):
             observers=(observer,),
         )
 
-        simulator.run(n_episodes=1)
+        simulator.run(n_episodes=1, reset_observers=False)
 
         assert observer.episode_end_event is not None
         self.assertEqual(observer.episode_end_event.current_step, 2)
@@ -244,7 +244,7 @@ class SimulatorTest(unittest.TestCase):
             observers=(),
         )
 
-        simulator.run(n_episodes=1)
+        simulator.run(n_episodes=1, reset_observers=False)
 
         self.assertEqual(add_or_pass_policy.observed_node_names, [[0, 1]])
         self.assertEqual(sorted(simulator.env.state.graph.get_edgelist()), [(0, 1), (1, 2)])
@@ -275,7 +275,7 @@ class SimulatorTest(unittest.TestCase):
             observers=(),
         )
 
-        simulator.run(n_episodes=1)
+        simulator.run(n_episodes=1, reset_observers=False)
 
         self.assertEqual(sorted(simulator.env.state.graph.get_edgelist()), [(0, 1), (0, 2)])
 
@@ -295,7 +295,7 @@ class SimulatorTest(unittest.TestCase):
             observers=(),
         )
 
-        simulator.run(n_episodes=1)
+        simulator.run(n_episodes=1, reset_observers=False)
         simulator.reset()
 
         self.assertEqual(left_policy.reset_calls, 2)
@@ -321,8 +321,8 @@ class SimulatorTest(unittest.TestCase):
             observers=(observer,),
         )
 
-        simulator.run(n_episodes=2)
-        simulator.run(n_episodes=1)
+        simulator.run(n_episodes=2, reset_observers=False)
+        simulator.run(n_episodes=1, reset_observers=False)
 
         self.assertEqual(simulator.n_completed_episodes, 3)
         self.assertEqual(len(left_policy.reset_seeds), 3)
@@ -337,6 +337,34 @@ class SimulatorTest(unittest.TestCase):
         self.assertEqual(
             len({event.seed for event in observer.episode_start_events}),
             3,
+        )
+
+    def test_run_can_reset_observers_before_collecting_new_batch(self) -> None:
+        observer = BatchRecordingObserver()
+        env = Environment(create_empty_graph(2), seed=152)
+        simulator = Simulator(
+            env=env,
+            agents=(
+                Agent(id=0, radius=1, policy=ConstantPolicy(Action(ActionType.PASS, source=0)), seed=153),
+                Agent(id=1, radius=1, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=154),
+            ),
+            mode=SchedulingMode.SEQUENTIAL,
+            max_steps=1,
+            rng=np.random.default_rng(155),
+            observers=(observer,),
+        )
+
+        simulator.run(n_episodes=2, reset_observers=False)
+        simulator.run(n_episodes=1, reset_observers=True)
+
+        self.assertEqual(simulator.n_completed_episodes, 3)
+        self.assertEqual(
+            [event.episode_index for event in observer.episode_start_events],
+            [2],
+        )
+        self.assertEqual(
+            [event.episode_index for event in observer.episode_end_events],
+            [2],
         )
 
     def test_run_starts_from_a_fresh_reset_state(self) -> None:
@@ -355,7 +383,7 @@ class SimulatorTest(unittest.TestCase):
         )
 
         env.step([Action(ActionType.BRIDGE, source=0, target=1)])
-        simulator.run(n_episodes=1)
+        simulator.run(n_episodes=1, reset_observers=False)
 
         assert observer.episode_start_event is not None
         self.assertEqual(observer.episode_start_event.initial_state.graph.ecount(), 0)
@@ -380,7 +408,7 @@ class SimulatorTest(unittest.TestCase):
             observers=(observer,),
         )
 
-        simulator.run(n_episodes=1)
+        simulator.run(n_episodes=1, reset_observers=False)
 
         self.assertIsNotNone(observer.episode_start_event)
         self.assertIsNotNone(observer.episode_end_event)
@@ -435,7 +463,7 @@ class SimulatorTest(unittest.TestCase):
             observers=(observer,),
         )
 
-        simulator.run(n_episodes=1)
+        simulator.run(n_episodes=1, reset_observers=False)
 
         step_event = observer.step_events[0]
         self.assertIsNot(step_event.post_state.graph, simulator.env.state.graph)
@@ -484,7 +512,7 @@ class SimulatorTest(unittest.TestCase):
             stagnation_patience=2,
         )
 
-        simulator.run(n_episodes=1)
+        simulator.run(n_episodes=1, reset_observers=False)
 
         self.assertEqual(left_policy.get_decision_calls, 1)
         self.assertEqual(right_policy.get_decision_calls, 1)
@@ -549,7 +577,7 @@ class SimulatorTest(unittest.TestCase):
             stagnation_patience=2,
         )
 
-        simulator.run(n_episodes=1)
+        simulator.run(n_episodes=1, reset_observers=False)
 
         self.assertEqual(left_policy.get_decision_calls, 3)
         self.assertEqual(right_policy.get_decision_calls, 2)

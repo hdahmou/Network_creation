@@ -55,10 +55,6 @@ class TriadCensusObserver(EpisodeSeriesTensorStatisticObserver):
     def triad_type_names(self) -> tuple[str, ...]:
         return TRIAD_TYPE_NAMES
 
-    @property
-    def triad_proportions(self) -> NDArray[np.float32]:
-        return self.values
-
     def compute_initial_value(self, event: EpisodeStartEvent) -> NDArray[np.float32]:
         return _compute_triad_proportions(event.initial_state.graph)
 

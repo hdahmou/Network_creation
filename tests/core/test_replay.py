@@ -439,7 +439,7 @@ class ReplayTest(unittest.TestCase):
                 observers=(),
                 max_steps=1,
             )
-            simulator.run(n_episodes=1)
+            simulator.run(n_episodes=1, reset_observers=False)
 
         self.assertEqual(simulator.env.state.graph.get_edgelist(), [])
 
@@ -644,7 +644,7 @@ class ReplayTest(unittest.TestCase):
                 observers=(),
                 max_steps=2,
             )
-            simulator.run(n_episodes=1)
+            simulator.run(n_episodes=1, reset_observers=False)
 
         self.assertEqual(simulator.mode, SchedulingMode.SIMULTANEOUS)
         self.assertEqual(simulator.max_steps, 2)
@@ -685,7 +685,7 @@ class ReplayTest(unittest.TestCase):
                 observers=(observer,),
                 max_steps=3,
             )
-            simulator.run(n_episodes=1)
+            simulator.run(n_episodes=1, reset_observers=False)
 
         self.assertEqual(simulator.max_steps, 3)
         self.assertEqual(
@@ -743,7 +743,7 @@ class ReplayTest(unittest.TestCase):
                 observers=(observer,),
                 max_steps=3,
             )
-            simulator.run(n_episodes=1)
+            simulator.run(n_episodes=1, reset_observers=False)
 
         self.assertIsNone(simulator.stagnation_patience)
         self.assertEqual(

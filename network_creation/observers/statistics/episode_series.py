@@ -66,3 +66,13 @@ class EpisodeSeriesStatisticObserver(EpisodeStatisticObserver):
     @property
     def values(self) -> NDArray[np.float32]:
         return self._episode_values[: self.n_observations]
+
+    @classmethod
+    def fixed_output_shape(
+        cls,
+        *,
+        max_steps: int,
+        observation_frequency: int,
+    ) -> tuple[int, ...]:
+        del cls
+        return (1 + max_steps // observation_frequency,)

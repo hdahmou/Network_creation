@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import Any
 
 import numpy as np
 from numpy.typing import NDArray
@@ -97,6 +98,20 @@ class EpisodeStatisticObserver(SimulationObserver, ABC):
     def _get_result_dimension_names(self) -> tuple[str, ...] | None:
         """Return flattened scalar labels for exported results, if any."""
         return None
+
+    @classmethod
+    def fixed_output_shape(
+        cls,
+        *,
+        max_steps: int,
+        observation_frequency: int,
+    ) -> tuple[int, ...]:
+        raise TypeError(f"observer {cls.__name__!r} does not define a fixed output shape")
+
+    @classmethod
+    def fixed_output_dtype(cls) -> np.dtype[Any]:
+        del cls
+        return np.dtype(np.float32)
 
     @abstractmethod
     def _get_episode_values(self, event: EpisodeEndEvent) -> NDArray[np.float32]:

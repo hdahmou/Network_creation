@@ -1,0 +1,47 @@
+{
+  "scheduler_address": "tcp://127.0.0.1:8786",
+  "task_class": "tasks.random_policy:randomPolicyRun",
+  "write_batch_size": 4,
+  "input_spec": {
+    "log2_budget": 0,
+    "sampler_seed": 123,
+    "parameters": {}
+  },
+  "simulation": {
+    "n_agents": 4,
+    "radius": 2,
+    "mode": "SIMULTANEOUS",
+    "seed": 11,
+    "max_steps": 5,
+    "n_episodes": 3,
+    "stagnation_patience": null,
+    "initial_graph": {
+      "kind": "empty"
+    }
+  },
+  "observers": [
+    {
+      "name": "density",
+      "output": "mean",
+      "kwargs": {
+        "observation_frequency": 1,
+        "aggregations": [
+          "mean"
+        ]
+      }
+    },
+    {
+      "name": "social_welfare",
+      "output": "mean",
+      "kwargs": {
+        "observation_frequency": 1,
+        "aggregations": [
+          "mean"
+        ],
+        "link_cost": 1.0,
+        "decay": 0.5,
+        "per_link_benefit": 10.0
+      }
+    }
+  ]
+}

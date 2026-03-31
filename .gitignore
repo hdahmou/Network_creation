@@ -14,3 +14,7 @@ wheels/
 
 # Data that I don't own
 data/choi_2020
+
+# Generated run artifacts
+artifacts/*
+!artifacts/.gitkeep

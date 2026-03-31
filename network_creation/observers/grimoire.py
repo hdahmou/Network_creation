@@ -1,4 +1,6 @@
-"""Public observer exports."""
+"""Canonical observer name-to-class mapping."""
+
+from __future__ import annotations
 
 from .action_count_observer import ActionCountObserver
 from .action_print_observer import ActionPrintObserver
@@ -14,16 +16,20 @@ from .social_welfare_observer import SocialWelfareObserver
 from .state_history_observer import StateHistoryObserver
 from .triad_census_observer import TriadCensusObserver
 
-__all__ = [
-    "ActionCountObserver",
-    "ActionPrintObserver",
-    "CentralPointOfDominanceObserver",
-    "DensityObserver",
-    "DistanceObserver",
-    "GlobalClosenessCentralityObserver",
-    "HubPersistenceObserver",
-    "IndegreeObserver",
-    "SocialWelfareObserver",
-    "StateHistoryObserver",
-    "TriadCensusObserver",
-]
+
+OBSERVER_GRIMOIRE = {
+    "action_count": ActionCountObserver,
+    "action_print": ActionPrintObserver,
+    "central_point_of_dominance": CentralPointOfDominanceObserver,
+    "density": DensityObserver,
+    "distance": DistanceObserver,
+    "global_closeness_centrality": GlobalClosenessCentralityObserver,
+    "hub_persistence": HubPersistenceObserver,
+    "indegree": IndegreeObserver,
+    "social_welfare": SocialWelfareObserver,
+    "state_history": StateHistoryObserver,
+    "triad_census": TriadCensusObserver,
+}
+
+
+__all__ = ["OBSERVER_GRIMOIRE"]

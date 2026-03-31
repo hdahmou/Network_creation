@@ -8,12 +8,14 @@ authors = [
 ]
 requires-python = ">=3.13"
 dependencies = [
+    "dasklite",
     "igraph>=1.0.0",
     "mypy>=1.19.1",
     "netgraph>=4.13.2",
     "notebook>=6.4.12",
     "numpy>=2.0.0",
     "pytest>=9.0.2",
+    "scipy>=1.17.1",
     "sbi>=0.25.0",
     "scienceplots>=2.2.1",
 ]
@@ -24,3 +26,6 @@ python_version = "3.13"
 [[tool.mypy.overrides]]
 module = ["igraph"]
 ignore_missing_imports = true
+
+[tool.uv.sources]
+dasklite = { path = "../mini_projects/dasklite", editable = true }

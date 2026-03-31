@@ -24,6 +24,16 @@ class EpisodeScalarStatisticObserver(EpisodeStatisticObserver):
     def _get_episode_values(self, event: EpisodeEndEvent) -> NDArray[np.float32]:
         return np.array([self.compute_terminal_value(event)], dtype=np.float32)
 
+    @classmethod
+    def fixed_output_shape(
+        cls,
+        *,
+        max_steps: int,
+        observation_frequency: int,
+    ) -> tuple[int, ...]:
+        del cls, max_steps, observation_frequency
+        return (1,)
+
     @abstractmethod
     def compute_terminal_value(self, event: EpisodeEndEvent) -> float:
         """Compute the final episode value."""

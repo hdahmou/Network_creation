@@ -104,3 +104,14 @@ class EpisodeSeriesTensorStatisticObserver(EpisodeStatisticObserver):
     @property
     def values(self) -> NDArray[np.float32]:
         return self._episode_values[: self.n_observations]
+
+    @classmethod
+    def fixed_output_shape(
+        cls,
+        *,
+        max_steps: int,
+        observation_frequency: int,
+    ) -> tuple[int, ...]:
+        if not getattr(cls, "dimension_names", ()):
+            raise ValueError(f"observer {cls.__name__!r} must define dimension_names")
+        return (1 + max_steps // observation_frequency, len(tuple(cls.dimension_names)))

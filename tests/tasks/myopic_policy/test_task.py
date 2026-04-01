@@ -6,7 +6,7 @@ import unittest
 
 import numpy as np
 
-from tasks.policies.myopic_policy import myopicPolicyRun
+from tasks.policies.myopic_policy import MyopicPolicyRun
 
 
 class MyopicPolicyTaskTest(unittest.TestCase):
@@ -57,7 +57,7 @@ class MyopicPolicyTaskTest(unittest.TestCase):
         }
 
     def test_prepare_builds_structured_output_schema_and_run_returns_arrays(self) -> None:
-        task = myopicPolicyRun()
+        task = MyopicPolicyRun()
         prepared = task.prepare(self._base_config())
 
         self.assertEqual(
@@ -82,7 +82,7 @@ class MyopicPolicyTaskTest(unittest.TestCase):
         self.assertEqual(output["social_welfare.mean"].dtype, np.float32)
 
     def test_prepared_run_is_deterministic_for_fixed_seed(self) -> None:
-        prepared = myopicPolicyRun().prepare(self._base_config())
+        prepared = MyopicPolicyRun().prepare(self._base_config())
 
         first = prepared.run(prepared.inputs[0])
         second = prepared.run(prepared.inputs[0])
@@ -106,7 +106,7 @@ class MyopicPolicyTaskTest(unittest.TestCase):
                 },
             },
         }
-        prepared = myopicPolicyRun().prepare(config)
+        prepared = MyopicPolicyRun().prepare(config)
         self.assertEqual(prepared.inputs, (0, 1))
 
         no_bridge_output = prepared.run(prepared.inputs[0])
@@ -136,7 +136,7 @@ class MyopicPolicyTaskTest(unittest.TestCase):
                 },
             },
         ]
-        prepared = myopicPolicyRun().prepare(config)
+        prepared = MyopicPolicyRun().prepare(config)
 
         self.assertEqual(
             prepared.output_schema.metadata(),

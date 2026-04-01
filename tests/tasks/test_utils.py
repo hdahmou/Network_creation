@@ -54,7 +54,7 @@ class TaskUtilsTest(unittest.TestCase):
             attrs={
                 "schema_version": 2,
                 "task_name": "myopic-policy",
-                "task_class": "tasks.policies.myopic_policy:myopicPolicyRun",
+                "task_class": "tasks.policies.myopic_policy:MyopicPolicyRun",
                 "output_schema": output_schema,
                 "total_inputs": 3,
             },
@@ -81,7 +81,7 @@ class TaskUtilsTest(unittest.TestCase):
         self.assertEqual(result["task_name"], "myopic-policy")
         self.assertEqual(
             result["task_class"],
-            "tasks.policies.myopic_policy:myopicPolicyRun",
+            "tasks.policies.myopic_policy:MyopicPolicyRun",
         )
         self.assertEqual(result["output_schema"], output_schema)
         self.assertEqual(result["total_inputs"], 3)

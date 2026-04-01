@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import numpy as np
 from numpy.typing import NDArray
@@ -19,6 +20,7 @@ from .utils import (
 )
 
 if TYPE_CHECKING:
+    from .formatted_results import PolicyFormattedResults
     from network_creation.core.runtime import SimulationSettings
     from network_creation.policies.base import Policy
 
@@ -26,6 +28,7 @@ if TYPE_CHECKING:
 class PolicyRun(ABC):
     """Shared task lifecycle for simulation runs parameterized by a policy builder."""
 
+    name: ClassVar[str]
     simulation_settings: SimulationSettings
     observer_specs: tuple[ObserverSpec, ...]
     parameter_table: ParameterTable
@@ -88,3 +91,8 @@ class PolicyRun(ABC):
     @abstractmethod
     def build_policy(self, node_id: int, sample: NDArray[np.float32]) -> Policy:
         """Construct one policy instance for one agent from the sampled row."""
+
+    @classmethod
+    @abstractmethod
+    def from_zarr(cls, zarr_path: str | Path) -> PolicyFormattedResults:
+        """Load notebook-facing formatted results from a result store."""

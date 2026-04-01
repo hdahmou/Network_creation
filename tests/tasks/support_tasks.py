@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import numpy as np
 
@@ -20,7 +20,7 @@ def _load_int_inputs(inputs_json: str) -> list[int]:
 
 @register_task
 class VectorTask:
-    name = "vector"
+    name: ClassVar[str] = "vector"
 
     def prepare(self, config: Mapping[str, Any]) -> PreparedTask[int]:
         inputs_json = str(config["inputs_json"])
@@ -39,7 +39,7 @@ class VectorTask:
 
 @register_task
 class RuntimeFailureTask(VectorTask):
-    name = "runtime_failure"
+    name: ClassVar[str] = "runtime_failure"
 
     def run(self, task_input: int) -> dict[str, np.ndarray[Any, Any]]:
         if task_input < 0:
@@ -49,7 +49,7 @@ class RuntimeFailureTask(VectorTask):
 
 @register_task
 class StructuredTask:
-    name = "structured"
+    name: ClassVar[str] = "structured"
 
     def prepare(self, config: Mapping[str, Any]) -> PreparedTask[int]:
         inputs_json = str(config["inputs_json"])
@@ -74,7 +74,7 @@ class StructuredTask:
 
 @register_task
 class GeneratedTask:
-    name = "generated"
+    name: ClassVar[str] = "generated"
 
     def prepare(self, config: Mapping[str, Any]) -> PreparedTask[int]:
         raw_spec = config["input_spec"]

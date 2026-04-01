@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from tasks.policies.random_policy import randomPolicyRun
+from tasks.policies.random_policy import RandomPolicyRun
 
 
 class RandomPolicyPreparationTest(unittest.TestCase):
@@ -39,7 +39,7 @@ class RandomPolicyPreparationTest(unittest.TestCase):
         }
 
     def test_prepare_generates_singleton_row_index_input(self) -> None:
-        task = randomPolicyRun()
+        task = RandomPolicyRun()
         prepared = task.prepare(self._base_config())
 
         self.assertEqual(prepared.inputs, (0,))
@@ -55,7 +55,7 @@ class RandomPolicyPreparationTest(unittest.TestCase):
         }
 
         with self.assertRaisesRegex(ValueError, "parameters"):
-            randomPolicyRun().prepare(config)
+            RandomPolicyRun().prepare(config)
 
     def test_prepare_rejects_non_singleton_budget(self) -> None:
         config = self._base_config()
@@ -66,4 +66,4 @@ class RandomPolicyPreparationTest(unittest.TestCase):
         }
 
         with self.assertRaisesRegex(ValueError, "log2_budget"):
-            randomPolicyRun().prepare(config)
+            RandomPolicyRun().prepare(config)

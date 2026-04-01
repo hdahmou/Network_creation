@@ -6,7 +6,7 @@ import unittest
 
 import numpy as np
 
-from tasks.policies.random_policy import randomPolicyRun
+from tasks.policies.random_policy import RandomPolicyRun
 
 
 class RandomPolicyTaskTest(unittest.TestCase):
@@ -52,7 +52,7 @@ class RandomPolicyTaskTest(unittest.TestCase):
         }
 
     def test_prepare_builds_structured_output_schema_and_run_returns_arrays(self) -> None:
-        task = randomPolicyRun()
+        task = RandomPolicyRun()
         prepared = task.prepare(self._base_config())
 
         self.assertEqual(
@@ -75,7 +75,7 @@ class RandomPolicyTaskTest(unittest.TestCase):
         self.assertEqual(output["social_welfare.mean"].dtype, np.float32)
 
     def test_prepared_run_is_deterministic_for_fixed_seed(self) -> None:
-        prepared = randomPolicyRun().prepare(self._base_config())
+        prepared = RandomPolicyRun().prepare(self._base_config())
 
         first = prepared.run(prepared.inputs[0])
         second = prepared.run(prepared.inputs[0])
@@ -104,7 +104,7 @@ class RandomPolicyTaskTest(unittest.TestCase):
                 },
             },
         ]
-        prepared = randomPolicyRun().prepare(config)
+        prepared = RandomPolicyRun().prepare(config)
 
         self.assertEqual(
             prepared.output_schema.metadata(),
@@ -118,7 +118,7 @@ class RandomPolicyTaskTest(unittest.TestCase):
         self.assertEqual(output["triad_census.mean"].shape, (4, 7))
 
     def test_run_rejects_non_singleton_sample_idx(self) -> None:
-        prepared = randomPolicyRun().prepare(self._base_config())
+        prepared = RandomPolicyRun().prepare(self._base_config())
 
         with self.assertRaisesRegex(ValueError, "sample_idx"):
             prepared.run(1)

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from importlib import import_module
-from typing import Any
+from typing import Any, cast
 
 from .runtime import Task
 
@@ -14,8 +14,9 @@ DEFAULT_TASK_MODULES = (
     "tasks.policies.random_policy",
 )
 
-
-def register_task(task_class: type[Task[Any]]) -> type[Task[Any]]:
+def register_task[TTask: Task[Any]](
+    task_class: type[TTask],
+) -> type[TTask]:
     name = getattr(task_class, "name", None)
     if not isinstance(name, str) or not name:
         raise ValueError("registered task class must define a non-empty name")
@@ -24,7 +25,7 @@ def register_task(task_class: type[Task[Any]]) -> type[Task[Any]]:
     if existing is not None and existing is not task_class:
         raise ValueError(f"task {name!r} already registered")
 
-    TASK_REGISTRY[name] = task_class
+    TASK_REGISTRY[name] = cast(type[Task[Any]], task_class)
     return task_class
 
 

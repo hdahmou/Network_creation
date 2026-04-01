@@ -6,7 +6,7 @@ import unittest
 
 import numpy as np
 
-from tasks.random_policy import randomPolicyRun
+from tasks.policies.random_policy import randomPolicyRun
 
 
 class RandomPolicyTaskTest(unittest.TestCase):

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from tasks.random_policy import randomPolicyRun
+from tasks.policies.random_policy import randomPolicyRun
 
 
 class RandomPolicyPreparationTest(unittest.TestCase):

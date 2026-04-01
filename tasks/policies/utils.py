@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 from numpy.typing import NDArray
-from dasklite.base_task import OutputField
+from ..dispatch.runtime import OutputField
 from network_creation.core.model import SchedulingMode
 
 if TYPE_CHECKING:

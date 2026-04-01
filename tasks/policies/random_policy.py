@@ -1,4 +1,4 @@
-"""Concrete dasklite task for random-policy baseline runs."""
+"""Concrete task for random-policy baseline runs."""
 
 from __future__ import annotations
 
@@ -6,10 +6,13 @@ from collections.abc import Mapping
 from typing import cast
 
 from numpy.typing import NDArray
+from ..dispatch.registry import register_task
 from network_creation.policies.random import RandomPolicy
-from tasks.policy_run import PolicyRun
+
+from .policy_run import PolicyRun
 
 
+@register_task
 class randomPolicyRun(PolicyRun):
     name = "random-policy"
 

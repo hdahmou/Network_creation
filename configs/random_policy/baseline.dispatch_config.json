@@ -1,6 +1,7 @@
 {
   "scheduler_address": "tcp://127.0.0.1:8786",
-  "task_class": "tasks.random_policy:randomPolicyRun",
+  "task": "random-policy",
+  "output_dir": "../../artifacts/random_policy",
   "write_batch_size": 4,
   "input_spec": {
     "log2_budget": 0,

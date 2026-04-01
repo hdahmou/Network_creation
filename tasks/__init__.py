@@ -1,1 +1,1 @@
-"""Dask task package for network-creation experiments."""
+"""Task package split into dispatch infrastructure and concrete policy tasks."""

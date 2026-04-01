@@ -12,7 +12,8 @@ authors = [
 ]
 requires-python = ">=3.13"
 dependencies = [
-    "dasklite",
+    "dask==2026.3.0",
+    "distributed==2026.3.0",
     "igraph>=1.0.0",
     "mypy>=1.19.1",
     "netgraph>=4.13.2",
@@ -22,7 +23,11 @@ dependencies = [
     "scipy>=1.17.1",
     "sbi>=0.25.0",
     "scienceplots>=2.2.1",
+    "zarr==3.1.5",
 ]
+
+[project.scripts]
+network-creation-dispatcher = "tasks.dispatch:main"
 
 [tool.setuptools.packages.find]
 include = ["network_creation*", "tasks*"]
@@ -33,6 +38,3 @@ python_version = "3.13"
 [[tool.mypy.overrides]]
 module = ["igraph"]
 ignore_missing_imports = true
-
-[tool.uv.sources]
-dasklite = { path = "../mini_projects/dasklite", editable = true }

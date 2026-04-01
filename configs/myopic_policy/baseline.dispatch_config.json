@@ -1,9 +1,10 @@
 {
   "scheduler_address": "tcp://127.0.0.1:8786",
-  "task_class": "tasks.myopic_policy:myopicPolicyRun",
+  "task": "myopic-policy",
+  "output_dir": "../../artifacts/myopic_policy",
   "write_batch_size": 4,
   "input_spec": {
-    "log2_budget": 7,
+    "log2_budget": 3,
     "sampler_seed": 123,
     "parameters": {
       "link_cost": 20,

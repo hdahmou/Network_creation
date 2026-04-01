@@ -1,14 +1,17 @@
-"""Concrete dasklite task for myopic-policy simulation sweeps."""
+"""Concrete task for myopic-policy simulation sweeps."""
 
 from __future__ import annotations
 
 import numpy as np
 from numpy.typing import NDArray
 
+from ..dispatch.registry import register_task
 from network_creation.policies.myopic_payoff import MyopicPayoffPolicy
-from tasks.policy_run import PolicyRun
+
+from .policy_run import PolicyRun
 
 
+@register_task
 class myopicPolicyRun(PolicyRun):
     name = "myopic-policy"
 

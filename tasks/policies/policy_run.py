@@ -1,4 +1,4 @@
-"""Shared Dask task template for policy-driven simulation runs."""
+"""Shared task template for policy-driven simulation runs."""
 
 from __future__ import annotations
 
@@ -8,8 +8,9 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 from numpy.typing import NDArray
-from dasklite.base_task import BaseTask, OutputSchema, PreparedTask
-from tasks.utils import (
+from ..dispatch.runtime import OutputSchema, PreparedTask
+
+from .utils import (
     ObserverSpec,
     ParameterTable,
     generate_parameter_table,
@@ -22,7 +23,7 @@ if TYPE_CHECKING:
     from network_creation.policies.base import Policy
 
 
-class PolicyRun(BaseTask[int], ABC):
+class PolicyRun(ABC):
     """Shared task lifecycle for simulation runs parameterized by a policy builder."""
 
     simulation_settings: SimulationSettings

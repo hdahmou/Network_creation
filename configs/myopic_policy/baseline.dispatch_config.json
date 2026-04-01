@@ -3,7 +3,7 @@
   "task_class": "tasks.myopic_policy:myopicPolicyRun",
   "write_batch_size": 4,
   "input_spec": {
-    "log2_budget": 4,
+    "log2_budget": 7,
     "sampler_seed": 123,
     "parameters": {
       "link_cost": 20,
@@ -20,11 +20,11 @@
   },
   "simulation": {
     "n_agents": 10,
-    "radius": 2,
+    "radius": 10,
     "mode": "SIMULTANEOUS",
     "seed": 11,
     "max_steps": 360,
-    "n_episodes": 30,
+    "n_episodes": 32,
     "stagnation_patience": null,
     "initial_graph": {
       "kind": "empty"

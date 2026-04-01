@@ -17,4 +17,5 @@ data/choi_2020
 
 # Generated run artifacts
 artifacts/*
+*zarr
 !artifacts/.gitkeep

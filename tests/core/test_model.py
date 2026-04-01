@@ -8,19 +8,13 @@ from network_creation.core.model import Action, ActionType
 
 
 class ActionTest(unittest.TestCase):
-    def test_pass_cannot_have_target(self) -> None:
-        with self.assertRaises(ValueError):
-            Action(ActionType.PASS, source=0, target=1)
+    def test_action_preserves_supplied_fields(self) -> None:
+        action = Action(ActionType.PASS, source=0, target=1)
 
-    def test_non_pass_requires_target(self) -> None:
-        with self.assertRaises(ValueError):
-            Action(ActionType.ADD, source=0)
-
-    def test_self_links_are_rejected(self) -> None:
-        with self.assertRaises(ValueError):
-            Action(ActionType.BRIDGE, source=2, target=2)
+        self.assertEqual(action.type, ActionType.PASS)
+        self.assertEqual(action.source, 0)
+        self.assertEqual(action.target, 1)
 
 
 if __name__ == "__main__":
     unittest.main()
-

@@ -49,51 +49,40 @@ def build_observation_from_state(
 def get_action_space(observation: Observation) -> ActionSpace:
     """Build a structured action space from one node observation."""
 
-    visible_node_ids = np.asarray(observation.graph.vs["name"], dtype=np.int_)
-    source_subgraph_idx = observation.graph.vs.find(name=observation.node_id).index
-    neighbor_node_ids = np.unique(
-        visible_node_ids[
-            np.asarray(
-                observation.graph.neighbors(source_subgraph_idx, mode="all"),
-                dtype=np.int_,
+    visible_node_ids = tuple(observation.graph.vs["name"])
+    source_subgraph_idx = visible_node_ids.index(observation.node_id)
+    neighbor_node_ids = {
+        visible_node_ids[subgraph_idx]
+        for subgraph_idx in observation.graph.neighbors(source_subgraph_idx, mode="all")
+    }
+    delete_node_ids = sorted(
+        {
+            visible_node_ids[subgraph_idx]
+            for subgraph_idx in observation.graph.neighbors(
+                source_subgraph_idx,
+                mode="out",
             )
-        ]
+        }
     )
-    delete_node_ids = np.unique(
-        visible_node_ids[
-            np.asarray(
-                observation.graph.neighbors(source_subgraph_idx, mode="out"),
-                dtype=np.int_,
-            )
-        ]
+    add_node_ids = sorted(
+        node_id
+        for node_id in visible_node_ids
+        if node_id != observation.node_id and node_id not in neighbor_node_ids
     )
-    add_node_ids = np.setdiff1d(
-        visible_node_ids[visible_node_ids != observation.node_id],
-        neighbor_node_ids,
-        assume_unique=True,
-    )
-    bridge_node_ids = np.setdiff1d(
-        observation.outside_node_ids,
-        neighbor_node_ids,
-        assume_unique=True,
-    )
+    bridge_node_ids = tuple(int(node_id) for node_id in observation.outside_node_ids)
 
     return ActionSpace(
         actions={
             ActionType.ADD: [
-                Action(ActionType.ADD, source=observation.node_id, target=int(node_id))
+                Action(ActionType.ADD, source=observation.node_id, target=node_id)
                 for node_id in add_node_ids
             ],
             ActionType.BRIDGE: [
-                Action(
-                    ActionType.BRIDGE, source=observation.node_id, target=int(node_id)
-                )
+                Action(ActionType.BRIDGE, source=observation.node_id, target=node_id)
                 for node_id in bridge_node_ids
             ],
             ActionType.DELETE: [
-                Action(
-                    ActionType.DELETE, source=observation.node_id, target=int(node_id)
-                )
+                Action(ActionType.DELETE, source=observation.node_id, target=node_id)
                 for node_id in delete_node_ids
             ],
             ActionType.PASS: [Action(ActionType.PASS, source=observation.node_id)],

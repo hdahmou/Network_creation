@@ -4,13 +4,11 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 from numpy.typing import NDArray
 from dasklite.base_task import BaseTask, OutputSchema, PreparedTask
-from network_creation.core.runtime import SimulationSettings, create_simulation_runtime
-from network_creation.policies.base import Policy
 from tasks.utils import (
     ObserverSpec,
     ParameterTable,
@@ -18,6 +16,10 @@ from tasks.utils import (
     load_observers,
     load_simulation_settings,
 )
+
+if TYPE_CHECKING:
+    from network_creation.core.runtime import SimulationSettings
+    from network_creation.policies.base import Policy
 
 
 class PolicyRun(BaseTask[int], ABC):
@@ -53,6 +55,8 @@ class PolicyRun(BaseTask[int], ABC):
         del sample_idx
 
     def run(self, sample_idx: int) -> dict[str, np.ndarray[Any, Any]]:
+        from network_creation.core.runtime import create_simulation_runtime
+
         self.validate_sample_idx(sample_idx)
         sample = self.parameter_table.parameter_values[sample_idx]
         observers = tuple(

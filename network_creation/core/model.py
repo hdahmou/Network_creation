@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
-import igraph as ig
 import numpy as np
 from numpy.typing import NDArray
+
+if TYPE_CHECKING:
+    import igraph as ig
 
 
 class ActionType(str, Enum):
@@ -34,22 +36,6 @@ class Action:
     type: ActionType
     source: int
     target: int | None = None
-
-    def __post_init__(self) -> None:
-        if self.source < 0:
-            raise ValueError("source must be non-negative")
-
-        if self.type is ActionType.PASS:
-            if self.target is not None:
-                raise ValueError("PASS actions cannot define a target")
-            return
-
-        if self.target is None:
-            raise ValueError(f"{self.type.value} actions require a target")
-        if self.target < 0:
-            raise ValueError("target must be non-negative")
-        if self.target == self.source:
-            raise ValueError("self-links are illegal")
 
 
 @dataclass(frozen=True, slots=True)

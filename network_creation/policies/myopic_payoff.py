@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-import igraph as ig
+from typing import TYPE_CHECKING
+
 import numpy as np
 from numpy.typing import NDArray
 
@@ -15,6 +16,9 @@ from network_creation.core.model import (
 )
 
 from .base import Policy
+
+if TYPE_CHECKING:
+    import igraph as ig
 
 
 def _vertex_index_by_name(graph: ig.Graph, node_id: int) -> int:

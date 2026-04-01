@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 
@@ -17,7 +18,12 @@ from network_creation.core.model import (
     PolicyDecision,
     SchedulingMode,
 )
-from network_creation.core.observability import EpisodeEndEvent, EpisodeStartEvent, StepEvent
+from network_creation.core.observability import (
+    EpisodeEndEvent,
+    EpisodeStartEvent,
+    StateSnapshot,
+    StepEvent,
+)
 from network_creation.core.simulator import Simulator
 from network_creation.policies.base import Policy
 from tests.graph_factories import graph_from_adjacency_matrix
@@ -215,6 +221,41 @@ class SimulatorTest(unittest.TestCase):
         self.assertEqual(observer.episode_end_event.last_modified_step, 0)
         self.assertEqual(simulator.env.state.graph.get_edgelist(), [(0, 1)])
         self.assertTrue(simulator.env.state.graph.are_adjacent(0, 1))
+
+    def test_step_snapshots_are_skipped_when_no_observer_samples_step(self) -> None:
+        env = Environment(create_empty_graph(2), seed=45)
+        observer = RecordingObserver()
+        observer.observation_frequency = 2
+        simulator = Simulator(
+            env=env,
+            agents=(
+                Agent(
+                    id=0,
+                    radius=1,
+                    policy=ConstantPolicy(Action(ActionType.BRIDGE, source=0, target=1)),
+                    seed=47,
+                ),
+                Agent(
+                    id=1,
+                    radius=1,
+                    policy=ConstantPolicy(Action(ActionType.PASS, source=1)),
+                    seed=49,
+                ),
+            ),
+            mode=SchedulingMode.SEQUENTIAL,
+            max_steps=1,
+            rng=np.random.default_rng(51),
+            observers=(observer,),
+        )
+
+        with patch(
+            "network_creation.core.simulator.StateSnapshot.from_state",
+            wraps=StateSnapshot.from_state,
+        ) as from_state:
+            simulator.run(n_episodes=1, reset_observers=False)
+
+        self.assertEqual(from_state.call_count, 2)
+        self.assertEqual(observer.step_events, [])
 
     def test_run_simultaneous_uses_same_pre_step_state(self) -> None:
         env = Environment(

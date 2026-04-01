@@ -4,16 +4,16 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 from numpy.typing import NDArray
 from dasklite.base_task import OutputField
 from network_creation.core.model import SchedulingMode
-from network_creation.core.runtime import SimulationSettings
-from network_creation.observers.grimoire import OBSERVER_GRIMOIRE
-from network_creation.observers.statistics.episode import EpisodeStatisticObserver
-from scipy.stats import qmc
+
+if TYPE_CHECKING:
+    from network_creation.core.runtime import SimulationSettings
+    from network_creation.observers.statistics.episode import EpisodeStatisticObserver
 
 
 type ParameterRange = Mapping[str, float]
@@ -42,6 +42,8 @@ class ObserverSpec:
 
 
 def load_simulation_settings(raw: Mapping[str, Any]) -> SimulationSettings:
+    from network_creation.core.runtime import SimulationSettings
+
     initial_graph = raw.get("initial_graph") or {}
     stagnation_patience = raw.get("stagnation_patience")
     return SimulationSettings(
@@ -91,6 +93,8 @@ def generate_parameter_table(
             column_index_by_name=column_index_by_name,
         )
 
+    from scipy.stats import qmc
+
     sampler = qmc.Sobol(
         d=len(varying_names),
         scramble=True,
@@ -131,6 +135,8 @@ def load_observers(
     raw_observers: Sequence[Mapping[str, Any]],
     simulation_settings: SimulationSettings,
 ) -> tuple[ObserverSpec, ...]:
+    from network_creation.observers.grimoire import OBSERVER_GRIMOIRE
+
     observer_specs: list[ObserverSpec] = []
     for observer in raw_observers:
         name = str(observer["name"])

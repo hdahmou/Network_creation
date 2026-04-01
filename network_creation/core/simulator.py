@@ -42,6 +42,14 @@ class Simulator:
         self.agents = agents
         self.n_agents = len(self.agents)
         self.observers = observers
+        self._step_observers_by_step = tuple(
+            tuple(
+                observer
+                for observer in observers
+                if (step + 1) % observer.observation_frequency == 0
+            )
+            for step in range(max_steps)
+        )
         self.stagnation_patience = stagnation_patience
         self.n_completed_episodes = 0
 
@@ -51,8 +59,6 @@ class Simulator:
             agent.reset(seed=agent.seed)
 
     def get_acting_agents(self, step: int) -> Sequence[Agent]:
-        if self.n_agents == 0:
-            return ()
         if self.mode is SchedulingMode.SEQUENTIAL:
             return (self.agents[step % self.n_agents],)
         return self.agents
@@ -104,9 +110,13 @@ class Simulator:
                 for action in decision.actions
             )
 
-            pre_state = StateSnapshot.from_state(self.env.state)
-            self.env.step(step_actions)
-            post_state = StateSnapshot.from_state(self.env.state)
+            step_observers = self._step_observers_by_step[current_step]
+            if step_observers:
+                pre_state = StateSnapshot.from_state(self.env.state)
+                self.env.step(step_actions)
+                post_state = StateSnapshot.from_state(self.env.state)
+            else:
+                self.env.step(step_actions)
 
             modified = any(
                 action.type is not ActionType.PASS for action in step_actions
@@ -117,17 +127,17 @@ class Simulator:
             else:
                 stagnation_steps += 1
 
-            step_event = StepEvent(
-                step=current_step,
-                mode=self.mode,
-                acting_agent_ids=tuple(agent.id for agent in acting_agents),
-                decisions=decisions,
-                modified=modified,
-                pre_state=pre_state,
-                post_state=post_state,
-            )
-            for observer in self.observers:
-                if (current_step + 1) % observer.observation_frequency == 0:
+            if step_observers:
+                step_event = StepEvent(
+                    step=current_step,
+                    mode=self.mode,
+                    acting_agent_ids=tuple(agent.id for agent in acting_agents),
+                    decisions=decisions,
+                    modified=modified,
+                    pre_state=pre_state,
+                    post_state=post_state,
+                )
+                for observer in step_observers:
                     observer.on_step_end(step_event)
 
             current_step += 1

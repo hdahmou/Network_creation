@@ -181,6 +181,26 @@ css = [
 ]
 
 [[package]]
+name = "bokeh"
+version = "3.9.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "contourpy" },
+    { name = "jinja2" },
+    { name = "narwhals" },
+    { name = "numpy" },
+    { name = "packaging" },
+    { name = "pillow" },
+    { name = "pyyaml" },
+    { name = "tornado", marker = "sys_platform != 'emscripten'" },
+    { name = "xyzservices" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/bf/0d/fabb70707646217e4b0e3943e05730eab8c1f7b7e7485145f8594b52e606/bokeh-3.9.0.tar.gz", hash = "sha256:775219714a8496973ddbae16b1861606ba19fe670a421e4d43267b41148e07a3", size = 5740345, upload-time = "2026-03-11T17:58:34.062Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/47/0b/bdf449df87be3f07b23091ceafee8c3ef569cf6d2fb7edec6e3b12b3faa4/bokeh-3.9.0-py3-none-any.whl", hash = "sha256:b252bfb16a505f0e0c57d532d0df308ae1667235bafc622aa9441fe9e7c5ce4a", size = 6396068, upload-time = "2026-03-11T17:58:31.645Z" },
+]
+
+[[package]]
 name = "cachetools"
 version = "6.2.6"
 source = { registry = "https://pypi.org/simple" }
@@ -1061,6 +1081,20 @@ wheels = [
 ]
 
 [[package]]
+name = "matplotlib-label-lines"
+version = "0.8.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "matplotlib" },
+    { name = "more-itertools" },
+    { name = "numpy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/25/7f/b351ad774a169b996acfff8ee535c92a00c0f014811f43025001a686c417/matplotlib_label_lines-0.8.1.tar.gz", hash = "sha256:029cd9f63f55186e8902fb4d83216a4bf14ffedd1ea5411a2f99e2ef1985b1b5", size = 819651, upload-time = "2025-04-25T15:37:07.133Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/5a/cc/2b220f036033a1ededd36273438a3497382e82078ea092c1a73577322bc5/matplotlib_label_lines-0.8.1-py3-none-any.whl", hash = "sha256:2fa46776f4f753b515745b1fbbf932b4d47dda38922a6e85285aab697bab95a0", size = 826242, upload-time = "2025-04-25T15:37:05.928Z" },
+]
+
+[[package]]
 name = "mdurl"
 version = "0.1.2"
 source = { registry = "https://pypi.org/simple" }
@@ -1093,6 +1127,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/9d/55/d01f0c4b45ade6536c51170b9043db8b2ec6ddf4a35c7ea3f5f559ac935b/mistune-3.2.0.tar.gz", hash = "sha256:708487c8a8cdd99c9d90eb3ed4c3ed961246ff78ac82f03418f5183ab70e398a", size = 95467, upload-time = "2025-12-23T11:36:34.994Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/9b/f7/4a5e785ec9fbd65146a27b6b70b6cdc161a66f2024e4b04ac06a67f5578b/mistune-3.2.0-py3-none-any.whl", hash = "sha256:febdc629a3c78616b94393c6580551e0e34cc289987ec6c35ed3f4be42d0eee1", size = 53598, upload-time = "2025-12-23T11:36:33.211Z" },
+]
+
+[[package]]
+name = "more-itertools"
+version = "11.0.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/24/24/e0acc4bf54cba50c1d432c70a72a3df96db4a321b2c4c68432a60759044f/more_itertools-11.0.1.tar.gz", hash = "sha256:fefaf25b7ab08f0b45fa9f1892cae93b9fc0089ef034d39213bce15f1cc9e199", size = 144739, upload-time = "2026-04-02T16:17:45.061Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d8/f4/5e52c7319b8087acef603ed6e50dc325c02eaa999355414830468611f13c/more_itertools-11.0.1-py3-none-any.whl", hash = "sha256:eaf287826069452a8f61026c597eae2428b2d1ba2859083abbf240b46842ce6d", size = 72182, upload-time = "2026-04-02T16:17:43.724Z" },
 ]
 
 [[package]]
@@ -1185,6 +1228,15 @@ wheels = [
 ]
 
 [[package]]
+name = "narwhals"
+version = "2.18.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/59/96/45218c2fdec4c9f22178f905086e85ef1a6d63862dcc3cd68eb60f1867f5/narwhals-2.18.1.tar.gz", hash = "sha256:652a1fcc9d432bbf114846688884c215f17eb118aa640b7419295d2f910d2a8b", size = 620578, upload-time = "2026-03-24T15:11:25.456Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3f/c3/06490e98393dcb4d6ce2bf331a39335375c300afaef526897881fbeae6ab/narwhals-2.18.1-py3-none-any.whl", hash = "sha256:a0a8bb80205323851338888ba3a12b4f65d352362c8a94be591244faf36504ad", size = 444952, upload-time = "2026-03-24T15:11:23.801Z" },
+]
+
+[[package]]
 name = "nbclient"
 version = "0.10.4"
 source = { registry = "https://pypi.org/simple" }
@@ -1269,9 +1321,11 @@ name = "network-creation"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "bokeh" },
     { name = "dask" },
     { name = "distributed" },
     { name = "igraph" },
+    { name = "matplotlib-label-lines" },
     { name = "mypy" },
     { name = "netgraph" },
     { name = "notebook" },
@@ -1285,9 +1339,11 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "bokeh", specifier = ">=3.9.0" },
     { name = "dask", specifier = "==2026.3.0" },
     { name = "distributed", specifier = "==2026.3.0" },
     { name = "igraph", specifier = ">=1.0.0" },
+    { name = "matplotlib-label-lines", specifier = ">=0.8.1" },
     { name = "mypy", specifier = ">=1.19.1" },
     { name = "netgraph", specifier = ">=4.13.2" },
     { name = "notebook", specifier = ">=6.4.12" },
@@ -2618,6 +2674,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/48/9b/305ee6a2dac75fc9c28105db061408df6ecbf0f7a1de37636e8e4ea47ca7/xarray_einstats-0.10.0.tar.gz", hash = "sha256:d432a363fc8f09baad164f9826dc711551c684b9abd8098c1b961d18663a627d", size = 33449, upload-time = "2026-02-19T18:13:55.245Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/19/d4/225027a913621a879b429a043674aa35220e6ce67785acad4f7bd0c4ff33/xarray_einstats-0.10.0-py3-none-any.whl", hash = "sha256:fa3169b46cee29092db820d8bbc203148bada4fc970ee75e62cbf3dd7c5a8945", size = 39099, upload-time = "2026-02-19T18:13:53.174Z" },
+]
+
+[[package]]
+name = "xyzservices"
+version = "2026.3.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/f6/08/3cb9f67a8d48021aca2a02292cc26eecd71d949ae70ad66420a8730cc302/xyzservices-2026.3.0.tar.gz", hash = "sha256:d226866a5d8e9fef337034d8da37a8298f0a1d9d1489b4018e69579eb321fea4", size = 1135736, upload-time = "2026-03-30T14:42:25.596Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a8/a9/d23012099dc88ec69a29c6407b41d89681cb674c2043cd5b467c7e299c08/xyzservices-2026.3.0-py3-none-any.whl", hash = "sha256:503183d4b322bfebc3c50cdd21192aa3e81e36c5efbf9133d54ae82143e0576b", size = 94101, upload-time = "2026-03-30T14:42:24.608Z" },
 ]
 
 [[package]]

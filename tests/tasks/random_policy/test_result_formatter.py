@@ -39,6 +39,7 @@ class RandomPolicyResultFormatterTest(unittest.TestCase):
             formatted = RandomPolicyRun.from_zarr(store_path)
 
         self.assertEqual(formatted.inputs["tensors"]["parameters"].shape, (1, 0))
+        self.assertEqual(formatted.metadata["average_completion_duration_ms"], 1.0)
         self.assertEqual(tuple(formatted.inputs["labels"]["parameter"]), ())
         self.assertEqual(formatted.outputs["tensors"]["timeseries"].shape, (1, 2, 3))
         self.assertEqual(formatted.outputs["tensors"]["final"].shape, (1, 2))
@@ -72,6 +73,7 @@ class RandomPolicyResultFormatterTest(unittest.TestCase):
             formatted = RandomPolicyRun.from_zarr(store_path)
 
         self.assertNotIn("timeseries", formatted.outputs["tensors"])
+        self.assertEqual(formatted.metadata["average_completion_duration_ms"], 1.0)
         self.assertEqual(formatted.outputs["tensors"]["final"].shape, (1, 2))
         np.testing.assert_allclose(
             formatted.outputs["tensors"]["final"],

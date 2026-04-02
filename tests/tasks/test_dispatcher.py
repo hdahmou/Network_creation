@@ -137,7 +137,8 @@ class DispatcherTests(unittest.TestCase):
             [[3, 4], [7, 8], [11, 12]],
         )
         self.assertEqual(root["results"]["durations_ms"][:].tolist(), [1.0, 2.0, 3.0])
-        self.assertEqual(root["failures"]["input_index"][:].tolist(), [])
+        self.assertEqual(set(root["failures"].keys()), {"error"})
+        self.assertEqual(root["failures"]["error"][:].tolist(), [])
 
     def test_dispatcher_writes_results_to_configured_output_dir(self) -> None:
         inputs_path = self.write_inputs([4, 6])
@@ -215,8 +216,7 @@ class DispatcherTests(unittest.TestCase):
         self.assertTrue(summary["output_zarr"].endswith("runtime_failure-20260324T160100.zarr"))
         root = self.open_store(summary["output_zarr"])
         self.assertEqual(root["results"]["input_index"][:].tolist(), [0, 2])
-        self.assertEqual(root["failures"]["input_index"][:].tolist(), [1])
-        self.assertEqual(root["failures"]["input_label"][:].tolist(), ["-1"])
+        self.assertEqual(set(root["failures"].keys()), {"error"})
         self.assertIn("negative values are not allowed: -1", str(root["failures"]["error"][0]))
 
     def test_dispatcher_writes_structured_outputs_by_field(self) -> None:

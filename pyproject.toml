@@ -24,6 +24,8 @@ dependencies = [
     "sbi>=0.25.0",
     "scienceplots>=2.2.1",
     "zarr==3.1.5",
+    "bokeh>=3.9.0",
+    "matplotlib-label-lines>=0.8.1",
 ]
 
 [project.scripts]

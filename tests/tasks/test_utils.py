@@ -30,6 +30,7 @@ class TaskUtilsTest(unittest.TestCase):
                 "results": _FakeGroup(
                     {
                         "input_index": np.asarray([2, 0, 1], dtype=np.int64),
+                        "durations_ms": np.asarray([3.0, 1.0, 2.0], dtype=np.float64),
                         "outputs": _FakeGroup(
                             {
                                 "density.mean": np.asarray(
@@ -46,13 +47,11 @@ class TaskUtilsTest(unittest.TestCase):
                 ),
                 "failures": _FakeGroup(
                     {
-                        "input_index": np.asarray([7], dtype=np.int64),
-                        "message": np.asarray(["boom"], dtype=object),
+                        "error": np.asarray(["boom"], dtype=object),
                     }
                 ),
             },
             attrs={
-                "schema_version": 2,
                 "task_name": "myopic-policy",
                 "task_class": "tasks.policies.myopic_policy:MyopicPolicyRun",
                 "output_schema": output_schema,
@@ -77,12 +76,12 @@ class TaskUtilsTest(unittest.TestCase):
                 result = load_result_zarr(store_path)
 
         self.assertEqual(result["path"], store_path.resolve())
-        self.assertEqual(result["schema_version"], 2)
         self.assertEqual(result["task_name"], "myopic-policy")
         self.assertEqual(
             result["task_class"],
             "tasks.policies.myopic_policy:MyopicPolicyRun",
         )
+        self.assertEqual(result["average_completion_duration_ms"], 2.0)
         self.assertEqual(result["output_schema"], output_schema)
         self.assertEqual(result["total_inputs"], 3)
         self.assertEqual(result["stored_results"], 3)
@@ -103,6 +102,6 @@ class TaskUtilsTest(unittest.TestCase):
             ),
         )
         np.testing.assert_array_equal(
-            result["failures"]["input_index"],
-            np.asarray([7], dtype=np.int64),
+            result["failures"]["error"],
+            np.asarray(["boom"], dtype=object),
         )

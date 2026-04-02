@@ -54,12 +54,14 @@ class PolicyFormattedResultsTest(unittest.TestCase):
                 "task_class": "tasks.policies.myopic_policy:MyopicPolicyRun",
                 "result_store_path": Path("/tmp/run.zarr"),
                 "config_path": Path("/tmp/run.dispatch_config.json"),
+                "average_completion_duration_ms": 12.5,
                 "input_index": sample_labels,
                 "output_schema": [],
             },
             failures={},
         )
         self.assertEqual(result.metadata["task_name"], "myopic-policy")
+        self.assertEqual(result.metadata["average_completion_duration_ms"], 12.5)
         self.assertEqual(result.inputs["dims"]["parameters"], ("sample", "parameter"))
         self.assertEqual(result.outputs["dims"]["final"], ("sample", "observable"))
         np.testing.assert_allclose(

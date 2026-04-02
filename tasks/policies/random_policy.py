@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from pathlib import Path
 from typing import ClassVar, cast
 
 import numpy as np
@@ -11,7 +10,7 @@ from numpy.typing import NDArray
 from ..dispatch.registry import register_task
 from network_creation.policies.random import RandomPolicy
 
-from .formatted_results import DimLabels, PolicyFormattedResults, load_policy_result_data
+from .formatted_results import DimLabels, PolicyTensorGroup
 from .policy_run import PolicyRun
 
 
@@ -37,12 +36,14 @@ class RandomPolicyRun(PolicyRun):
     def build_policy(self, node_id: int, sample: NDArray[np.float32]) -> RandomPolicy:
         del sample
         return RandomPolicy(seed=node_id)
+
     @classmethod
-    def from_zarr(cls, zarr_path: str | Path) -> PolicyFormattedResults:
-        result_data, config_path, input_index, parameter_table, parameter_values = (
-            load_policy_result_data(zarr_path)
-        )
-        final, observable_names, timeseries = cls._build_output_tensors(result_data["outputs"])
+    def build_output_group(
+        cls,
+        outputs: dict[str, NDArray[np.generic]],
+        input_index: NDArray[np.int64],
+    ) -> PolicyTensorGroup:
+        final, observable_names, timeseries = cls._build_output_tensors(outputs)
 
         output_tensors: dict[str, NDArray[np.float32]] = {"final": final}
         output_dims = {"final": ("sample", "observable")}
@@ -55,31 +56,7 @@ class RandomPolicyRun(PolicyRun):
             output_dims["timeseries"] = ("sample", "observable", "step")
             output_labels["step"] = np.arange(timeseries.shape[2], dtype=np.int64)
 
-        formatted = PolicyFormattedResults(
-            inputs={
-                "tensors": {"parameters": parameter_values},
-                "dims": {"parameters": ("sample", "parameter")},
-                "labels": {
-                    "sample": input_index,
-                    "parameter": parameter_table.parameter_names,
-                },
-            },
-            outputs={
-                "tensors": output_tensors,
-                "dims": output_dims,
-                "labels": output_labels,
-            },
-            metadata={
-                "task_name": str(result_data["task_name"]),
-                "task_class": str(result_data["task_class"]),
-                "result_store_path": Path(result_data["path"]),
-                "config_path": config_path,
-                "input_index": input_index,
-                "output_schema": list(result_data["output_schema"]),
-            },
-            failures=result_data["failures"],
-        )
-        return formatted
+        return {"tensors": output_tensors, "dims": output_dims, "labels": output_labels}
 
     @staticmethod
     def _build_output_tensors(

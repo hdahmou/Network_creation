@@ -31,6 +31,7 @@ def load_result_zarr(path: str | Path) -> dict[str, Any]:
     failures_group = root["failures"]
 
     input_index = np.asarray(results_group["input_index"])
+    durations_ms = np.asarray(results_group["durations_ms"], dtype=np.float64)
     order = np.argsort(input_index)
     output_schema = list(root.attrs["output_schema"])
     outputs = {
@@ -46,14 +47,16 @@ def load_result_zarr(path: str | Path) -> dict[str, Any]:
 
     return {
         "path": store_path.resolve(),
-        "schema_version": root.attrs.get("schema_version"),
         "task_name": root.attrs.get("task_name"),
         "task_class": root.attrs.get("task_class"),
         "output_schema": output_schema,
         "total_inputs": root.attrs.get("total_inputs"),
         "stored_results": int(input_index.shape[0]),
         "stored_failures": failure_count,
-        "input_index": input_index[order],
+        "average_completion_duration_ms": (
+            float(np.mean(durations_ms)) if durations_ms.size else None
+        ),
+        "input_index": np.asarray(input_index[order], dtype=np.int64),
         "outputs": outputs,
         "failures": failures,
     }
@@ -85,15 +88,11 @@ class ResultStore:
             field.name: [] for field in self._output_fields
         }
         self._pending_success_durations_ms: list[float] = []
-        self._pending_failure_indices: list[int] = []
-        self._pending_failure_labels: list[str] = []
-        self._pending_failure_durations_ms: list[float] = []
         self._pending_failure_errors: list[str] = []
 
         root = zarr.open_group(output_path, mode="w", zarr_format=2)
         root.attrs.update(
             {
-                "schema_version": 2,
                 "task_name": task_name,
                 "task_class": task_class,
                 "output_schema": output_schema.metadata(),
@@ -138,27 +137,6 @@ class ResultStore:
                 overwrite=True,
             )
 
-        self.failures_input_index = failures.create_array(
-            "input_index",
-            shape=(0,),
-            chunks=(batch_size,),
-            dtype="i8",
-            overwrite=True,
-        )
-        self.failures_input_label = failures.create_array(
-            "input_label",
-            shape=(0,),
-            chunks=(batch_size,),
-            dtype=INPUT_LABEL_DTYPE,
-            overwrite=True,
-        )
-        self.failures_durations_ms = failures.create_array(
-            "durations_ms",
-            shape=(0,),
-            chunks=(batch_size,),
-            dtype="f8",
-            overwrite=True,
-        )
         self.failures_error = failures.create_array(
             "error",
             shape=(0,),
@@ -197,18 +175,12 @@ class ResultStore:
 
     def add_failure(
         self,
-        input_index: int,
-        input_label: str,
-        duration_ms: float,
         error: str,
     ) -> tuple[int, int]:
-        self._pending_failure_indices.append(int(input_index))
-        self._pending_failure_labels.append(str(input_label))
-        self._pending_failure_durations_ms.append(float(duration_ms))
         self._pending_failure_errors.append(str(error))
         self.failure_count += 1
 
-        if len(self._pending_failure_indices) >= self.batch_size:
+        if len(self._pending_failure_errors) >= self.batch_size:
             return 0, self._flush_failures()
         return 0, 0
 
@@ -246,29 +218,14 @@ class ResultStore:
         return batch_len
 
     def _flush_failures(self) -> int:
-        if not self._pending_failure_indices:
+        if not self._pending_failure_errors:
             return 0
 
-        batch_len = len(self._pending_failure_indices)
-        self.failures_input_index.append(
-            np.asarray(self._pending_failure_indices, dtype=self.failures_input_index.dtype),
-            axis=0,
-        )
-        self.failures_input_label.append(
-            np.asarray(self._pending_failure_labels, dtype=self.failures_input_label.dtype),
-            axis=0,
-        )
-        self.failures_durations_ms.append(
-            np.asarray(self._pending_failure_durations_ms, dtype=self.failures_durations_ms.dtype),
-            axis=0,
-        )
+        batch_len = len(self._pending_failure_errors)
         self.failures_error.append(
             np.asarray(self._pending_failure_errors, dtype=self.failures_error.dtype),
             axis=0,
         )
 
-        self._pending_failure_indices.clear()
-        self._pending_failure_labels.clear()
-        self._pending_failure_durations_ms.clear()
         self._pending_failure_errors.clear()
         return batch_len

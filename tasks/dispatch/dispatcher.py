@@ -264,9 +264,6 @@ def dispatch_from_config(config_path: str, log_level: str = "INFO") -> dict[str,
         input_label = _describe(task_input, prepared.describe_input)
         error_text = "".join(traceback.format_exception_only(type(error), error)).strip()
         writer.add_failure(
-            input_index=input_index,
-            input_label=input_label,
-            duration_ms=duration_ms,
             error=error_text,
         )
         logger.error(

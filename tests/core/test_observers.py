@@ -12,7 +12,12 @@ from numpy.typing import NDArray
 from network_creation.core.agent import Agent
 from network_creation.core.environment import Environment
 from network_creation.core.graph import create_empty_graph
-from network_creation.core.observability import EpisodeStartEvent, StepEvent
+from network_creation.core.observability import (
+    EpisodeEndEvent,
+    EpisodeStartEvent,
+    StateView,
+    StepEvent,
+)
 from network_creation.core.model import (
     Action,
     ActionSpace,
@@ -38,6 +43,7 @@ from network_creation.observers.hub_persistence_observer import (
     HubPersistenceObserver,
 )
 from network_creation.observers.indegree_observer import IndegreeObserver
+from network_creation.observers.grimoire import OBSERVER_GRIMOIRE
 from network_creation.observers.state_history_observer import StateHistoryObserver
 from network_creation.observers.statistics.episode_series import (
     EpisodeSeriesStatisticObserver,
@@ -201,7 +207,117 @@ class TensorWrongDimensionNamesObserver(EpisodeSeriesTensorStatisticObserver):
         return np.array([0.0, 1.0], dtype=np.float32)
 
 
+def _graph_signature(graph) -> tuple[tuple[int, ...], tuple[tuple[int, int], ...]]:
+    return (
+        tuple(int(node_id) for node_id in graph.vs["name"]),
+        tuple(sorted((int(source), int(target)) for source, target in graph.get_edgelist())),
+    )
+
+
+def _build_contract_test_observer(name: str):
+    observer_class = OBSERVER_GRIMOIRE[name]
+    kwargs_by_name = {
+        "action_count": {"observation_frequency": 1, "aggregations": ()},
+        "action_print": {"observation_frequency": 1, "print_empty_steps": False},
+        "central_point_of_dominance": {
+            "observation_frequency": 1,
+            "aggregations": (),
+        },
+        "density": {"observation_frequency": 1, "aggregations": ()},
+        "distance": {"observation_frequency": 1, "aggregations": ()},
+        "global_closeness_centrality": {
+            "observation_frequency": 1,
+            "aggregations": (),
+        },
+        "hub_persistence": {
+            "observation_frequency": 1,
+            "window_size": 1,
+            "aggregations": (),
+        },
+        "indegree": {"observation_frequency": 1, "aggregations": ()},
+        "social_welfare": {
+            "observation_frequency": 1,
+            "link_cost": 1.0,
+            "decay": 0.5,
+            "per_link_benefit": 10.0,
+            "aggregations": (),
+        },
+        "state_history": {"observation_frequency": 1, "keep_runs": False},
+        "triad_census": {"observation_frequency": 1, "aggregations": ()},
+    }
+    return observer_class(**kwargs_by_name[name])
+
+
 class ObserverTest(unittest.TestCase):
+    def test_builtin_observers_do_not_mutate_event_graphs(self) -> None:
+        bridge_decision = PolicyDecision(
+            actions=(Action(ActionType.BRIDGE, source=0, target=1),),
+            value=None,
+        )
+
+        for observer_name in OBSERVER_GRIMOIRE:
+            with self.subTest(observer=observer_name):
+                observer = _build_contract_test_observer(observer_name)
+                initial_graph = create_empty_graph(3)
+                post_graph = initial_graph.copy()
+                post_graph.add_edge(0, 1)
+                start_event = EpisodeStartEvent(
+                    episode_index=0,
+                    seed=11,
+                    mode=SchedulingMode.SEQUENTIAL,
+                    max_steps=1,
+                    n_agents=3,
+                    initial_state=StateView(graph=initial_graph),
+                )
+                step_event = StepEvent(
+                    step=0,
+                    mode=SchedulingMode.SEQUENTIAL,
+                    acting_agent_ids=(0,),
+                    decisions=(bridge_decision,),
+                    modified=True,
+                    pre_state=StateView(graph=initial_graph),
+                    post_state=StateView(graph=post_graph),
+                )
+                end_event = EpisodeEndEvent(
+                    episode_index=0,
+                    seed=11,
+                    mode=SchedulingMode.SEQUENTIAL,
+                    current_step=1,
+                    last_modified_step=0,
+                    final_state=StateView(graph=post_graph),
+                )
+
+                with redirect_stdout(io.StringIO()):
+                    before_initial = _graph_signature(initial_graph)
+                    observer.on_episode_start(start_event)
+                    self.assertEqual(
+                        _graph_signature(initial_graph),
+                        before_initial,
+                        f"{observer_name} mutated the initial graph",
+                    )
+
+                    before_pre = _graph_signature(initial_graph)
+                    before_post = _graph_signature(post_graph)
+                    observer.on_step_end(step_event)
+                    self.assertEqual(
+                        _graph_signature(initial_graph),
+                        before_pre,
+                        f"{observer_name} mutated the pre-step graph",
+                    )
+                    self.assertEqual(
+                        _graph_signature(post_graph),
+                        before_post,
+                        f"{observer_name} mutated the post-step graph",
+                    )
+
+                    before_final = _graph_signature(post_graph)
+                    observer.on_episode_end(end_event)
+                    self.assertEqual(
+                        _graph_signature(post_graph),
+                        before_final,
+                        f"{observer_name} mutated the final graph",
+                    )
+
     def test_action_print_observer_can_print_initial_empty_step(self) -> None:
         observer = ActionPrintObserver(1, True)
         stdout = io.StringIO()
@@ -1166,6 +1282,33 @@ class ObserverTest(unittest.TestCase):
         self.assertTrue(state_history_observer.graphs[1].are_adjacent(0, 1))
         self.assertEqual(state_history_observer.graphs[0].ecount(), 0)
         self.assertEqual(state_history_observer.graphs[1].get_edgelist(), [(0, 1)])
+
+    def test_state_history_observer_keeps_persistent_copies_of_graph_history(self) -> None:
+        state_history_observer = StateHistoryObserver(
+            observation_frequency=1,
+            keep_runs=False,
+        )
+        env = Environment(create_empty_graph(2), seed=29)
+        simulator = Simulator(
+            env=env,
+            agents=(
+                Agent(id=0, radius=1, policy=ConstantPolicy(Action(ActionType.BRIDGE, source=0, target=1)), seed=31),
+                Agent(id=1, radius=1, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=37),
+            ),
+            mode=SchedulingMode.SEQUENTIAL,
+            max_steps=2,
+            rng=np.random.default_rng(41),
+            observers=(state_history_observer,),
+        )
+
+        simulator.run(n_episodes=1, reset_observers=False)
+
+        exported_graphs = state_history_observer.graphs
+        simulator.env.state.graph.delete_edges([(0, 1)])
+        self.assertTrue(state_history_observer.graphs[1].are_adjacent(0, 1))
+
+        exported_graphs[1].delete_edges([(0, 1)])
+        self.assertTrue(state_history_observer.graphs[1].are_adjacent(0, 1))
 
     def test_observers_record_sampled_step_ids_with_observation_frequency(self) -> None:
         density_observer = DensityObserver(

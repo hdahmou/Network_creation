@@ -14,7 +14,7 @@ from .observability import (
     EpisodeEndEvent,
     EpisodeStartEvent,
     SimulationObserver,
-    StateSnapshot,
+    StateView,
     StepEvent,
 )
 
@@ -87,7 +87,7 @@ class Simulator:
             mode=self.mode,
             max_steps=self.max_steps,
             n_agents=self.n_agents,
-            initial_state=StateSnapshot.from_state(self.env.state),
+            initial_state=StateView.from_state(self.env.state),
         )
         for observer in self.observers:
             observer.on_episode_start(episode_start_event)
@@ -112,9 +112,9 @@ class Simulator:
 
             step_observers = self._step_observers_by_step[current_step]
             if step_observers:
-                pre_state = StateSnapshot.from_state(self.env.state)
+                pre_state = StateView.from_state(self.env.state)
                 self.env.step(step_actions)
-                post_state = StateSnapshot.from_state(self.env.state)
+                post_state = StateView.from_state(self.env.state)
             else:
                 self.env.step(step_actions)
 
@@ -148,7 +148,7 @@ class Simulator:
             mode=self.mode,
             current_step=current_step,
             last_modified_step=last_modified_step,
-            final_state=StateSnapshot.from_state(self.env.state),
+            final_state=StateView.from_state(self.env.state),
         )
         for observer in self.observers:
             observer.on_episode_end(episode_end_event)

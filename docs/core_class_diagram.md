@@ -100,9 +100,9 @@ namespace Policies {
 }
 
 namespace ObserverAPI {
-    class StateSnapshot {
+    class StateView {
         +graph: Graph
-        +from_state(state: EnvironmentState) StateSnapshot
+        +from_state(state: EnvironmentState) StateView
     }
 
     class EpisodeStartEvent {
@@ -111,7 +111,7 @@ namespace ObserverAPI {
         +mode: SchedulingMode
         +max_steps: int
         +n_agents: int
-        +initial_state: StateSnapshot
+        +initial_state: StateView
     }
 
     class StepEvent {
@@ -120,8 +120,8 @@ namespace ObserverAPI {
         +acting_agent_ids: tuple[int, ...]
         +decisions: tuple[PolicyDecision, ...]
         +modified: bool
-        +pre_state: StateSnapshot
-        +post_state: StateSnapshot
+        +pre_state: StateView
+        +post_state: StateView
     }
 
     class EpisodeEndEvent {
@@ -130,7 +130,7 @@ namespace ObserverAPI {
         +mode: SchedulingMode
         +current_step: int
         +last_modified_step: int
-        +final_state: StateSnapshot
+        +final_state: StateView
     }
 
     class StatisticResult {
@@ -265,11 +265,11 @@ RandomPolicy --|> Policy : extends
 ReplayPolicy --|> Policy : extends
 MyopicPayoffPolicy --|> Policy : extends
 
-EpisodeStartEvent *-- StateSnapshot : initial_state
-StepEvent *-- StateSnapshot : pre/post
+EpisodeStartEvent *-- StateView : initial_state
+StepEvent *-- StateView : pre/post
 StepEvent --> PolicyDecision : decisions
-EpisodeEndEvent *-- StateSnapshot : final_state
-SimulationObserver ..> StateSnapshot : reads via events
+EpisodeEndEvent *-- StateView : final_state
+SimulationObserver ..> StateView : reads via events
 
 EpisodeStatisticObserver ..|> SimulationObserver : implements
 EpisodeStatisticObserver ..> StatisticResult : returns

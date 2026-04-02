@@ -21,7 +21,7 @@ from network_creation.core.model import (
 from network_creation.core.observability import (
     EpisodeEndEvent,
     EpisodeStartEvent,
-    StateSnapshot,
+    StateView,
     StepEvent,
 )
 from network_creation.core.simulator import Simulator
@@ -222,7 +222,7 @@ class SimulatorTest(unittest.TestCase):
         self.assertEqual(simulator.env.state.graph.get_edgelist(), [(0, 1)])
         self.assertTrue(simulator.env.state.graph.are_adjacent(0, 1))
 
-    def test_step_snapshots_are_skipped_when_no_observer_samples_step(self) -> None:
+    def test_step_state_views_are_skipped_when_no_observer_samples_step(self) -> None:
         env = Environment(create_empty_graph(2), seed=45)
         observer = RecordingObserver()
         observer.observation_frequency = 2
@@ -249,8 +249,8 @@ class SimulatorTest(unittest.TestCase):
         )
 
         with patch(
-            "network_creation.core.simulator.StateSnapshot.from_state",
-            wraps=StateSnapshot.from_state,
+            "network_creation.core.simulator.StateView.from_state",
+            wraps=StateView.from_state,
         ) as from_state:
             simulator.run(n_episodes=1, reset_observers=False)
 
@@ -489,7 +489,7 @@ class SimulatorTest(unittest.TestCase):
         self.assertEqual(end_event.last_modified_step, 0)
         self.assertTrue(end_event.final_state.graph.are_adjacent(0, 1))
 
-    def test_observer_cannot_mutate_live_state_through_event_snapshots(self) -> None:
+    def test_observer_event_graphs_are_live_references(self) -> None:
         observer = RecordingObserver()
         env = Environment(create_empty_graph(2), seed=109)
         simulator = Simulator(
@@ -506,13 +506,17 @@ class SimulatorTest(unittest.TestCase):
 
         simulator.run(n_episodes=1, reset_observers=False)
 
+        start_event = observer.episode_start_event
         step_event = observer.step_events[0]
-        self.assertIsNot(step_event.post_state.graph, simulator.env.state.graph)
+        end_event = observer.episode_end_event
+        assert start_event is not None
+        assert end_event is not None
+        self.assertIs(start_event.initial_state.graph, step_event.pre_state.graph)
+        self.assertIs(step_event.post_state.graph, simulator.env.state.graph)
+        self.assertIs(end_event.final_state.graph, simulator.env.state.graph)
 
-        snapshot_graph = step_event.post_state.graph
-        snapshot_graph.delete_edges([(0, 1)])
-
-        self.assertTrue(simulator.env.state.graph.are_adjacent(0, 1))
+        step_event.post_state.graph.delete_edges([(0, 1)])
+        self.assertFalse(simulator.env.state.graph.are_adjacent(0, 1))
 
     def test_stagnation_patience_must_be_positive_when_provided(self) -> None:
         env = Environment(create_empty_graph(1), seed=173)

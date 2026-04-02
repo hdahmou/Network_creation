@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import logging
 import tempfile
 import unittest
 from collections.abc import Mapping
@@ -12,7 +13,7 @@ from unittest.mock import patch
 
 import zarr
 
-from tasks.dispatch.dispatcher import dispatch_from_config
+from tasks.dispatch.dispatcher import dispatch_from_config, run_tasks
 from tests.tasks import support_tasks as _support_tasks
 
 
@@ -55,6 +56,51 @@ def run_tasks_inline(
 run_tasks_inline.last_task_name = None
 
 
+class _FakeFuture:
+    def __init__(self, key: str, task_fn: Any, task_input: Any) -> None:
+        self.key = key
+        self._task_fn = task_fn
+        self._task_input = task_input
+        self.release_calls = 0
+
+    def result(self) -> Any:
+        return self._task_fn(self._task_input)
+
+    def release(self) -> None:
+        self.release_calls += 1
+
+
+class _FakeClient:
+    instances: list["_FakeClient"] = []
+
+    def __init__(self, scheduler_address: str) -> None:
+        self.scheduler_address = scheduler_address
+        self.dashboard_link = "http://dashboard.test/status"
+        self.futures: list[_FakeFuture] = []
+        self.__class__.instances.append(self)
+
+    def __enter__(self) -> "_FakeClient":
+        return self
+
+    def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
+        del exc_type, exc, tb
+
+    def map(
+        self,
+        task_fn: Any,
+        task_inputs_list: list[Any],
+        *,
+        key: str,
+        pure: bool,
+    ) -> list[_FakeFuture]:
+        del pure
+        self.futures = [
+            _FakeFuture(f"{key}-{input_index}", task_fn, task_input)
+            for input_index, task_input in enumerate(task_inputs_list)
+        ]
+        return self.futures
+
+
 class DispatcherTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -89,6 +135,70 @@ class DispatcherTests(unittest.TestCase):
 
     def open_store(self, path: str) -> zarr.Group:
         return zarr.open_group(path, mode="r")
+
+    def test_run_tasks_releases_completed_futures_immediately(self) -> None:
+        _FakeClient.instances.clear()
+        release_snapshots: list[tuple[str, list[int]]] = []
+
+        def task_fn(value: int) -> int:
+            if value == 2:
+                raise ValueError("boom")
+            return value * 10
+
+        def on_result(
+            input_index: int,
+            task_input: int,
+            task_output: int,
+            duration_ms: float,
+        ) -> None:
+            del task_input, task_output, duration_ms
+            futures = _FakeClient.instances[-1].futures
+            release_snapshots.append(("result", [future.release_calls for future in futures]))
+            if input_index == 0:
+                self.assertEqual([future.release_calls for future in futures], [0, 0, 0])
+            if input_index == 2:
+                self.assertEqual([future.release_calls for future in futures], [1, 1, 0])
+
+        def on_failure(
+            input_index: int,
+            task_input: int,
+            duration_ms: float,
+            error: BaseException,
+        ) -> None:
+            del task_input, duration_ms, error
+            futures = _FakeClient.instances[-1].futures
+            release_snapshots.append(("failure", [future.release_calls for future in futures]))
+            if input_index == 1:
+                self.assertEqual([future.release_calls for future in futures], [1, 0, 0])
+
+        with patch("tasks.dispatch.dispatcher.Client", new=_FakeClient):
+            with patch(
+                "tasks.dispatch.dispatcher.as_completed",
+                new=lambda futures: iter(futures),
+            ):
+                stats = run_tasks(
+                    scheduler_address="inproc://tests",
+                    task_name="vector",
+                    task_fn=task_fn,
+                    task_inputs=[1, 2, 3],
+                    on_result=on_result,
+                    on_failure=on_failure,
+                    logger=logging.getLogger("test"),
+                )
+
+        self.assertEqual(stats, {"success_count": 2, "failure_count": 1})
+        self.assertEqual(
+            release_snapshots,
+            [
+                ("result", [0, 0, 0]),
+                ("failure", [1, 0, 0]),
+                ("result", [1, 1, 0]),
+            ],
+        )
+        self.assertEqual(
+            [future.release_calls for future in _FakeClient.instances[-1].futures],
+            [1, 1, 1],
+        )
 
     def test_dispatcher_writes_success_rows_and_uses_task_name_for_output(self) -> None:
         inputs_path = self.write_inputs([3, 7, 11])

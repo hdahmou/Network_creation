@@ -13,14 +13,14 @@ from .model import EnvironmentState, PolicyDecision, SchedulingMode
 
 
 @dataclass(frozen=True)
-class StateSnapshot:
-    """Detached graph snapshot for observer events."""
+class StateView:
+    """Live graph reference passed to observer events."""
 
     graph: ig.Graph
 
     @classmethod
-    def from_state(cls, state: EnvironmentState) -> StateSnapshot:
-        return cls(graph=state.graph.copy())
+    def from_state(cls, state: EnvironmentState) -> StateView:
+        return cls(graph=state.graph)
 
 
 @dataclass(frozen=True)
@@ -32,7 +32,7 @@ class EpisodeStartEvent:
     mode: SchedulingMode
     max_steps: int
     n_agents: int
-    initial_state: StateSnapshot
+    initial_state: StateView
 
 
 @dataclass(frozen=True)
@@ -44,8 +44,8 @@ class StepEvent:
     acting_agent_ids: tuple[int, ...]
     decisions: tuple[PolicyDecision, ...]
     modified: bool
-    pre_state: StateSnapshot
-    post_state: StateSnapshot
+    pre_state: StateView
+    post_state: StateView
 
 
 @dataclass(frozen=True)
@@ -57,7 +57,7 @@ class EpisodeEndEvent:
     mode: SchedulingMode
     current_step: int
     last_modified_step: int
-    final_state: StateSnapshot
+    final_state: StateView
 
 
 @dataclass(frozen=True)

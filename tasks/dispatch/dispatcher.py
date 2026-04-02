@@ -135,29 +135,35 @@ def run_tasks(
         futures = client.map(task_fn, task_inputs_list, key=task_name, pure=False)
         submitted_time = time.perf_counter()
         future_context = {
-            future.key: (input_index, task_input, submitted_time)
+            future.key: (input_index, task_input)
             for input_index, (future, task_input) in enumerate(
                 zip(futures, task_inputs_list, strict=True)
             )
         }
+        task_count = len(futures)
+        completed_futures = as_completed(futures)
+        del futures
+        del task_inputs_list
 
         logger.debug(
             "Submitted tasks",
-            extra={"task_name": task_name, "task_count": len(futures)},
+            extra={"task_name": task_name, "task_count": task_count},
         )
 
-        for future in as_completed(futures):
-            input_index, task_input, started = future_context[future.key]
-            duration_ms = (time.perf_counter() - started) * 1000.0
+        for future in completed_futures:
+            input_index, task_input = future_context.pop(future.key)
+            duration_ms = (time.perf_counter() - submitted_time) * 1000.0
 
             try:
-                on_result(input_index, task_input, future.result(), duration_ms)
+                task_output = future.result()
+                on_result(input_index, task_input, task_output, duration_ms)
             except Exception as exc:
                 failure_count += 1
                 on_failure(input_index, task_input, duration_ms, exc)
-                continue
-
-            success_count += 1
+            else:
+                success_count += 1
+            finally:
+                future.release()
 
     return {
         "success_count": success_count,

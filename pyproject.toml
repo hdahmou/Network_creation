@@ -14,19 +14,20 @@ requires-python = ">=3.13"
 dependencies = [
     "dask==2026.3.0",
     "distributed==2026.3.0",
-    "igraph>=1.0.0",
+    "igraph",
     "mypy>=1.19.1",
     "netgraph>=4.13.2",
     "notebook>=6.4.12",
     "numpy>=2.0.0",
     "pytest>=9.0.2",
     "scipy>=1.17.1",
-    "sbi>=0.25.0",
+    "sbi==0.26.0",
     "scienceplots>=2.2.1",
     "zarr==3.1.5",
     "bokeh>=3.9.0",
     "matplotlib-label-lines>=0.8.1",
     "jupyter-server-proxy>=4.5.0",
+    "py-spy>=0.4.1",
 ]
 
 [project.scripts]
@@ -34,6 +35,9 @@ network-creation-dispatcher = "tasks.dispatch.dispatcher:main"
 
 [tool.setuptools.packages.find]
 include = ["network_creation*", "tasks*"]
+
+[tool.uv.sources]
+igraph = { url = "https://github.com/hdahmou/python-igraph/releases/download/wheel-2026-04-03/igraph-1.0.0-cp39-abi3-manylinux_2_28_x86_64.whl" }
 
 [tool.mypy]
 python_version = "3.13"

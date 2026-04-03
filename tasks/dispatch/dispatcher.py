@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import ctypes
 from dataclasses import dataclass
 from datetime import datetime
+import gc
 import json
 import logging
 import sys
@@ -19,6 +21,9 @@ from dask.distributed import Client, as_completed
 from tasks.catalog import load_task
 from .result_store import ResultStore, task_class_path
 from .runtime import PreparedTask, TaskOutput
+
+
+TRIM_MEMORY_EVERY_COMPLETED_TASKS = 200
 
 
 @dataclass(frozen=True)
@@ -48,6 +53,22 @@ def configure_logging(logger_name: str, level: str = "INFO") -> logging.Logger:
     logging.getLogger("distributed").setLevel(logging.WARNING)
     logging.getLogger("tornado").setLevel(logging.WARNING)
     return logger
+
+
+def trim_memory() -> int:
+    gc.collect()
+    try:
+        libc = ctypes.CDLL("libc.so.6")
+    except OSError:
+        return 0
+
+    malloc_trim = getattr(libc, "malloc_trim", None)
+    if malloc_trim is None:
+        return 0
+
+    malloc_trim.argtypes = [ctypes.c_size_t]
+    malloc_trim.restype = ctypes.c_int
+    return int(malloc_trim(0))
 
 
 def _load_config(config_path: Path) -> dict[str, Any]:
@@ -145,6 +166,9 @@ def run_tasks(
                 success_count += 1
             finally:
                 future.release()
+                completed_count = success_count + failure_count
+                if completed_count % TRIM_MEMORY_EVERY_COMPLETED_TASKS == 0:
+                    client.run(trim_memory)
 
     return {
         "success_count": success_count,

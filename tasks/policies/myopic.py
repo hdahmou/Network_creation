@@ -1,4 +1,4 @@
-"""Concrete task for myopic-policy simulation sweeps."""
+"""Myopic policy task."""
 
 from __future__ import annotations
 
@@ -7,14 +7,12 @@ from typing import ClassVar
 import numpy as np
 from numpy.typing import NDArray
 
-from ..dispatch.registry import register_task
 from network_creation.policies.myopic_payoff import MyopicPayoffPolicy
 
-from .formatted_results import PolicyTensorGroup
-from .policy_run import PolicyRun
+from .base import PolicyRun
+from .results import PolicyTensorGroup
 
 
-@register_task
 class MyopicPolicyRun(PolicyRun):
     name: ClassVar[str] = "myopic-policy"
 

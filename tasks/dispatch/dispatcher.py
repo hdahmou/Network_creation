@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 from datetime import datetime
 import json
 import logging
@@ -15,54 +16,23 @@ from typing import Any
 
 from dask.distributed import Client, as_completed
 
-from .registry import load_task
+from tasks.catalog import load_task
 from .result_store import ResultStore, task_class_path
-from .runtime import TaskOutput
+from .runtime import PreparedTask, TaskOutput
 
 
-_LOG_RECORD_SKIP_FIELDS = {
-    "args",
-    "created",
-    "exc_info",
-    "exc_text",
-    "filename",
-    "funcName",
-    "levelname",
-    "levelno",
-    "lineno",
-    "module",
-    "msecs",
-    "message",
-    "msg",
-    "name",
-    "pathname",
-    "process",
-    "processName",
-    "relativeCreated",
-    "stack_info",
-    "thread",
-    "threadName",
-    "taskName",
-}
-
-
-class JsonFormatter(logging.Formatter):
-    def format(self, record: logging.LogRecord) -> str:
-        payload: dict[str, Any] = {
-            "ts": self.formatTime(record, datefmt="%Y-%m-%dT%H:%M:%S"),
-            "level": record.levelname,
-            "logger": record.name,
-            "message": record.getMessage(),
-        }
-        for key, value in record.__dict__.items():
-            if key.startswith("_") or key in _LOG_RECORD_SKIP_FIELDS:
-                continue
-            payload[key] = value
-
-        if record.exc_info:
-            payload["exception"] = self.formatException(record.exc_info)
-
-        return json.dumps(payload, default=str)
+@dataclass(frozen=True)
+class DispatchPlan:
+    config: dict[str, Any]
+    scheduler_address: str
+    task_name: str
+    task_class_name: str
+    batch_size: int
+    prepared: PreparedTask[Any]
+    task_inputs: tuple[Any, ...]
+    started_slug: str
+    output_zarr: Path
+    config_copy_path: Path
 
 
 def configure_logging(logger_name: str, level: str = "INFO") -> logging.Logger:
@@ -72,7 +42,7 @@ def configure_logging(logger_name: str, level: str = "INFO") -> logging.Logger:
     logger.propagate = False
 
     handler = logging.StreamHandler(sys.stdout)
-    handler.setFormatter(JsonFormatter())
+    handler.setFormatter(logging.Formatter("%(levelname)s %(message)s"))
     logger.addHandler(handler)
 
     logging.getLogger("distributed").setLevel(logging.WARNING)
@@ -80,17 +50,11 @@ def configure_logging(logger_name: str, level: str = "INFO") -> logging.Logger:
     return logger
 
 
-def _describe(value: Any, describe_fn: Callable[[Any], str]) -> str:
-    try:
-        return str(describe_fn(value))
-    except Exception:
-        return repr(value)
-
-
 def _load_config(config_path: Path) -> dict[str, Any]:
     data = json.loads(config_path.read_text(encoding="utf-8"))
     if not isinstance(data, dict):
         raise ValueError("Config file must contain a JSON object")
+
     config = dict(data)
     config_dir = config_path.parent
     for key in ("inputs_json", "output_dir"):
@@ -103,17 +67,50 @@ def _load_config(config_path: Path) -> dict[str, Any]:
     return config
 
 
-def _run_started_slug() -> str:
-    return datetime.now().astimezone().strftime("%Y%m%dT%H%M%S")
+def _build_dispatch_plan(
+    config_path: Path,
+    *,
+    logger: logging.Logger,
+) -> DispatchPlan:
+    config = _load_config(config_path)
+
+    task_key = str(config["task"])
+    task = load_task(task_key)
+    task_name = str(task.name)
+    task_class_name = task_class_path(task)
+    logger.info("Preparing task %s (%s)", task_name, task_class_name)
+    prepared = task.prepare(config)
+    task_inputs = tuple(prepared.inputs)
+    if not task_inputs:
+        raise ValueError("No tasks found")
+
+    started_slug = datetime.now().astimezone().strftime("%Y%m%dT%H%M%S")
+    output_zarr = (
+        Path(str(config["output_dir"])) / f"{task_name}-{started_slug}.zarr"
+    ).resolve()
+    config_copy_path = output_zarr.parent / f"{output_zarr.stem}.dispatch_config.json"
+
+    return DispatchPlan(
+        config=config,
+        scheduler_address=str(config["scheduler_address"]),
+        task_name=task_name,
+        task_class_name=task_class_name,
+        batch_size=int(config.get("write_batch_size", 16)),
+        prepared=prepared,
+        task_inputs=task_inputs,
+        started_slug=started_slug,
+        output_zarr=output_zarr,
+        config_copy_path=config_copy_path,
+    )
 
 
 def run_tasks(
     scheduler_address: str,
     task_name: str,
-    task_fn: Any,
+    task_fn: Callable[[Any], TaskOutput],
     task_inputs: Sequence[Any],
-    on_result: Any,
-    on_failure: Any,
+    on_result: Callable[[int, Any, TaskOutput, float], None],
+    on_failure: Callable[[int, Any, float, BaseException], None],
     *,
     logger: logging.Logger,
 ) -> dict[str, int]:
@@ -122,16 +119,8 @@ def run_tasks(
         raise ValueError("No tasks found")
 
     with Client(scheduler_address) as client:
-        logger.info(
-            "Connected to scheduler",
-            extra={
-                "scheduler_address": scheduler_address,
-                "dashboard": client.dashboard_link,
-            },
-        )
+        logger.info("Connected to scheduler %s", scheduler_address)
 
-        success_count = 0
-        failure_count = 0
         futures = client.map(task_fn, task_inputs_list, key=task_name, pure=False)
         submitted_time = time.perf_counter()
         future_context = {
@@ -140,20 +129,12 @@ def run_tasks(
                 zip(futures, task_inputs_list, strict=True)
             )
         }
-        task_count = len(futures)
-        completed_futures = as_completed(futures)
-        del futures
-        del task_inputs_list
 
-        logger.debug(
-            "Submitted tasks",
-            extra={"task_name": task_name, "task_count": task_count},
-        )
-
-        for future in completed_futures:
+        success_count = 0
+        failure_count = 0
+        for future in as_completed(futures):
             input_index, task_input = future_context.pop(future.key)
             duration_ms = (time.perf_counter() - submitted_time) * 1000.0
-
             try:
                 task_output = future.result()
                 on_result(input_index, task_input, task_output, duration_ms)
@@ -171,9 +152,10 @@ def run_tasks(
     }
 
 
-def _write_runtime_config_copy(config: Mapping[str, Any], output_zarr: Path) -> Path:
-    output_zarr.parent.mkdir(parents=True, exist_ok=True)
-    config_copy_path = output_zarr.parent / f"{output_zarr.stem}.dispatch_config.json"
+def _write_runtime_config_copy(
+    config: Mapping[str, Any], config_copy_path: Path
+) -> Path:
+    config_copy_path.parent.mkdir(parents=True, exist_ok=True)
     config_copy_path.write_text(
         json.dumps(dict(config), indent=2) + "\n",
         encoding="utf-8",
@@ -183,58 +165,18 @@ def _write_runtime_config_copy(config: Mapping[str, Any], output_zarr: Path) -> 
 
 def dispatch_from_config(config_path: str, log_level: str = "INFO") -> dict[str, Any]:
     logger = configure_logging("dispatcher", log_level)
-    config_path_obj = Path(config_path).resolve()
-    config = _load_config(config_path_obj)
+    plan = _build_dispatch_plan(Path(config_path).resolve(), logger=logger)
+    config_copy_path = _write_runtime_config_copy(plan.config, plan.config_copy_path)
 
-    missing = [
-        key
-        for key in ("scheduler_address", "task", "output_dir")
-        if key not in config
-    ]
-    if missing:
-        raise ValueError(f"Missing required config keys: {', '.join(missing)}")
-
-    task_key = str(config["task"])
-    task = load_task(task_key)
-    task_class_name = task_class_path(task)
-    task_name = str(task.name)
-    started_slug = _run_started_slug()
-    output_zarr = (
-        Path(str(config["output_dir"])) / f"{task_name}-{started_slug}.zarr"
-    ).resolve()
-    batch_size = int(config.get("write_batch_size", 16))
-    scheduler_address = str(config["scheduler_address"])
-    inputs_json = config.get("inputs_json")
-
-    if batch_size <= 0:
-        raise ValueError("write_batch_size must be > 0")
-
-    prepare_extra = {"task": task_key, "task_class": task_class_name}
-    if inputs_json is not None:
-        prepare_extra["inputs_json"] = str(inputs_json)
-    logger.info("Preparing task", extra=prepare_extra)
-    prepared = task.prepare(config)
-    task_inputs = list(prepared.inputs)
-    if not task_inputs:
-        raise ValueError("No tasks found")
-
-    config_copy_path = _write_runtime_config_copy(config, output_zarr)
     writer = ResultStore(
-        str(output_zarr),
-        task_name=task_name,
-        task_class=task_class_name,
-        output_schema=prepared.output_schema,
-        batch_size=batch_size,
-        total_inputs=len(task_inputs),
+        str(plan.output_zarr),
+        task_name=plan.task_name,
+        task_class=plan.task_class_name,
+        output_schema=plan.prepared.output_schema,
+        batch_size=plan.batch_size,
+        total_inputs=len(plan.task_inputs),
     )
-    logger.info(
-        "Initialized output",
-        extra={
-            "task_name": task_name,
-            "output_zarr": str(output_zarr),
-            "batch_size": batch_size,
-        },
-    )
+    logger.info("Initialized output %s", plan.output_zarr)
 
     def handle_result(
         input_index: int,
@@ -242,23 +184,11 @@ def dispatch_from_config(config_path: str, log_level: str = "INFO") -> dict[str,
         task_output: TaskOutput,
         duration_ms: float,
     ) -> None:
-        input_label = _describe(task_input, prepared.describe_input)
-        output_summary = _describe(task_output, prepared.describe_output)
         writer.add_success(
             input_index=input_index,
-            input_label=input_label,
+            input_label=str(task_input),
             output=task_output,
             duration_ms=duration_ms,
-        )
-        logger.debug(
-            "Task completed",
-            extra={
-                "task_name": task_name,
-                "input_index": input_index,
-                "input_label": input_label,
-                "task_output": output_summary,
-                "duration_ms": round(duration_ms, 3),
-            },
         )
 
     def handle_failure(
@@ -267,28 +197,24 @@ def dispatch_from_config(config_path: str, log_level: str = "INFO") -> dict[str,
         duration_ms: float,
         error: BaseException,
     ) -> None:
-        input_label = _describe(task_input, prepared.describe_input)
-        error_text = "".join(traceback.format_exception_only(type(error), error)).strip()
-        writer.add_failure(
-            error=error_text,
-        )
+        error_text = "".join(
+            traceback.format_exception_only(type(error), error)
+        ).strip()
+        writer.add_failure(error=error_text)
         logger.error(
-            "Recorded task failure",
-            extra={
-                "task_name": task_name,
-                "input_index": input_index,
-                "input_label": input_label,
-                "duration_ms": round(duration_ms, 3),
-                "error": error_text,
-            },
+            "Task failed for input %s at index %s after %.3f ms: %s",
+            task_input,
+            input_index,
+            duration_ms,
+            error_text,
         )
 
     try:
         stats = run_tasks(
-            scheduler_address=scheduler_address,
-            task_name=task_name,
-            task_fn=prepared.run,
-            task_inputs=task_inputs,
+            scheduler_address=plan.scheduler_address,
+            task_name=plan.task_name,
+            task_fn=plan.prepared.run,
+            task_inputs=plan.task_inputs,
             on_result=handle_result,
             on_failure=handle_failure,
             logger=logger,
@@ -298,15 +224,20 @@ def dispatch_from_config(config_path: str, log_level: str = "INFO") -> dict[str,
 
     summary = {
         **stats,
-        "task_name": task_name,
-        "started_at": started_slug,
-        "task_class": task_class_name,
+        "task_name": plan.task_name,
+        "started_at": plan.started_slug,
+        "task_class": plan.task_class_name,
         "success_rows_written": writer.success_count,
         "failure_rows_written": writer.failure_count,
-        "output_zarr": str(output_zarr),
+        "output_zarr": str(plan.output_zarr),
         "config_copy_path": str(config_copy_path),
     }
-    logger.info("Run finished", extra=summary)
+    logger.info(
+        "Run finished for %s: %s successes, %s failures",
+        plan.task_name,
+        summary["success_count"],
+        summary["failure_count"],
+    )
     return summary
 
 

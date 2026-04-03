@@ -1,1 +1,1 @@
-"""Task package split into dispatch infrastructure and concrete policy tasks."""
+"""Task package split into dispatch infrastructure, task catalog, and policy logic."""

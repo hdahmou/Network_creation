@@ -7,8 +7,8 @@ import unittest
 import numpy as np
 
 from network_creation.core.model import SchedulingMode
-from tasks.policies.myopic_policy import MyopicPolicyRun
-from tasks.policies.utils import generate_parameter_table, load_simulation_settings
+from tasks.policies import MyopicPolicyRun
+from tasks.policies.support import generate_parameter_table, load_simulation_settings
 
 
 class MyopicPolicyPreparationTest(unittest.TestCase):

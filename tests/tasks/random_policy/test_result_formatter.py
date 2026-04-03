@@ -8,7 +8,7 @@ from pathlib import Path
 
 import numpy as np
 
-from tasks.policies.random_policy import RandomPolicyRun
+from tasks.policies import load_policy_results
 
 from ..policy_result_support import build_random_config, write_result_store
 
@@ -30,13 +30,13 @@ class RandomPolicyResultFormatterTest(unittest.TestCase):
             store_path = write_result_store(
                 Path(tmpdir),
                 task_name="random-policy",
-                task_class="tasks.policies.random_policy:RandomPolicyRun",
+                task_class="tasks.policies.random:RandomPolicyRun",
                 config=config,
                 outputs_by_index=outputs_by_index,
                 total_inputs=1,
             )
 
-            formatted = RandomPolicyRun.from_zarr(store_path)
+            formatted = load_policy_results(store_path)
 
         self.assertEqual(formatted.inputs["tensors"]["parameters"].shape, (1, 0))
         self.assertEqual(formatted.metadata["average_completion_duration_ms"], 1.0)
@@ -64,13 +64,13 @@ class RandomPolicyResultFormatterTest(unittest.TestCase):
             store_path = write_result_store(
                 Path(tmpdir),
                 task_name="random-policy",
-                task_class="tasks.policies.random_policy:RandomPolicyRun",
+                task_class="tasks.policies.random:RandomPolicyRun",
                 config=config,
                 outputs_by_index=outputs_by_index,
                 total_inputs=1,
             )
 
-            formatted = RandomPolicyRun.from_zarr(store_path)
+            formatted = load_policy_results(store_path)
 
         self.assertNotIn("timeseries", formatted.outputs["tensors"])
         self.assertEqual(formatted.metadata["average_completion_duration_ms"], 1.0)

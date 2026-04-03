@@ -30,7 +30,7 @@ dependencies = [
 ]
 
 [project.scripts]
-network-creation-dispatcher = "tasks.dispatch:main"
+network-creation-dispatcher = "tasks.dispatch.dispatcher:main"
 
 [tool.setuptools.packages.find]
 include = ["network_creation*", "tasks*"]

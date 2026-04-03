@@ -53,7 +53,7 @@ class TaskUtilsTest(unittest.TestCase):
             },
             attrs={
                 "task_name": "myopic-policy",
-                "task_class": "tasks.policies.myopic_policy:MyopicPolicyRun",
+                "task_class": "tasks.policies.myopic:MyopicPolicyRun",
                 "output_schema": output_schema,
                 "total_inputs": 3,
             },
@@ -79,7 +79,7 @@ class TaskUtilsTest(unittest.TestCase):
         self.assertEqual(result["task_name"], "myopic-policy")
         self.assertEqual(
             result["task_class"],
-            "tasks.policies.myopic_policy:MyopicPolicyRun",
+            "tasks.policies.myopic:MyopicPolicyRun",
         )
         self.assertEqual(result["average_completion_duration_ms"], 2.0)
         self.assertEqual(result["output_schema"], output_schema)

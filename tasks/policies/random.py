@@ -1,4 +1,4 @@
-"""Concrete task for random-policy baseline runs."""
+"""Random policy task."""
 
 from __future__ import annotations
 
@@ -7,14 +7,13 @@ from typing import ClassVar, cast
 
 import numpy as np
 from numpy.typing import NDArray
-from ..dispatch.registry import register_task
+
 from network_creation.policies.random import RandomPolicy
 
-from .formatted_results import DimLabels, PolicyTensorGroup
-from .policy_run import PolicyRun
+from .base import PolicyRun
+from .results import DimLabels, PolicyTensorGroup
 
 
-@register_task
 class RandomPolicyRun(PolicyRun):
     name: ClassVar[str] = "random-policy"
 
@@ -79,7 +78,9 @@ class RandomPolicyRun(PolicyRun):
                     )
                 series_names.append(name)
                 series_arrays.append(np.asarray(array, dtype=np.float32))
-            elif array.ndim == 1:
+                continue
+
+            if array.ndim == 1:
                 scalar_names.append(name)
                 scalar_arrays.append(np.asarray(array, dtype=np.float32))
 

@@ -8,8 +8,8 @@ from pathlib import Path
 
 import numpy as np
 
-from tasks.policies.myopic_policy import MyopicPolicyRun
-from tasks.policies.utils import generate_parameter_table
+from tasks.policies import load_policy_results
+from tasks.policies.support import generate_parameter_table
 
 from ..policy_result_support import build_myopic_config, write_result_store
 
@@ -53,13 +53,13 @@ class MyopicPolicyResultFormatterTest(unittest.TestCase):
             store_path = write_result_store(
                 Path(tmpdir),
                 task_name="myopic-policy",
-                task_class="tasks.policies.myopic_policy:MyopicPolicyRun",
+                task_class="tasks.policies.myopic:MyopicPolicyRun",
                 config=config,
                 outputs_by_index=outputs_by_index,
                 total_inputs=4,
             )
 
-            formatted = MyopicPolicyRun.from_zarr(store_path)
+            formatted = load_policy_results(store_path)
 
         np.testing.assert_array_equal(
             formatted.metadata["input_index"],

@@ -6,7 +6,7 @@ import unittest
 
 import numpy as np
 
-from tasks.policies.myopic_policy import MyopicPolicyRun
+from tasks.policies import MyopicPolicyRun
 
 
 class MyopicPolicyTaskTest(unittest.TestCase):

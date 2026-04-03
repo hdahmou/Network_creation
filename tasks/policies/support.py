@@ -1,4 +1,4 @@
-"""Shared helpers for task modules."""
+"""Shared helpers for policy task preparation."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 from numpy.typing import NDArray
+
 from ..dispatch.runtime import OutputField
 from network_creation.core.model import SchedulingMode
 
@@ -29,15 +30,10 @@ class ParameterTable:
 
 @dataclass(frozen=True)
 class ObserverSpec:
-    # Grimoire key used in config.
     name: str
-    # Aggregation selected from the observer result.
     output: str
-    # Concrete observer type to instantiate at run time.
     observer_class: type[EpisodeStatisticObserver]
-    # Constructor kwargs passed to the observer.
     kwargs: dict[str, Any]
-    # Structured output metadata for this observer/output pair.
     field: OutputField
 
 
@@ -46,6 +42,7 @@ def load_simulation_settings(raw: Mapping[str, Any]) -> SimulationSettings:
 
     initial_graph = raw.get("initial_graph") or {}
     stagnation_patience = raw.get("stagnation_patience")
+
     return SimulationSettings(
         n_agents=int(raw["n_agents"]),
         radius=int(raw["radius"]),
@@ -58,20 +55,18 @@ def load_simulation_settings(raw: Mapping[str, Any]) -> SimulationSettings:
     )
 
 
-def generate_parameter_table(
-    input_spec: Mapping[str, object],
-) -> ParameterTable:
+def generate_parameter_table(input_spec: Mapping[str, object]) -> ParameterTable:
     parameters = cast(ParameterConfig, input_spec["parameters"])
     sampler_seed = int(input_spec["sampler_seed"])
     log2_budget = int(input_spec["log2_budget"])
     if log2_budget < 0:
         raise ValueError("log2_budget must be non-negative")
+
     resolved_budget = 2**log2_budget
     parameter_names = tuple(parameters)
     column_index_by_name = {
         name: index for index, name in enumerate(parameter_names)
     }
-
     varying_names = [
         name for name, value in parameters.items() if isinstance(value, Mapping)
     ]
@@ -87,6 +82,7 @@ def generate_parameter_table(
                 [float(cast(float, parameters[name])) for name in parameter_names],
                 dtype=np.float32,
             )
+
         return ParameterTable(
             parameter_names=parameter_names,
             parameter_values=parameter_values,
@@ -105,7 +101,6 @@ def generate_parameter_table(
         sampler.random(n=resolved_budget),
         dtype=np.float32,
     )
-
     parameter_values = np.empty(
         (resolved_budget, len(parameter_names)),
         dtype=np.float32,
@@ -148,6 +143,11 @@ def load_observers(
             max_steps=simulation_settings.max_steps,
             observation_frequency=observation_frequency,
         )
+        if output == "runs":
+            field_shape = (simulation_settings.n_episodes, *base_shape)
+        else:
+            field_shape = base_shape
+
         observer_specs.append(
             ObserverSpec(
                 name=name,
@@ -156,13 +156,10 @@ def load_observers(
                 kwargs=kwargs,
                 field=OutputField(
                     name=f"{name}.{output}",
-                    shape=(
-                        (simulation_settings.n_episodes, *base_shape)
-                        if output == "runs"
-                        else base_shape
-                    ),
+                    shape=field_shape,
                     dtype=observer_class.fixed_output_dtype(),
                 ),
             )
         )
+
     return tuple(observer_specs)

@@ -7,7 +7,6 @@ from typing import Any, ClassVar
 
 import numpy as np
 
-from tasks.dispatch.registry import register_task
 from tasks.dispatch.runtime import OutputField, OutputSchema, PreparedTask
 
 
@@ -18,7 +17,6 @@ def _load_int_inputs(inputs_json: str) -> list[int]:
     return [int(item) for item in payload]
 
 
-@register_task
 class VectorTask:
     name: ClassVar[str] = "vector"
 
@@ -37,7 +35,6 @@ class VectorTask:
         return {"vector": np.asarray([task_input, task_input + 1], dtype=np.int64)}
 
 
-@register_task
 class RuntimeFailureTask(VectorTask):
     name: ClassVar[str] = "runtime_failure"
 
@@ -47,7 +44,6 @@ class RuntimeFailureTask(VectorTask):
         return super().run(task_input)
 
 
-@register_task
 class StructuredTask:
     name: ClassVar[str] = "structured"
 
@@ -72,7 +68,6 @@ class StructuredTask:
         }
 
 
-@register_task
 class GeneratedTask:
     name: ClassVar[str] = "generated"
 
@@ -92,3 +87,11 @@ class GeneratedTask:
 
     def run(self, task_input: int) -> dict[str, np.ndarray[Any, Any]]:
         return {"vector": np.asarray([task_input, task_input + 1], dtype=np.int64)}
+
+
+TEST_TASK_REGISTRY = {
+    VectorTask.name: VectorTask,
+    RuntimeFailureTask.name: RuntimeFailureTask,
+    StructuredTask.name: StructuredTask,
+    GeneratedTask.name: GeneratedTask,
+}

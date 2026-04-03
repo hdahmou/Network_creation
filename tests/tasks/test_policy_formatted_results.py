@@ -7,7 +7,7 @@ from pathlib import Path
 
 import numpy as np
 
-from tasks.policies.formatted_results import PolicyFormattedResults
+from tasks.policies.results import PolicyFormattedResults
 
 
 class PolicyFormattedResultsTest(unittest.TestCase):
@@ -51,7 +51,7 @@ class PolicyFormattedResultsTest(unittest.TestCase):
             },
             metadata={
                 "task_name": "myopic-policy",
-                "task_class": "tasks.policies.myopic_policy:MyopicPolicyRun",
+                "task_class": "tasks.policies.myopic:MyopicPolicyRun",
                 "result_store_path": Path("/tmp/run.zarr"),
                 "config_path": Path("/tmp/run.dispatch_config.json"),
                 "average_completion_duration_ms": 12.5,

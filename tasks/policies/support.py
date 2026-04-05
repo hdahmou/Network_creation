@@ -11,14 +11,15 @@ from numpy.typing import NDArray
 
 from ..dispatch.runtime import OutputField
 from network_creation.core.model import SchedulingMode
+from .parameter_space import generate_parameter_space
 
 if TYPE_CHECKING:
     from network_creation.core.runtime import SimulationSettings
     from network_creation.observers.statistics.episode import EpisodeStatisticObserver
 
 
-type ParameterRange = Mapping[str, float]
-type ParameterConfig = Mapping[str, float | ParameterRange]
+type ParameterSpec = Mapping[str, object]
+type ParameterConfig = Mapping[str, ParameterSpec]
 
 
 @dataclass(frozen=True)
@@ -45,7 +46,6 @@ def load_simulation_settings(raw: Mapping[str, Any]) -> SimulationSettings:
 
     return SimulationSettings(
         n_agents=int(raw["n_agents"]),
-        radius=int(raw["radius"]),
         mode=SchedulingMode(raw.get("mode", SchedulingMode.SIMULTANEOUS.value)),
         seed=int(raw["seed"]),
         max_steps=int(raw["max_steps"]),
@@ -62,62 +62,15 @@ def generate_parameter_table(input_spec: Mapping[str, object]) -> ParameterTable
     if log2_budget < 0:
         raise ValueError("log2_budget must be non-negative")
 
-    resolved_budget = 2**log2_budget
-    parameter_names = tuple(parameters)
+    sample_budget = 2**log2_budget
+    parameter_names, parameter_values = generate_parameter_space(
+        parameters,
+        sample_budget=sample_budget,
+        sampler_seed=sampler_seed,
+    )
     column_index_by_name = {
         name: index for index, name in enumerate(parameter_names)
     }
-    varying_names = [
-        name for name, value in parameters.items() if isinstance(value, Mapping)
-    ]
-
-    if not varying_names:
-        n_rows = 1 if resolved_budget > 0 else 0
-        parameter_values = np.empty(
-            (n_rows, len(parameter_names)),
-            dtype=np.float32,
-        )
-        if n_rows == 1:
-            parameter_values[0] = np.asarray(
-                [float(cast(float, parameters[name])) for name in parameter_names],
-                dtype=np.float32,
-            )
-
-        return ParameterTable(
-            parameter_names=parameter_names,
-            parameter_values=parameter_values,
-            column_index_by_name=column_index_by_name,
-        )
-
-    from scipy.stats import qmc
-
-    sampler = qmc.Sobol(
-        d=len(varying_names),
-        scramble=True,
-        optimization="random-cd",
-        rng=sampler_seed,
-    )
-    unit_samples = np.asarray(
-        sampler.random(n=resolved_budget),
-        dtype=np.float32,
-    )
-    parameter_values = np.empty(
-        (resolved_budget, len(parameter_names)),
-        dtype=np.float32,
-    )
-    for row_index in range(resolved_budget):
-        unit_index = 0
-        for column_index, name in enumerate(parameter_names):
-            value = parameters[name]
-            if isinstance(value, Mapping):
-                minimum = float(value["min"])
-                maximum = float(value["max"])
-                parameter_values[row_index, column_index] = minimum + (
-                    unit_samples[row_index, unit_index] * (maximum - minimum)
-                )
-                unit_index += 1
-            else:
-                parameter_values[row_index, column_index] = float(value)
 
     return ParameterTable(
         parameter_names=parameter_names,

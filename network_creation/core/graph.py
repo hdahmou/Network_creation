@@ -49,43 +49,42 @@ def build_observation_from_state(
 def get_action_space(observation: Observation) -> ActionSpace:
     """Build a structured action space from one node observation."""
 
+    source_node_id = observation.node_id
     visible_node_ids = tuple(observation.graph.vs["name"])
-    source_subgraph_idx = visible_node_ids.index(observation.node_id)
+    source_subgraph_idx = visible_node_ids.index(source_node_id)
     neighbor_node_ids = {
         visible_node_ids[subgraph_idx]
         for subgraph_idx in observation.graph.neighbors(source_subgraph_idx, mode="all")
     }
-    delete_node_ids = sorted(
-        {
-            visible_node_ids[subgraph_idx]
-            for subgraph_idx in observation.graph.neighbors(
-                source_subgraph_idx,
-                mode="out",
-            )
-        }
-    )
-    add_node_ids = sorted(
-        node_id
+
+    add_actions = [
+        Action(ActionType.ADD, source_node_id, node_id)
         for node_id in visible_node_ids
-        if node_id != observation.node_id and node_id not in neighbor_node_ids
-    )
-    bridge_node_ids = tuple(int(node_id) for node_id in observation.outside_node_ids)
+        if node_id != source_node_id and node_id not in neighbor_node_ids
+    ]
+    bridge_actions = [
+        Action(ActionType.BRIDGE, source_node_id, node_id)
+        for node_id in observation.outside_node_ids
+    ]
+    delete_actions = [
+        Action(
+            ActionType.DELETE,
+            source_node_id,
+            visible_node_ids[subgraph_idx],
+        )
+        for subgraph_idx in observation.graph.neighbors(
+            source_subgraph_idx,
+            mode="out",
+        )
+    ]
+    pass_action = [Action(ActionType.PASS, source_node_id)]
 
     return ActionSpace(
         actions={
-            ActionType.ADD: [
-                Action(ActionType.ADD, source=observation.node_id, target=node_id)
-                for node_id in add_node_ids
-            ],
-            ActionType.BRIDGE: [
-                Action(ActionType.BRIDGE, source=observation.node_id, target=node_id)
-                for node_id in bridge_node_ids
-            ],
-            ActionType.DELETE: [
-                Action(ActionType.DELETE, source=observation.node_id, target=node_id)
-                for node_id in delete_node_ids
-            ],
-            ActionType.PASS: [Action(ActionType.PASS, source=observation.node_id)],
+            ActionType.ADD: add_actions,
+            ActionType.BRIDGE: bridge_actions,
+            ActionType.DELETE: delete_actions,
+            ActionType.PASS: pass_action,
         },
     )
 

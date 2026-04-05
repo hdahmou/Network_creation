@@ -21,6 +21,9 @@ class Agent:
         if self.radius < 1:
             raise ValueError("radius must be at least 1")
 
+    def get_radius(self) -> int:
+        return self.radius
+
     def reset(self, seed: int) -> None:
         """Reset the internal policy state from one explicit seed."""
 

@@ -37,7 +37,7 @@ class Environment:
 
     def get_observation(self, agent: Agent) -> Observation:
         return build_observation_from_state(
-            self.state, node_id=agent.id, radius=agent.radius
+            self.state, node_id=agent.id, radius=agent.get_radius()
         )
 
     def get_action_space(self, agent: Agent) -> ActionSpace:

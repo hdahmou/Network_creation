@@ -6,11 +6,15 @@
   "input_spec": {
     "log2_budget": 0,
     "sampler_seed": 123,
-    "parameters": {}
+    "parameters": {
+      "radius": {
+        "type": "fixed",
+        "payload": 2
+      }
+    }
   },
   "simulation": {
     "n_agents": 4,
-    "radius": 2,
     "mode": "SIMULTANEOUS",
     "seed": 11,
     "max_steps": 5,

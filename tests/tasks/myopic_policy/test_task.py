@@ -17,15 +17,15 @@ class MyopicPolicyTaskTest(unittest.TestCase):
                 "log2_budget": 0,
                 "sampler_seed": 123,
                 "parameters": {
-                    "link_cost": 1.0,
-                    "decay": 0.5,
-                    "per_link_benefit": 10.0,
-                    "bridge_probability": 1.0,
+                    "link_cost": {"type": "fixed", "payload": 1.0},
+                    "decay": {"type": "fixed", "payload": 0.5},
+                    "per_link_benefit": {"type": "fixed", "payload": 10.0},
+                    "bridge_probability": {"type": "fixed", "payload": 1.0},
+                    "radius": {"type": "fixed", "payload": 2},
                 },
             },
             "simulation": {
                 "n_agents": 4,
-                "radius": 2,
                 "mode": "SIMULTANEOUS",
                 "seed": 11,
                 "max_steps": 3,
@@ -70,7 +70,7 @@ class MyopicPolicyTaskTest(unittest.TestCase):
         self.assertEqual(prepared.inputs, (0,))
         self.assertEqual(
             task.parameter_table.parameter_names,
-            ("link_cost", "decay", "per_link_benefit", "bridge_probability"),
+            ("link_cost", "decay", "per_link_benefit", "bridge_probability", "radius"),
         )
 
         output = prepared.run(prepared.inputs[0])
@@ -97,13 +97,17 @@ class MyopicPolicyTaskTest(unittest.TestCase):
             "log2_budget": 1,
             "sampler_seed": 55,
             "parameters": {
-                "link_cost": 1.0,
-                "decay": 0.5,
-                "per_link_benefit": 10.0,
+                "link_cost": {"type": "fixed", "payload": 1.0},
+                "decay": {"type": "fixed", "payload": 0.5},
+                "per_link_benefit": {"type": "fixed", "payload": 10.0},
                 "bridge_probability": {
-                    "min": 0.0,
-                    "max": 1.0,
+                    "type": "continuous",
+                    "payload": {
+                        "min": 0.0,
+                        "max": 1.0,
+                    },
                 },
+                "radius": {"type": "fixed", "payload": 2},
             },
         }
         prepared = MyopicPolicyRun().prepare(config)

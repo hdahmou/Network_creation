@@ -110,6 +110,16 @@ class AgentPolicyIntegrationTest(unittest.TestCase):
                 seed=41,
             )
 
+    def test_agent_get_radius_returns_stored_radius(self) -> None:
+        agent = Agent(
+            id=0,
+            radius=3,
+            policy=StubPolicy(Action(ActionType.PASS, source=0)),
+            seed=41,
+        )
+
+        self.assertEqual(agent.get_radius(), 3)
+
     def test_agent_delegates_act_and_reset_to_policy(self) -> None:
         expected_action = Action(ActionType.PASS, source=0)
         policy = StubPolicy(expected_action)

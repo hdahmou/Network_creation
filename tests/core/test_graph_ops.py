@@ -198,6 +198,22 @@ class GraphOpsTest(unittest.TestCase):
             [Action(ActionType.PASS, source=4)],
         )
 
+    def test_delete_actions_use_global_node_ids_when_subgraph_indices_differ(self) -> None:
+        state = self._larger_state()
+        observation = build_observation_from_state(state, node_id=3, radius=1)
+
+        self.assertEqual(observation.graph.vs["name"], [2, 3, 4])
+
+        action_space = get_action_space(observation)
+
+        self.assertEqual(
+            action_space[ActionType.DELETE],
+            [
+                Action(ActionType.DELETE, source=3, target=2),
+                Action(ActionType.DELETE, source=3, target=4),
+            ],
+        )
+
     def test_apply_actions_supports_simultaneous_pre_step_decisions(self) -> None:
         state = build_state_from_graph(
             graph_from_adjacency_matrix(np.zeros((2, 2), dtype=np.int8))

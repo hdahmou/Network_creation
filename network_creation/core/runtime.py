@@ -7,8 +7,6 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from network_creation.policies.base import Policy
-
 from .agent import Agent
 from .environment import Environment
 from .graph import create_empty_graph
@@ -22,7 +20,6 @@ class SimulationSettings:
     """Fixed settings for one simulation run family."""
 
     n_agents: int
-    radius: int
     mode: SchedulingMode
     seed: int
     max_steps: int
@@ -51,17 +48,9 @@ def create_environment(
 def create_agents(
     *,
     simulation_settings: SimulationSettings,
-    build_policy: Callable[[int], Policy],
+    build_agent: Callable[[int], Agent],
 ) -> tuple[Agent, ...]:
-    return tuple(
-        Agent(
-            id=node_id,
-            radius=simulation_settings.radius,
-            policy=build_policy(node_id),
-            seed=node_id,
-        )
-        for node_id in range(simulation_settings.n_agents)
-    )
+    return tuple(build_agent(node_id) for node_id in range(simulation_settings.n_agents))
 
 
 def create_simulator(
@@ -86,7 +75,7 @@ def create_simulator(
 def create_simulation_runtime(
     *,
     simulation_settings: SimulationSettings,
-    build_policy: Callable[[int], Policy],
+    build_agent: Callable[[int], Agent],
     observers: tuple[SimulationObserver, ...],
     seed: int,
 ) -> tuple[Environment, tuple[Agent, ...], Simulator]:
@@ -96,7 +85,7 @@ def create_simulation_runtime(
     )
     agents = create_agents(
         simulation_settings=simulation_settings,
-        build_policy=build_policy,
+        build_agent=build_agent,
     )
     simulator = create_simulator(
         simulation_settings=simulation_settings,

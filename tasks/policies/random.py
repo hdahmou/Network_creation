@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import ClassVar, cast
+from typing import ClassVar
 
 import numpy as np
 from numpy.typing import NDArray
@@ -18,19 +18,7 @@ class RandomPolicyRun(PolicyRun):
     name: ClassVar[str] = "random-policy"
 
     def validate_input_spec(self, input_spec: Mapping[str, object]) -> None:
-        parameters = cast(Mapping[str, object], input_spec["parameters"])
-        if parameters:
-            raise ValueError(
-                "RandomPolicyRun requires input_spec.parameters to be empty"
-            )
-        if int(input_spec["log2_budget"]) != 0:
-            raise ValueError(
-                "RandomPolicyRun requires input_spec.log2_budget to equal 0"
-            )
-
-    def validate_sample_idx(self, sample_idx: int) -> None:
-        if sample_idx != 0:
-            raise ValueError("RandomPolicyRun accepts only sample_idx=0")
+        super().validate_input_spec(input_spec)
 
     def build_policy(self, node_id: int, sample: NDArray[np.float32]) -> RandomPolicy:
         del sample

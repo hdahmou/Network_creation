@@ -9,7 +9,7 @@ import numpy as np
 
 from network_creation.core.agent import Agent
 from network_creation.core.environment import Environment
-from network_creation.core.graph import create_empty_graph
+from network_creation.core.graph import build_observation_from_state, create_empty_graph
 from network_creation.core.model import (
     Action,
     ActionSpace,
@@ -256,6 +256,41 @@ class SimulatorTest(unittest.TestCase):
 
         self.assertEqual(from_state.call_count, 2)
         self.assertEqual(observer.step_events, [])
+
+    def test_run_builds_observations_from_agent_radii(self) -> None:
+        env = Environment(create_empty_graph(2), seed=52)
+        simulator = Simulator(
+            env=env,
+            agents=(
+                Agent(
+                    id=0,
+                    radius=2,
+                    policy=ConstantPolicy(Action(ActionType.PASS, source=0)),
+                    seed=53,
+                ),
+                Agent(
+                    id=1,
+                    radius=1,
+                    policy=ConstantPolicy(Action(ActionType.PASS, source=1)),
+                    seed=54,
+                ),
+            ),
+            mode=SchedulingMode.SIMULTANEOUS,
+            max_steps=1,
+            rng=np.random.default_rng(55),
+            observers=(),
+        )
+
+        with patch(
+            "network_creation.core.simulator.build_observation_from_state",
+            wraps=build_observation_from_state,
+        ) as build_observation:
+            simulator.run(n_episodes=1, reset_observers=False)
+
+        self.assertEqual(
+            [call.kwargs["radius"] for call in build_observation.call_args_list],
+            [2, 1],
+        )
 
     def test_run_simultaneous_uses_same_pre_step_state(self) -> None:
         env = Environment(

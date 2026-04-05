@@ -4,24 +4,39 @@
   "output_dir": "../../artifacts/myopic_policy",
   "write_batch_size": 32,
   "input_spec": {
-    "log2_budget": 17,
+    "log2_budget": 4,
     "sampler_seed": 123,
     "parameters": {
-      "link_cost": 20,
-      "decay": {
-        "min": 0.01,
-        "max": 0.99
+      "link_cost": {
+        "type": "fixed",
+        "payload": 20
       },
-      "per_link_benefit": 10.0,
+      "decay": {
+        "type": "continuous",
+        "payload": {
+          "min": 0.01,
+          "max": 0.99
+        }
+      },
+      "per_link_benefit": {
+        "type": "fixed",
+        "payload": 10.0
+      },
       "bridge_probability": {
-        "min": 0.0,
-        "max": 1.0
+        "type": "continuous",
+        "payload": {
+          "min": 0.0,
+          "max": 1.0
+        }
+      },
+      "radius": {
+        "type": "fixed",
+        "payload": 10
       }
     }
   },
   "simulation": {
     "n_agents": 10,
-    "radius": 10,
     "mode": "SIMULTANEOUS",
     "seed": 11,
     "max_steps": 360,

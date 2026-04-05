@@ -77,6 +77,7 @@ class MyopicPolicyResultFormatterTest(unittest.TestCase):
                 "decay",
                 "per_link_benefit",
                 "bridge_probability",
+                "radius",
             ),
         )
         self.assertEqual(

@@ -16,11 +16,10 @@ class RandomPolicyTaskTest(unittest.TestCase):
             "input_spec": {
                 "log2_budget": 0,
                 "sampler_seed": 123,
-                "parameters": {},
+                "parameters": {"radius": {"type": "fixed", "payload": 2}},
             },
             "simulation": {
                 "n_agents": 4,
-                "radius": 2,
                 "mode": "SIMULTANEOUS",
                 "seed": 11,
                 "max_steps": 3,
@@ -63,8 +62,8 @@ class RandomPolicyTaskTest(unittest.TestCase):
             ],
         )
         self.assertEqual(prepared.inputs, (0,))
-        self.assertEqual(task.parameter_table.parameter_names, ())
-        self.assertEqual(task.parameter_table.parameter_values.shape, (1, 0))
+        self.assertEqual(task.parameter_table.parameter_names, ("radius",))
+        self.assertEqual(task.parameter_table.parameter_values.shape, (1, 1))
 
         output = prepared.run(prepared.inputs[0])
 
@@ -117,8 +116,21 @@ class RandomPolicyTaskTest(unittest.TestCase):
         self.assertEqual(output["density.mean"].shape, (4,))
         self.assertEqual(output["triad_census.mean"].shape, (4, 7))
 
-    def test_run_rejects_non_singleton_sample_idx(self) -> None:
-        prepared = RandomPolicyRun().prepare(self._base_config())
+    def test_run_supports_multiple_radius_samples(self) -> None:
+        config = self._base_config()
+        config["input_spec"] = {
+            "log2_budget": 1,
+            "sampler_seed": 123,
+            "parameters": {
+                "radius": {
+                    "type": "sampled_discrete_range",
+                    "payload": {"min": 1, "max": 2},
+                }
+            },
+        }
+        prepared = RandomPolicyRun().prepare(config)
 
-        with self.assertRaisesRegex(ValueError, "sample_idx"):
-            prepared.run(1)
+        self.assertEqual(prepared.inputs, (0, 1))
+        for sample_idx in prepared.inputs:
+            output = prepared.run(sample_idx)
+            self.assertEqual(set(output), {"density.mean", "social_welfare.mean"})

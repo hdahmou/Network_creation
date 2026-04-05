@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, NamedTuple
 
 import numpy as np
 from numpy.typing import NDArray
@@ -29,8 +29,7 @@ class SchedulingMode(str, Enum):
     SIMULTANEOUS = "SIMULTANEOUS"
 
 
-@dataclass(frozen=True, slots=True)
-class Action:
+class Action(NamedTuple):
     """One agent-level action proposed for a step."""
 
     type: ActionType

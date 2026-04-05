@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import numpy as np
 from numpy.typing import NDArray
+
+from network_creation.core.agent import Agent
 
 from ..dispatch.runtime import OutputSchema, PreparedTask
 from .support import (
@@ -53,10 +55,21 @@ class PolicyRun(ABC):
         )
 
     def validate_input_spec(self, input_spec: Mapping[str, object]) -> None:
-        del input_spec
+        parameters = cast(Mapping[str, object], input_spec["parameters"])
+        if "radius" not in parameters:
+            raise ValueError("input_spec.parameters.radius is required")
 
     def validate_sample_idx(self, sample_idx: int) -> None:
         del sample_idx
+
+    def build_agent(self, node_id: int, sample: NDArray[np.float32]) -> Agent:
+        radius_column = self.parameter_table.column_index_by_name["radius"]
+        return Agent(
+            id=node_id,
+            radius=int(sample[radius_column]),
+            policy=self.build_policy(node_id, sample),
+            seed=node_id,
+        )
 
     def run(self, sample_idx: int) -> dict[str, np.ndarray[Any, Any]]:
         from network_creation.core.runtime import create_simulation_runtime
@@ -68,7 +81,7 @@ class PolicyRun(ABC):
         )
         _, _, simulator = create_simulation_runtime(
             simulation_settings=self.simulation_settings,
-            build_policy=lambda node_id: self.build_policy(node_id, sample),
+            build_agent=lambda node_id: self.build_agent(node_id, sample),
             observers=observers,
             seed=self.simulation_settings.seed,
         )

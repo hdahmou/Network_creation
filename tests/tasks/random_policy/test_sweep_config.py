@@ -14,11 +14,10 @@ class RandomPolicyPreparationTest(unittest.TestCase):
             "input_spec": {
                 "log2_budget": 0,
                 "sampler_seed": 123,
-                "parameters": {},
+                "parameters": {"radius": {"type": "fixed", "payload": 2}},
             },
             "simulation": {
                 "n_agents": 4,
-                "radius": 2,
                 "mode": "SIMULTANEOUS",
                 "seed": 11,
                 "max_steps": 3,
@@ -43,27 +42,37 @@ class RandomPolicyPreparationTest(unittest.TestCase):
         prepared = task.prepare(self._base_config())
 
         self.assertEqual(prepared.inputs, (0,))
-        self.assertEqual(task.parameter_table.parameter_names, ())
-        self.assertEqual(task.parameter_table.parameter_values.shape, (1, 0))
+        self.assertEqual(task.parameter_table.parameter_names, ("radius",))
+        self.assertEqual(task.parameter_table.parameter_values.shape, (1, 1))
 
-    def test_prepare_rejects_non_empty_parameters(self) -> None:
+    def test_prepare_accepts_parameters_other_than_radius(self) -> None:
         config = self._base_config()
         config["input_spec"] = {
             "log2_budget": 0,
             "sampler_seed": 123,
-            "parameters": {"bridge_probability": 1.0},
+            "parameters": {
+                "radius": {"type": "fixed", "payload": 2},
+                "bridge_probability": {"type": "fixed", "payload": 1.0},
+            },
         }
 
-        with self.assertRaisesRegex(ValueError, "parameters"):
-            RandomPolicyRun().prepare(config)
+        prepared = RandomPolicyRun().prepare(config)
 
-    def test_prepare_rejects_non_singleton_budget(self) -> None:
+        self.assertEqual(prepared.inputs, (0,))
+
+    def test_prepare_supports_sampled_radius_range(self) -> None:
         config = self._base_config()
         config["input_spec"] = {
             "log2_budget": 1,
             "sampler_seed": 123,
-            "parameters": {},
+            "parameters": {
+                "radius": {
+                    "type": "sampled_discrete_range",
+                    "payload": {"min": 1, "max": 2},
+                }
+            },
         }
 
-        with self.assertRaisesRegex(ValueError, "log2_budget"):
-            RandomPolicyRun().prepare(config)
+        prepared = RandomPolicyRun().prepare(config)
+
+        self.assertEqual(prepared.inputs, (0, 1))

@@ -3,13 +3,52 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 import igraph as ig
 import numpy as np
 from numpy.typing import NDArray
 
 from .model import EnvironmentState, PolicyDecision, SchedulingMode
+
+
+@dataclass(frozen=True)
+class ObservationSampling:
+    """Step-sampling policy shared by simulator observers."""
+
+    kind: Literal["periodic", "terminal"]
+    every: int | None = None
+
+    def __post_init__(self) -> None:
+        if self.kind == "periodic":
+            if self.every is None or self.every < 1:
+                raise ValueError("periodic observation sampling requires every >= 1")
+            return
+        if self.kind == "terminal":
+            if self.every is not None:
+                raise ValueError("terminal observation sampling does not accept 'every'")
+            return
+        raise ValueError(f"unsupported observation sampling kind: {self.kind}")
+
+    @classmethod
+    def periodic(cls, every: int) -> ObservationSampling:
+        return cls(kind="periodic", every=every)
+
+    @classmethod
+    def terminal(cls) -> ObservationSampling:
+        return cls(kind="terminal")
+
+    def samples_step(self, step_index: int, max_steps: int) -> bool:
+        if self.kind == "periodic":
+            assert self.every is not None
+            return (step_index + 1) % self.every == 0
+        return max_steps > 0 and step_index == max_steps - 1
+
+    def fixed_sample_count(self, max_steps: int) -> int:
+        if self.kind == "periodic":
+            assert self.every is not None
+            return 1 + max_steps // self.every
+        return 1
 
 
 @dataclass(frozen=True)
@@ -74,7 +113,7 @@ class StatisticResult:
 class SimulationObserver(Protocol):
     """Observer interface for simulator lifecycle events across multiple episodes."""
 
-    observation_frequency: int
+    observation_sampling: ObservationSampling
 
     def reset(self) -> None:
         """Clear all observer state accumulated across episodes."""
@@ -87,6 +126,10 @@ class SimulationObserver(Protocol):
 
     def on_episode_end(self, event: EpisodeEndEvent) -> None:
         """Handle the end of one episode."""
+
+    def observes_step(self, step_index: int, max_steps: int) -> bool:
+        """Return whether one completed simulator step should emit a step event."""
+        return self.observation_sampling.samples_step(step_index, max_steps)
 
     def get(self) -> Any:
         """Return the observer's current batch-level result."""

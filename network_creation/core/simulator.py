@@ -46,7 +46,7 @@ class Simulator:
             tuple(
                 observer
                 for observer in observers
-                if (step + 1) % observer.observation_frequency == 0
+                if observer.observes_step(step, max_steps)
             )
             for step in range(max_steps)
         )

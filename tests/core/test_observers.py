@@ -15,6 +15,7 @@ from network_creation.core.graph import create_empty_graph
 from network_creation.core.observability import (
     EpisodeEndEvent,
     EpisodeStartEvent,
+    ObservationSampling,
     StateView,
     StepEvent,
 )
@@ -216,34 +217,35 @@ def _graph_signature(graph) -> tuple[tuple[int, ...], tuple[tuple[int, int], ...
 
 def _build_contract_test_observer(name: str):
     observer_class = OBSERVER_GRIMOIRE[name]
+    periodic = ObservationSampling.periodic(1)
     kwargs_by_name = {
-        "action_count": {"observation_frequency": 1, "aggregations": ()},
-        "action_print": {"observation_frequency": 1, "print_empty_steps": False},
+        "action_count": {"observation_sampling": periodic, "aggregations": ()},
+        "action_print": {"observation_sampling": periodic, "print_empty_steps": False},
         "central_point_of_dominance": {
-            "observation_frequency": 1,
+            "observation_sampling": periodic,
             "aggregations": (),
         },
-        "density": {"observation_frequency": 1, "aggregations": ()},
-        "distance": {"observation_frequency": 1, "aggregations": ()},
+        "density": {"observation_sampling": periodic, "aggregations": ()},
+        "distance": {"observation_sampling": periodic, "aggregations": ()},
         "global_closeness_centrality": {
-            "observation_frequency": 1,
+            "observation_sampling": periodic,
             "aggregations": (),
         },
         "hub_persistence": {
-            "observation_frequency": 1,
+            "observation_sampling": periodic,
             "window_size": 1,
             "aggregations": (),
         },
-        "indegree": {"observation_frequency": 1, "aggregations": ()},
+        "indegree": {"observation_sampling": periodic, "aggregations": ()},
         "social_welfare": {
-            "observation_frequency": 1,
+            "observation_sampling": periodic,
             "link_cost": 1.0,
             "decay": 0.5,
             "per_link_benefit": 10.0,
             "aggregations": (),
         },
-        "state_history": {"observation_frequency": 1, "keep_runs": False},
-        "triad_census": {"observation_frequency": 1, "aggregations": ()},
+        "state_history": {"observation_sampling": periodic, "keep_runs": False},
+        "triad_census": {"observation_sampling": periodic, "aggregations": ()},
     }
     return observer_class(**kwargs_by_name[name])
 
@@ -319,7 +321,7 @@ class ObserverTest(unittest.TestCase):
                     )
 
     def test_action_print_observer_can_print_initial_empty_step(self) -> None:
-        observer = ActionPrintObserver(1, True)
+        observer = ActionPrintObserver(ObservationSampling.periodic(1), True)
         stdout = io.StringIO()
 
         with redirect_stdout(stdout):
@@ -339,7 +341,7 @@ class ObserverTest(unittest.TestCase):
             mode=SchedulingMode.SIMULTANEOUS,
             max_steps=1,
             rng=np.random.default_rng(13),
-            observers=(ActionPrintObserver(1, False),),
+            observers=(ActionPrintObserver(ObservationSampling.periodic(1), False),),
         )
 
         stdout = io.StringIO()
@@ -376,7 +378,7 @@ class ObserverTest(unittest.TestCase):
             mode=SchedulingMode.SIMULTANEOUS,
             max_steps=1,
             rng=np.random.default_rng(13),
-            observers=(ActionPrintObserver(1, False),),
+            observers=(ActionPrintObserver(ObservationSampling.periodic(1), False),),
         )
 
         stdout = io.StringIO()
@@ -389,7 +391,7 @@ class ObserverTest(unittest.TestCase):
 
     def test_density_observer_tracks_density_only(self) -> None:
         density_observer = DensityObserver(
-            observation_frequency=1,
+            observation_sampling=ObservationSampling.periodic(1),
             aggregations=(),
         )
         env = Environment(create_empty_graph(2), seed=13)
@@ -415,7 +417,7 @@ class ObserverTest(unittest.TestCase):
 
     def test_tensor_series_observer_tracks_matrix_values(self) -> None:
         tensor_observer = TensorMatrixObserver(
-            observation_frequency=1,
+            observation_sampling=ObservationSampling.periodic(1),
             aggregations=(),
         )
         env = Environment(create_empty_graph(2), seed=13)
@@ -459,7 +461,7 @@ class ObserverTest(unittest.TestCase):
 
     def test_scalar_series_observer_still_tracks_scalar_values(self) -> None:
         scalar_observer = ShapeMismatchObserver(
-            observation_frequency=1,
+            observation_sampling=ObservationSampling.periodic(1),
             aggregations=(),
         )
         env = Environment(create_empty_graph(1), seed=13)
@@ -489,7 +491,7 @@ class ObserverTest(unittest.TestCase):
 
     def test_tensor_series_observer_rejects_mismatched_step_shape(self) -> None:
         mismatch_observer = TensorShapeMismatchObserver(
-            observation_frequency=1,
+            observation_sampling=ObservationSampling.periodic(1),
             aggregations=(),
         )
         env = Environment(create_empty_graph(1), seed=13)
@@ -517,7 +519,7 @@ class ObserverTest(unittest.TestCase):
 
     def test_tensor_series_observer_rejects_scalar_values(self) -> None:
         scalar_value_observer = TensorScalarValueObserver(
-            observation_frequency=1,
+            observation_sampling=ObservationSampling.periodic(1),
             aggregations=(),
         )
         env = Environment(create_empty_graph(1), seed=13)
@@ -538,7 +540,7 @@ class ObserverTest(unittest.TestCase):
 
     def test_tensor_series_observer_rejects_wrong_dimension_name_count(self) -> None:
         wrong_names_observer = TensorWrongDimensionNamesObserver(
-            observation_frequency=1,
+            observation_sampling=ObservationSampling.periodic(1),
             aggregations=(),
         )
         env = Environment(create_empty_graph(1), seed=13)
@@ -559,7 +561,7 @@ class ObserverTest(unittest.TestCase):
 
     def test_indegree_observer_uses_directed_adjacency_matrix(self) -> None:
         indegree_observer = IndegreeObserver(
-            observation_frequency=1,
+            observation_sampling=ObservationSampling.periodic(1),
             aggregations=(),
         )
         env = Environment(
@@ -597,7 +599,7 @@ class ObserverTest(unittest.TestCase):
 
     def test_triad_census_observer_returns_zero_when_no_triads_exist(self) -> None:
         triad_observer = TriadCensusObserver(
-            observation_frequency=1,
+            observation_sampling=ObservationSampling.periodic(1),
             aggregations=(),
         )
         env = Environment(create_empty_graph(2), seed=17)
@@ -619,7 +621,7 @@ class ObserverTest(unittest.TestCase):
 
     def test_triad_census_observer_tracks_proportion_series(self) -> None:
         triad_observer = TriadCensusObserver(
-            observation_frequency=1,
+            observation_sampling=ObservationSampling.periodic(1),
             aggregations=(),
         )
         env = Environment(create_empty_graph(3), seed=17)
@@ -652,7 +654,7 @@ class ObserverTest(unittest.TestCase):
 
     def test_triad_census_observer_ignores_types_outside_configured_subset(self) -> None:
         triad_observer = TriadCensusObserver(
-            observation_frequency=1,
+            observation_sampling=ObservationSampling.periodic(1),
             aggregations=(),
         )
         env = Environment(
@@ -686,7 +688,7 @@ class ObserverTest(unittest.TestCase):
 
     def test_triad_census_observer_reports_selected_type_proportions(self) -> None:
         triad_observer = TriadCensusObserver(
-            observation_frequency=1,
+            observation_sampling=ObservationSampling.periodic(1),
             aggregations=(),
         )
         env = Environment(create_empty_graph(4), seed=31)
@@ -707,7 +709,7 @@ class ObserverTest(unittest.TestCase):
 
     def test_triad_census_observer_aggregates_vector_outputs(self) -> None:
         triad_observer = TriadCensusObserver(
-            observation_frequency=1,
+            observation_sampling=ObservationSampling.periodic(1),
             aggregations=("mean", "std", "runs"),
         )
         env = Environment(create_empty_graph(3), seed=37)
@@ -753,7 +755,7 @@ class ObserverTest(unittest.TestCase):
         self,
     ) -> None:
         distance_observer = DistanceObserver(
-            observation_frequency=1,
+            observation_sampling=ObservationSampling.periodic(1),
             aggregations=(),
         )
         env = Environment(
@@ -794,7 +796,7 @@ class ObserverTest(unittest.TestCase):
         self,
     ) -> None:
         closeness_observer = GlobalClosenessCentralityObserver(
-            observation_frequency=1,
+            observation_sampling=ObservationSampling.periodic(1),
             aggregations=(),
         )
         env = Environment(
@@ -832,7 +834,7 @@ class ObserverTest(unittest.TestCase):
         self,
     ) -> None:
         dominance_observer = CentralPointOfDominanceObserver(
-            observation_frequency=1,
+            observation_sampling=ObservationSampling.periodic(1),
             aggregations=(),
         )
         env = Environment(
@@ -868,7 +870,7 @@ class ObserverTest(unittest.TestCase):
 
     def test_action_count_observer_normalizes_by_total_agents(self) -> None:
         action_count_observer = ActionCountObserver(
-            observation_frequency=1,
+            observation_sampling=ObservationSampling.periodic(1),
             aggregations=(),
         )
         env = Environment(create_empty_graph(2), seed=41)
@@ -908,7 +910,7 @@ class ObserverTest(unittest.TestCase):
         self,
     ) -> None:
         action_count_observer = ActionCountObserver(
-            observation_frequency=1,
+            observation_sampling=ObservationSampling.periodic(1),
             aggregations=(),
         )
         env = Environment(create_empty_graph(3), seed=59)
@@ -957,7 +959,7 @@ class ObserverTest(unittest.TestCase):
 
     def test_distance_observer_aggregates_mean_and_runs(self) -> None:
         distance_observer = DistanceObserver(
-            observation_frequency=1,
+            observation_sampling=ObservationSampling.periodic(1),
             aggregations=("mean", "runs"),
         )
         env = Environment(
@@ -1005,7 +1007,7 @@ class ObserverTest(unittest.TestCase):
         self,
     ) -> None:
         dominance_observer = CentralPointOfDominanceObserver(
-            observation_frequency=1,
+            observation_sampling=ObservationSampling.periodic(1),
             aggregations=("mean", "runs"),
         )
         env = Environment(
@@ -1053,7 +1055,7 @@ class ObserverTest(unittest.TestCase):
         self,
     ) -> None:
         hub_persistence_observer = HubPersistenceObserver(
-            observation_frequency=1,
+            observation_sampling=ObservationSampling.periodic(1),
             window_size=1,
             aggregations=(),
         )
@@ -1112,7 +1114,7 @@ class ObserverTest(unittest.TestCase):
         self,
     ) -> None:
         hub_persistence_observer = HubPersistenceObserver(
-            observation_frequency=1,
+            observation_sampling=ObservationSampling.periodic(1),
             window_size=10,
             aggregations=(),
         )
@@ -1159,7 +1161,7 @@ class ObserverTest(unittest.TestCase):
 
     def test_hub_persistence_observer_aggregates_series_outputs(self) -> None:
         hub_persistence_observer = HubPersistenceObserver(
-            observation_frequency=1,
+            observation_sampling=ObservationSampling.periodic(1),
             window_size=1,
             aggregations=("mean", "std", "runs"),
         )
@@ -1245,20 +1247,91 @@ class ObserverTest(unittest.TestCase):
             equal_nan=True,
         )
 
-    def test_hub_persistence_observer_requires_full_step_sampling(self) -> None:
-        with self.assertRaisesRegex(
-            ValueError,
-            "observation_frequency=1",
-        ):
-            HubPersistenceObserver(
-                observation_frequency=2,
-                window_size=10,
-                aggregations=(),
-            )
+    def test_hub_persistence_observer_terminal_sampling_returns_latest_valid_score(
+        self,
+    ) -> None:
+        hub_persistence_observer = HubPersistenceObserver(
+            observation_sampling=ObservationSampling.terminal(),
+            window_size=1,
+            aggregations=(),
+        )
+        env = Environment(create_empty_graph(3), seed=211)
+        simulator = Simulator(
+            env=env,
+            agents=(
+                Agent(
+                    id=0,
+                    radius=1,
+                    policy=EpisodeCallPolicy(
+                        [[
+                            [Action(ActionType.ADD, source=0, target=1)],
+                            [Action(ActionType.PASS, source=0)],
+                        ]]
+                    ),
+                    seed=223,
+                ),
+                Agent(
+                    id=1,
+                    radius=1,
+                    policy=ConstantPolicy(Action(ActionType.PASS, source=1)),
+                    seed=227,
+                ),
+                Agent(
+                    id=2,
+                    radius=1,
+                    policy=EpisodeCallPolicy(
+                        [[
+                            [Action(ActionType.ADD, source=2, target=1)],
+                            [Action(ActionType.PASS, source=2)],
+                        ]]
+                    ),
+                    seed=229,
+                ),
+            ),
+            mode=SchedulingMode.SIMULTANEOUS,
+            max_steps=2,
+            rng=np.random.default_rng(233),
+            observers=(hub_persistence_observer,),
+        )
+
+        simulator.run(n_episodes=1, reset_observers=False)
+
+        np.testing.assert_array_equal(hub_persistence_observer.steps, np.array([1]))
+        np.testing.assert_allclose(
+            hub_persistence_observer.values,
+            np.array([1.0], dtype=np.float32),
+        )
+
+    def test_hub_persistence_observer_terminal_sampling_falls_back_to_nan_at_step_zero(
+        self,
+    ) -> None:
+        hub_persistence_observer = HubPersistenceObserver(
+            observation_sampling=ObservationSampling.terminal(),
+            window_size=10,
+            aggregations=(),
+        )
+        env = Environment(create_empty_graph(3), seed=239)
+        simulator = Simulator(
+            env=env,
+            agents=(),
+            mode=SchedulingMode.SEQUENTIAL,
+            max_steps=0,
+            rng=np.random.default_rng(241),
+            observers=(hub_persistence_observer,),
+        )
+
+        simulator.run(n_episodes=1, reset_observers=False)
+
+        np.testing.assert_array_equal(hub_persistence_observer.steps, np.array([0]))
+        np.testing.assert_allclose(
+            hub_persistence_observer.values,
+            np.array([np.nan], dtype=np.float32),
+            equal_nan=True,
+        )
 
     def test_state_history_observer_tracks_graphs(self) -> None:
         state_history_observer = StateHistoryObserver(
-            observation_frequency=1,
+            observation_sampling=ObservationSampling.periodic(1),
             keep_runs=False,
         )
         env = Environment(create_empty_graph(2), seed=29)
@@ -1285,7 +1358,7 @@ class ObserverTest(unittest.TestCase):
 
     def test_state_history_observer_keeps_persistent_copies_of_graph_history(self) -> None:
         state_history_observer = StateHistoryObserver(
-            observation_frequency=1,
+            observation_sampling=ObservationSampling.periodic(1),
             keep_runs=False,
         )
         env = Environment(create_empty_graph(2), seed=29)
@@ -1310,13 +1383,13 @@ class ObserverTest(unittest.TestCase):
         exported_graphs[1].delete_edges([(0, 1)])
         self.assertTrue(state_history_observer.graphs[1].are_adjacent(0, 1))
 
-    def test_observers_record_sampled_step_ids_with_observation_frequency(self) -> None:
+    def test_observers_record_sampled_step_ids_with_observation_sampling(self) -> None:
         density_observer = DensityObserver(
-            observation_frequency=2,
+            observation_sampling=ObservationSampling.periodic(2),
             aggregations=(),
         )
         state_history_observer = StateHistoryObserver(
-            observation_frequency=2,
+            observation_sampling=ObservationSampling.periodic(2),
             keep_runs=False,
         )
         env = Environment(create_empty_graph(2), seed=43)
@@ -1342,9 +1415,197 @@ class ObserverTest(unittest.TestCase):
         np.testing.assert_array_equal(state_history_observer.steps, np.array([0, 2, 4]))
         self.assertEqual(len(state_history_observer.graphs), 3)
 
+    def test_density_observer_terminal_sampling_returns_last_step_value(self) -> None:
+        density_observer = DensityObserver(
+            observation_sampling=ObservationSampling.terminal(),
+            aggregations=(),
+        )
+        env = Environment(create_empty_graph(2), seed=43)
+        simulator = Simulator(
+            env=env,
+            agents=(
+                Agent(id=0, radius=1, policy=ConstantPolicy(Action(ActionType.BRIDGE, source=0, target=1)), seed=47),
+                Agent(id=1, radius=1, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=53),
+            ),
+            mode=SchedulingMode.SEQUENTIAL,
+            max_steps=2,
+            rng=np.random.default_rng(59),
+            observers=(density_observer,),
+        )
+
+        simulator.run(n_episodes=1, reset_observers=False)
+
+        np.testing.assert_array_equal(density_observer.steps, np.array([2]))
+        np.testing.assert_allclose(
+            density_observer.values,
+            np.array([1.0], dtype=np.float32),
+        )
+
+    def test_series_observer_terminal_sampling_reuses_initial_sample_when_no_step_executes(
+        self,
+    ) -> None:
+        density_observer = DensityObserver(
+            observation_sampling=ObservationSampling.terminal(),
+            aggregations=(),
+        )
+        env = Environment(create_empty_graph(2), seed=61)
+        simulator = Simulator(
+            env=env,
+            agents=(),
+            mode=SchedulingMode.SEQUENTIAL,
+            max_steps=0,
+            rng=np.random.default_rng(67),
+            observers=(density_observer,),
+        )
+
+        simulator.run(n_episodes=1, reset_observers=False)
+
+        np.testing.assert_array_equal(density_observer.steps, np.array([0]))
+        np.testing.assert_allclose(
+            density_observer.values,
+            np.array([0.0], dtype=np.float32),
+        )
+
+    def test_action_count_observer_terminal_sampling_uses_last_step_decisions(self) -> None:
+        action_count_observer = ActionCountObserver(
+            observation_sampling=ObservationSampling.terminal(),
+            aggregations=(),
+        )
+        env = Environment(create_empty_graph(2), seed=41)
+        simulator = Simulator(
+            env=env,
+            agents=(
+                Agent(
+                    id=0,
+                    radius=1,
+                    policy=ActionListPolicy(
+                        [Action(ActionType.BRIDGE, source=0, target=1)]
+                    ),
+                    seed=43,
+                ),
+                Agent(
+                    id=1,
+                    radius=1,
+                    policy=ActionListPolicy([Action(ActionType.PASS, source=1)]),
+                    seed=47,
+                ),
+            ),
+            mode=SchedulingMode.SEQUENTIAL,
+            max_steps=1,
+            rng=np.random.default_rng(53),
+            observers=(action_count_observer,),
+        )
+
+        simulator.run(n_episodes=1, reset_observers=False)
+
+        np.testing.assert_array_equal(action_count_observer.steps, np.array([1]))
+        np.testing.assert_allclose(
+            action_count_observer.values,
+            np.array([0.5], dtype=np.float32),
+        )
+
+    def test_triad_census_observer_terminal_sampling_returns_last_tensor_value(self) -> None:
+        triad_observer = TriadCensusObserver(
+            observation_sampling=ObservationSampling.terminal(),
+            aggregations=(),
+        )
+        env = Environment(create_empty_graph(3), seed=17)
+        simulator = Simulator(
+            env=env,
+            agents=(
+                Agent(
+                    id=0,
+                    radius=1,
+                    policy=ConstantPolicy(
+                        Action(ActionType.BRIDGE, source=0, target=1)
+                    ),
+                    seed=19,
+                ),
+            ),
+            mode=SchedulingMode.SEQUENTIAL,
+            max_steps=1,
+            rng=np.random.default_rng(23),
+            observers=(triad_observer,),
+        )
+
+        simulator.run(n_episodes=1, reset_observers=False)
+
+        expected = np.zeros((1, len(TRIAD_TYPE_NAMES)), dtype=np.float32)
+        expected[0, TRIAD_TYPE_NAMES.index("012")] = 1.0
+        np.testing.assert_array_equal(triad_observer.steps, np.array([1]))
+        np.testing.assert_allclose(triad_observer.values, expected)
+
+    def test_state_history_observer_terminal_sampling_keeps_final_graph_only(self) -> None:
+        state_history_observer = StateHistoryObserver(
+            observation_sampling=ObservationSampling.terminal(),
+            keep_runs=False,
+        )
+        env = Environment(create_empty_graph(2), seed=29)
+        simulator = Simulator(
+            env=env,
+            agents=(
+                Agent(id=0, radius=1, policy=ConstantPolicy(Action(ActionType.BRIDGE, source=0, target=1)), seed=31),
+                Agent(id=1, radius=1, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=37),
+            ),
+            mode=SchedulingMode.SEQUENTIAL,
+            max_steps=2,
+            rng=np.random.default_rng(41),
+            observers=(state_history_observer,),
+        )
+
+        simulator.run(n_episodes=1, reset_observers=False)
+
+        np.testing.assert_array_equal(state_history_observer.steps, np.array([2]))
+        self.assertEqual(len(state_history_observer.graphs), 1)
+        self.assertTrue(state_history_observer.graphs[0].are_adjacent(0, 1))
+
+    def test_action_print_observer_terminal_sampling_prints_only_last_completed_step(
+        self,
+    ) -> None:
+        env = Environment(create_empty_graph(2), seed=3)
+        simulator = Simulator(
+            env=env,
+            agents=(
+                Agent(id=0, radius=1, policy=ConstantPolicy(Action(ActionType.BRIDGE, source=0, target=1)), seed=5),
+                Agent(id=1, radius=1, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=7),
+            ),
+            mode=SchedulingMode.SEQUENTIAL,
+            max_steps=2,
+            rng=np.random.default_rng(13),
+            observers=(ActionPrintObserver(ObservationSampling.terminal(), True),),
+        )
+
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            simulator.run(n_episodes=1, reset_observers=False)
+
+        output = stdout.getvalue()
+        self.assertNotIn("step 0", output)
+        self.assertIn("step 2", output)
+
+    def test_action_print_observer_terminal_sampling_prints_step_zero_once_when_no_step_executes(
+        self,
+    ) -> None:
+        observer = ActionPrintObserver(ObservationSampling.terminal(), True)
+        env = Environment(create_empty_graph(1), seed=3)
+        simulator = Simulator(
+            env=env,
+            agents=(),
+            mode=SchedulingMode.SEQUENTIAL,
+            max_steps=0,
+            rng=np.random.default_rng(5),
+            observers=(observer,),
+        )
+
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            simulator.run(n_episodes=1, reset_observers=False)
+
+        self.assertEqual(stdout.getvalue().strip(), "step 0")
+
     def test_density_observer_aggregates_selected_outputs_and_runs(self) -> None:
         density_observer = DensityObserver(
-            observation_frequency=1,
+            observation_sampling=ObservationSampling.periodic(1),
             aggregations=("mean", "runs"),
         )
         env = Environment(create_empty_graph(2), seed=61)
@@ -1380,7 +1641,7 @@ class ObserverTest(unittest.TestCase):
 
     def test_density_observer_get_keeps_sampled_steps_for_aggregated_series(self) -> None:
         density_observer = DensityObserver(
-            observation_frequency=2,
+            observation_sampling=ObservationSampling.periodic(2),
             aggregations=("mean", "runs"),
         )
         env = Environment(create_empty_graph(2), seed=101)
@@ -1408,7 +1669,7 @@ class ObserverTest(unittest.TestCase):
 
     def test_density_observer_can_request_std_without_mean(self) -> None:
         density_observer = DensityObserver(
-            observation_frequency=1,
+            observation_sampling=ObservationSampling.periodic(1),
             aggregations=("std",),
         )
         env = Environment(create_empty_graph(2), seed=79)
@@ -1436,11 +1697,11 @@ class ObserverTest(unittest.TestCase):
 
     def test_observers_keep_sampling_tail_steps_after_early_stopping(self) -> None:
         density_observer = DensityObserver(
-            observation_frequency=2,
+            observation_sampling=ObservationSampling.periodic(2),
             aggregations=(),
         )
         state_history_observer = StateHistoryObserver(
-            observation_frequency=2,
+            observation_sampling=ObservationSampling.periodic(2),
             keep_runs=False,
         )
         env = Environment(create_empty_graph(2), seed=113)

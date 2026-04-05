@@ -11,6 +11,7 @@ from numpy.typing import NDArray
 from network_creation.core.observability import (
     EpisodeEndEvent,
     EpisodeStartEvent,
+    ObservationSampling,
     SimulationObserver,
     StepEvent,
 )
@@ -30,8 +31,8 @@ class StateHistoryResult:
 class StateHistoryObserver(SimulationObserver):
     """Accumulate sampled graph history and optionally keep every episode."""
 
-    def __init__(self, observation_frequency: int, keep_runs: bool) -> None:
-        self.observation_frequency = observation_frequency
+    def __init__(self, observation_sampling: ObservationSampling, keep_runs: bool) -> None:
+        self.observation_sampling = observation_sampling
         self.keep_runs = keep_runs
         self.reset()
 
@@ -58,7 +59,7 @@ class StateHistoryObserver(SimulationObserver):
         )
 
     def on_episode_start(self, event: EpisodeStartEvent) -> None:
-        n_slots = 1 + event.max_steps // self.observation_frequency
+        n_slots = self.observation_sampling.fixed_sample_count(event.max_steps)
         self.n_observations = 1
         self._steps = np.empty(n_slots, dtype=np.int_)
         self._graphs_by_observation = [ig.Graph() for _ in range(n_slots)]
@@ -66,6 +67,10 @@ class StateHistoryObserver(SimulationObserver):
         self._graphs_by_observation[0] = event.initial_state.graph.copy()
 
     def on_step_end(self, event: StepEvent) -> None:
+        if self.observation_sampling.kind == "terminal":
+            self._steps[0] = event.step + 1
+            self._graphs_by_observation[0] = event.post_state.graph.copy()
+            return
         observation_idx = self.n_observations
         self._steps[observation_idx] = event.step + 1
         self._graphs_by_observation[observation_idx] = event.post_state.graph.copy()

@@ -10,6 +10,7 @@ from numpy.typing import NDArray
 from network_creation.core.observability import (
     EpisodeEndEvent,
     EpisodeStartEvent,
+    ObservationSampling,
     StepEvent,
 )
 
@@ -37,7 +38,7 @@ class EpisodeSeriesTensorStatisticObserver(EpisodeStatisticObserver):
         if initial_value.ndim == 0:
             raise ValueError("tensor-valued observers require non-scalar sampled values")
 
-        n_slots = 1 + event.max_steps // self.observation_frequency
+        n_slots = self.observation_sampling.fixed_sample_count(event.max_steps)
         self.n_observations = 1
         self._sample_shape = initial_value.shape
         self._validate_dimension_names()
@@ -52,6 +53,11 @@ class EpisodeSeriesTensorStatisticObserver(EpisodeStatisticObserver):
             raise ValueError(
                 "all sampled tensor values must share the same shape as the initial value"
             )
+
+        if self.observation_sampling.kind == "terminal":
+            self._episode_steps[0] = event.step + 1
+            self._episode_values[0] = step_value
+            return
 
         observation_idx = self.n_observations
         self._episode_steps[observation_idx] = event.step + 1
@@ -110,8 +116,11 @@ class EpisodeSeriesTensorStatisticObserver(EpisodeStatisticObserver):
         cls,
         *,
         max_steps: int,
-        observation_frequency: int,
+        observation_sampling: ObservationSampling,
     ) -> tuple[int, ...]:
         if not getattr(cls, "dimension_names", ()):
             raise ValueError(f"observer {cls.__name__!r} must define dimension_names")
-        return (1 + max_steps // observation_frequency, len(tuple(cls.dimension_names)))
+        return (
+            observation_sampling.fixed_sample_count(max_steps),
+            len(tuple(cls.dimension_names)),
+        )

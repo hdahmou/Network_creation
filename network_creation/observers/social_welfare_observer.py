@@ -5,7 +5,11 @@ from __future__ import annotations
 import igraph as ig
 import numpy as np
 
-from network_creation.core.observability import EpisodeStartEvent, StepEvent
+from network_creation.core.observability import (
+    EpisodeStartEvent,
+    ObservationSampling,
+    StepEvent,
+)
 from network_creation.observers.statistics.episode_series import (
     EpisodeSeriesStatisticObserver,
 )
@@ -59,7 +63,7 @@ class SocialWelfareObserver(EpisodeSeriesStatisticObserver):
 
     def __init__(
         self,
-        observation_frequency: int,
+        observation_sampling: ObservationSampling,
         link_cost: float,
         decay: float,
         per_link_benefit: float,
@@ -86,7 +90,7 @@ class SocialWelfareObserver(EpisodeSeriesStatisticObserver):
         self.max_welfare = max_welfare
         self.baseline_welfare = baseline_welfare
         super().__init__(
-            observation_frequency=observation_frequency,
+            observation_sampling=observation_sampling,
             aggregations=aggregations,
         )
 

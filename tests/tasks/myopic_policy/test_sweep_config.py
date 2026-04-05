@@ -41,7 +41,7 @@ class MyopicPolicyPreparationTest(unittest.TestCase):
                     "name": "density",
                     "output": "mean",
                     "kwargs": {
-                        "observation_frequency": 1,
+                        "observation_sampling": {"kind": "periodic", "every": 1},
                         "aggregations": ["mean"],
                     },
                 },
@@ -49,7 +49,7 @@ class MyopicPolicyPreparationTest(unittest.TestCase):
                     "name": "social_welfare",
                     "output": "mean",
                     "kwargs": {
-                        "observation_frequency": 1,
+                        "observation_sampling": {"kind": "periodic", "every": 1},
                         "aggregations": ["mean"],
                         "link_cost": 1.0,
                         "decay": 0.5,

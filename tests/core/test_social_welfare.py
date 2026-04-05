@@ -20,6 +20,7 @@ from network_creation.core.model import (
     PolicyDecision,
     SchedulingMode,
 )
+from network_creation.core.observability import ObservationSampling
 from network_creation.core.simulator import Simulator
 from network_creation.observers.social_welfare_observer import (
     SocialWelfareObserver,
@@ -86,7 +87,7 @@ class SocialWelfareTest(unittest.TestCase):
     ) -> None:
         with self.assertRaisesRegex(ValueError, "0 <= decay < 1"):
             SocialWelfareObserver(
-                observation_frequency=1,
+                observation_sampling=ObservationSampling.periodic(1),
                 link_cost=3.0,
                 decay=1.0,
                 per_link_benefit=10.0,
@@ -95,7 +96,7 @@ class SocialWelfareTest(unittest.TestCase):
 
     def test_social_welfare_observer_tracks_step_series(self) -> None:
         observer = SocialWelfareObserver(
-            observation_frequency=1,
+            observation_sampling=ObservationSampling.periodic(1),
             link_cost=3.0,
             decay=0.5,
             per_link_benefit=10.0,
@@ -135,7 +136,7 @@ class SocialWelfareTest(unittest.TestCase):
 
     def test_social_welfare_observer_can_min_max_normalize_welfare(self) -> None:
         observer = SocialWelfareObserver(
-            observation_frequency=1,
+            observation_sampling=ObservationSampling.periodic(1),
             link_cost=3.0,
             decay=0.5,
             per_link_benefit=10.0,
@@ -182,7 +183,7 @@ class SocialWelfareTest(unittest.TestCase):
             "must be provided together",
         ):
             SocialWelfareObserver(
-                observation_frequency=1,
+                observation_sampling=ObservationSampling.periodic(1),
                 link_cost=3.0,
                 decay=0.5,
                 per_link_benefit=10.0,
@@ -198,7 +199,7 @@ class SocialWelfareTest(unittest.TestCase):
             "max_welfare must be greater than baseline_welfare",
         ):
             SocialWelfareObserver(
-                observation_frequency=1,
+                observation_sampling=ObservationSampling.periodic(1),
                 link_cost=3.0,
                 decay=0.5,
                 per_link_benefit=10.0,

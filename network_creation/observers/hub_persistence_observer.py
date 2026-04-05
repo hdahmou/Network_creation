@@ -9,6 +9,7 @@ from numpy.typing import NDArray
 from network_creation.core.observability import (
     EpisodeEndEvent,
     EpisodeStartEvent,
+    ObservationSampling,
     StepEvent,
 )
 from network_creation.observers.statistics.episode_series import (
@@ -53,47 +54,54 @@ class HubPersistenceObserver(EpisodeSeriesStatisticObserver):
 
     def __init__(
         self,
-        observation_frequency: int,
+        observation_sampling: ObservationSampling,
         window_size: int,
         aggregations: tuple[str, ...],
     ) -> None:
-        if observation_frequency != 1:
-            raise ValueError(
-                "HubPersistenceObserver requires observation_frequency=1 "
-                "because the ten-step window is defined on raw simulator steps"
-            )
         if window_size < 1:
             raise ValueError("window_size must be positive")
         self._window_size = window_size
         super().__init__(
-            observation_frequency=observation_frequency,
+            observation_sampling=observation_sampling,
             aggregations=aggregations,
         )
 
     def _reset_episode_state(self) -> None:
         self._hub_node_ids_by_state: list[set[int]] = []
-        super()._reset_episode_state()
+        self._raw_n_observations = 0
+        self._raw_steps = np.empty(0, dtype=np.int_)
+        self._raw_values = np.empty(0, dtype=np.float32)
+        self.n_observations = 0
+        self._sampled_steps = np.empty(0, dtype=np.int_)
+        self._sampled_values = np.empty(0, dtype=np.float32)
+
+    def observes_step(self, step_index: int, max_steps: int) -> bool:
+        del step_index
+        return max_steps > 0
 
     def _start_episode(self, event: EpisodeStartEvent) -> None:
         n_slots = 1 + event.max_steps
+        self._raw_n_observations = 1
+        self._raw_steps = np.empty(n_slots, dtype=np.int_)
+        self._raw_values = np.full(n_slots, np.nan, dtype=np.float32)
+        self._raw_steps[0] = 0
+        self._sampled_steps = np.array([0], dtype=np.int_)
+        self._sampled_values = np.array([np.nan], dtype=np.float32)
         self.n_observations = 1
-        self._episode_steps = np.empty(n_slots, dtype=np.int_)
-        self._episode_values = np.full(n_slots, np.nan, dtype=np.float32)
-        self._episode_steps[0] = 0
         self._hub_node_ids_by_state = [_get_hub_node_ids(event.initial_state.graph)]
 
     def _record_step(self, event: StepEvent) -> None:
-        observation_idx = self.n_observations
-        self._episode_steps[observation_idx] = event.step + 1
+        observation_idx = self._raw_n_observations
+        self._raw_steps[observation_idx] = event.step + 1
         self._hub_node_ids_by_state.append(_get_hub_node_ids(event.post_state.graph))
-        self.n_observations += 1
+        self._raw_n_observations += 1
 
     def _get_episode_values(self, event: EpisodeEndEvent) -> NDArray[np.float32]:
         del event
-        self._episode_values[: self.n_observations] = np.nan
+        self._raw_values[: self._raw_n_observations] = np.nan
 
         first_valid_idx = self._window_size - 1
-        stop_idx = self.n_observations - self._window_size
+        stop_idx = self._raw_n_observations - self._window_size
         for idx in range(first_valid_idx, stop_idx):
             previous_window_hub_node_ids = self._hub_node_ids_by_state[
                 idx - self._window_size + 1 : idx + 1
@@ -109,11 +117,34 @@ class HubPersistenceObserver(EpisodeSeriesStatisticObserver):
             if not previous_main_hub_node_ids or not next_main_hub_node_ids:
                 continue
 
-            self._episode_values[idx] = float(
+            self._raw_values[idx] = float(
                 len(previous_main_hub_node_ids.intersection(next_main_hub_node_ids))
                 / len(previous_main_hub_node_ids)
             )
 
+        raw_steps = self._raw_steps[: self._raw_n_observations]
+        raw_values = self._raw_values[: self._raw_n_observations]
+        if self.observation_sampling.kind == "terminal":
+            valid_indices = np.flatnonzero(~np.isnan(raw_values))
+            if valid_indices.size == 0:
+                self._sampled_steps = np.array([0], dtype=np.int_)
+                self._sampled_values = np.array([np.nan], dtype=np.float32)
+            else:
+                last_valid_idx = int(valid_indices[-1])
+                self._sampled_steps = np.array(
+                    [raw_steps[last_valid_idx]],
+                    dtype=np.int_,
+                )
+                self._sampled_values = np.array(
+                    [raw_values[last_valid_idx]],
+                    dtype=np.float32,
+                )
+        else:
+            assert self.observation_sampling.every is not None
+            sample_mask = (raw_steps % self.observation_sampling.every) == 0
+            self._sampled_steps = raw_steps[sample_mask].copy()
+            self._sampled_values = raw_values[sample_mask].copy()
+        self.n_observations = int(self._sampled_steps.shape[0])
         return self.values
 
     def compute_initial_value(self, event: EpisodeStartEvent) -> float:
@@ -123,3 +154,11 @@ class HubPersistenceObserver(EpisodeSeriesStatisticObserver):
     def compute_step_value(self, event: StepEvent) -> float:
         del event
         return float("nan")
+
+    @property
+    def steps(self) -> NDArray[np.int_]:
+        return self._sampled_steps[: self.n_observations]
+
+    @property
+    def values(self) -> NDArray[np.float32]:
+        return self._sampled_values[: self.n_observations]

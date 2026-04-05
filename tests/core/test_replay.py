@@ -12,6 +12,7 @@ import numpy as np
 from network_creation.core.observability import (
     EpisodeEndEvent,
     EpisodeStartEvent,
+    ObservationSampling,
     StepEvent,
 )
 from network_creation.core.environment import Environment
@@ -39,7 +40,7 @@ from network_creation.policies.replay import ReplayPolicy
 
 
 class StepActionsObserver:
-    observation_frequency = 1
+    observation_sampling = ObservationSampling.periodic(1)
 
     def __init__(self) -> None:
         self.reset()
@@ -49,6 +50,9 @@ class StepActionsObserver:
 
     def on_episode_start(self, event: EpisodeStartEvent) -> None:
         del event
+
+    def observes_step(self, step_index: int, max_steps: int) -> bool:
+        return self.observation_sampling.samples_step(step_index, max_steps)
 
     def on_step_end(self, event: StepEvent) -> None:
         actions = tuple(
@@ -843,7 +847,7 @@ class ReplayTest(unittest.TestCase):
             density_by_group_size: dict[int, DensityObserver] = {}
             for group_size in (2, 3):
                 density_observer = DensityObserver(
-                    observation_frequency=1,
+                    observation_sampling=ObservationSampling.periodic(1),
                     aggregations=("mean",),
                 )
                 run_choi_2020_replay_batch(

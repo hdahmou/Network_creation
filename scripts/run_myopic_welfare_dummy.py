@@ -13,6 +13,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from network_creation.core.agent import Agent
 from network_creation.core.model import SchedulingMode
+from network_creation.core.observability import ObservationSampling
 from network_creation.core.runtime import (
     SimulationSettings,
     create_simulation_runtime,
@@ -65,7 +66,7 @@ def run_case(case_index: int, policy_kwargs: dict[str, float]) -> None:
         stagnation_patience=None,
     )
     welfare_observer = SocialWelfareObserver(
-        observation_frequency=1,
+        observation_sampling=ObservationSampling.periodic(1),
         link_cost=policy_kwargs["link_cost"],
         decay=policy_kwargs["decay"],
         per_link_benefit=policy_kwargs["per_link_benefit"],

@@ -10,6 +10,7 @@ from numpy.typing import NDArray
 from network_creation.core.observability import (
     EpisodeEndEvent,
     EpisodeStartEvent,
+    ObservationSampling,
     StepEvent,
 )
 
@@ -31,7 +32,7 @@ class EpisodeSeriesStatisticObserver(EpisodeStatisticObserver):
         self._episode_values = np.empty(0, dtype=np.float32)
 
     def _start_episode(self, event: EpisodeStartEvent) -> None:
-        n_slots = 1 + event.max_steps // self.observation_frequency
+        n_slots = self.observation_sampling.fixed_sample_count(event.max_steps)
         self.n_observations = 1
         self._episode_steps = np.empty(n_slots, dtype=np.int_)
         self._episode_values = np.empty(n_slots, dtype=np.float32)
@@ -39,6 +40,10 @@ class EpisodeSeriesStatisticObserver(EpisodeStatisticObserver):
         self._episode_values[0] = self.compute_initial_value(event)
 
     def _record_step(self, event: StepEvent) -> None:
+        if self.observation_sampling.kind == "terminal":
+            self._episode_steps[0] = event.step + 1
+            self._episode_values[0] = self.compute_step_value(event)
+            return
         observation_idx = self.n_observations
         self._episode_steps[observation_idx] = event.step + 1
         self._episode_values[observation_idx] = self.compute_step_value(event)
@@ -72,7 +77,7 @@ class EpisodeSeriesStatisticObserver(EpisodeStatisticObserver):
         cls,
         *,
         max_steps: int,
-        observation_frequency: int,
+        observation_sampling: ObservationSampling,
     ) -> tuple[int, ...]:
         del cls
-        return (1 + max_steps // observation_frequency,)
+        return (observation_sampling.fixed_sample_count(max_steps),)

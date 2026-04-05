@@ -11,6 +11,7 @@ from numpy.typing import NDArray
 from network_creation.core.observability import (
     EpisodeEndEvent,
     EpisodeStartEvent,
+    ObservationSampling,
     SimulationObserver,
     StatisticResult,
     StepEvent,
@@ -26,19 +27,17 @@ class EpisodeStatisticObserver(SimulationObserver, ABC):
     """Observer base that turns one episode event stream into one episode result."""
 
     name: str = "statistic"
-    observation_frequency: int
+    observation_sampling: ObservationSampling
     aggregations: tuple[str, ...]
     n_episodes: int
     _accumulators: tuple[StatisticAccumulator, ...]
 
     def __init__(
         self,
-        observation_frequency: int,
+        observation_sampling: ObservationSampling,
         aggregations: tuple[str, ...],
     ) -> None:
-        if observation_frequency < 1:
-            raise ValueError("observation_frequency must be positive")
-        self.observation_frequency = observation_frequency
+        self.observation_sampling = observation_sampling
         self.aggregations = tuple(aggregations)
         self.reset()
 
@@ -104,7 +103,7 @@ class EpisodeStatisticObserver(SimulationObserver, ABC):
         cls,
         *,
         max_steps: int,
-        observation_frequency: int,
+        observation_sampling: ObservationSampling,
     ) -> tuple[int, ...]:
         raise TypeError(f"observer {cls.__name__!r} does not define a fixed output shape")
 

@@ -38,7 +38,7 @@ class MyopicPolicyTaskTest(unittest.TestCase):
                     "name": "density",
                     "output": "mean",
                     "kwargs": {
-                        "observation_frequency": 1,
+                        "observation_sampling": {"kind": "periodic", "every": 1},
                         "aggregations": ["mean"],
                     },
                 },
@@ -46,7 +46,7 @@ class MyopicPolicyTaskTest(unittest.TestCase):
                     "name": "social_welfare",
                     "output": "mean",
                     "kwargs": {
-                        "observation_frequency": 1,
+                        "observation_sampling": {"kind": "periodic", "every": 1},
                         "aggregations": ["mean"],
                         "link_cost": 1.0,
                         "decay": 0.5,
@@ -127,7 +127,7 @@ class MyopicPolicyTaskTest(unittest.TestCase):
                 "name": "density",
                 "output": "mean",
                 "kwargs": {
-                    "observation_frequency": 1,
+                    "observation_sampling": {"kind": "periodic", "every": 1},
                     "aggregations": ["mean"],
                 },
             },
@@ -135,7 +135,7 @@ class MyopicPolicyTaskTest(unittest.TestCase):
                 "name": "triad_census",
                 "output": "mean",
                 "kwargs": {
-                    "observation_frequency": 1,
+                    "observation_sampling": {"kind": "periodic", "every": 1},
                     "aggregations": ["mean"],
                 },
             },
@@ -152,3 +152,26 @@ class MyopicPolicyTaskTest(unittest.TestCase):
         output = prepared.run(prepared.inputs[0])
         self.assertEqual(output["density.mean"].shape, (4,))
         self.assertEqual(output["triad_census.mean"].shape, (4, 7))
+
+    def test_prepare_supports_terminal_tensor_observer_outputs(self) -> None:
+        config = self._base_config()
+        config["observers"] = [
+            {
+                "name": "triad_census",
+                "output": "mean",
+                "kwargs": {
+                    "observation_sampling": {"kind": "terminal"},
+                    "aggregations": ["mean"],
+                },
+            },
+        ]
+        prepared = MyopicPolicyRun().prepare(config)
+
+        self.assertEqual(
+            prepared.output_schema.metadata(),
+            [
+                {"name": "triad_census.mean", "shape": [1, 7], "dtype": "float32"},
+            ],
+        )
+        output = prepared.run(prepared.inputs[0])
+        self.assertEqual(output["triad_census.mean"].shape, (1, 7))

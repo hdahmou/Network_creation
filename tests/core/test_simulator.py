@@ -21,6 +21,7 @@ from network_creation.core.model import (
 from network_creation.core.observability import (
     EpisodeEndEvent,
     EpisodeStartEvent,
+    ObservationSampling,
     StateView,
     StepEvent,
 )
@@ -82,13 +83,16 @@ class PreferAddElsePassPolicy(Policy):
 
 class RecordingObserver:
     def __init__(self) -> None:
-        self.observation_frequency = 1
+        self.observation_sampling = ObservationSampling.periodic(1)
         self.episode_start_event: EpisodeStartEvent | None = None
         self.step_events: list[StepEvent] = []
         self.episode_end_event: EpisodeEndEvent | None = None
 
     def on_episode_start(self, event: EpisodeStartEvent) -> None:
         self.episode_start_event = event
+
+    def observes_step(self, step_index: int, max_steps: int) -> bool:
+        return self.observation_sampling.samples_step(step_index, max_steps)
 
     def on_step_end(self, event: StepEvent) -> None:
         self.step_events.append(event)
@@ -99,7 +103,7 @@ class RecordingObserver:
 
 class BatchRecordingObserver:
     def __init__(self) -> None:
-        self.observation_frequency = 1
+        self.observation_sampling = ObservationSampling.periodic(1)
         self.episode_start_events: list[EpisodeStartEvent] = []
         self.episode_end_events: list[EpisodeEndEvent] = []
 
@@ -109,6 +113,9 @@ class BatchRecordingObserver:
 
     def on_episode_start(self, event: EpisodeStartEvent) -> None:
         self.episode_start_events.append(event)
+
+    def observes_step(self, step_index: int, max_steps: int) -> bool:
+        return self.observation_sampling.samples_step(step_index, max_steps)
 
     def on_step_end(self, event: StepEvent) -> None:
         del event
@@ -225,7 +232,7 @@ class SimulatorTest(unittest.TestCase):
     def test_step_state_views_are_skipped_when_no_observer_samples_step(self) -> None:
         env = Environment(create_empty_graph(2), seed=45)
         observer = RecordingObserver()
-        observer.observation_frequency = 2
+        observer.observation_sampling = ObservationSampling.periodic(2)
         simulator = Simulator(
             env=env,
             agents=(
@@ -256,6 +263,74 @@ class SimulatorTest(unittest.TestCase):
 
         self.assertEqual(from_state.call_count, 2)
         self.assertEqual(observer.step_events, [])
+
+    def test_terminal_observer_only_receives_last_step_event(self) -> None:
+        env = Environment(create_empty_graph(2), seed=45)
+        observer = RecordingObserver()
+        observer.observation_sampling = ObservationSampling.terminal()
+        simulator = Simulator(
+            env=env,
+            agents=(
+                Agent(
+                    id=0,
+                    radius=1,
+                    policy=ConstantPolicy(Action(ActionType.BRIDGE, source=0, target=1)),
+                    seed=47,
+                ),
+                Agent(
+                    id=1,
+                    radius=1,
+                    policy=ConstantPolicy(Action(ActionType.PASS, source=1)),
+                    seed=49,
+                ),
+            ),
+            mode=SchedulingMode.SEQUENTIAL,
+            max_steps=2,
+            rng=np.random.default_rng(51),
+            observers=(observer,),
+        )
+
+        simulator.run(n_episodes=1, reset_observers=False)
+
+        self.assertEqual([event.step for event in observer.step_events], [1])
+
+    def test_periodic_and_terminal_observers_share_step_sampling_fast_path(self) -> None:
+        env = Environment(create_empty_graph(2), seed=45)
+        periodic_observer = RecordingObserver()
+        periodic_observer.observation_sampling = ObservationSampling.periodic(2)
+        terminal_observer = RecordingObserver()
+        terminal_observer.observation_sampling = ObservationSampling.terminal()
+        simulator = Simulator(
+            env=env,
+            agents=(
+                Agent(
+                    id=0,
+                    radius=1,
+                    policy=ConstantPolicy(Action(ActionType.BRIDGE, source=0, target=1)),
+                    seed=47,
+                ),
+                Agent(
+                    id=1,
+                    radius=1,
+                    policy=ConstantPolicy(Action(ActionType.PASS, source=1)),
+                    seed=49,
+                ),
+            ),
+            mode=SchedulingMode.SEQUENTIAL,
+            max_steps=3,
+            rng=np.random.default_rng(51),
+            observers=(periodic_observer, terminal_observer),
+        )
+
+        with patch(
+            "network_creation.core.simulator.StateView.from_state",
+            wraps=StateView.from_state,
+        ) as from_state:
+            simulator.run(n_episodes=1, reset_observers=False)
+
+        self.assertEqual(from_state.call_count, 6)
+        self.assertEqual([event.step for event in periodic_observer.step_events], [1])
+        self.assertEqual([event.step for event in terminal_observer.step_events], [2])
 
     def test_run_builds_observations_from_agent_radii(self) -> None:
         env = Environment(create_empty_graph(2), seed=52)

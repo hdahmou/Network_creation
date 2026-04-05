@@ -32,7 +32,7 @@ class RandomPolicyTaskTest(unittest.TestCase):
                     "name": "density",
                     "output": "mean",
                     "kwargs": {
-                        "observation_frequency": 1,
+                        "observation_sampling": {"kind": "periodic", "every": 1},
                         "aggregations": ["mean"],
                     },
                 },
@@ -40,7 +40,7 @@ class RandomPolicyTaskTest(unittest.TestCase):
                     "name": "social_welfare",
                     "output": "mean",
                     "kwargs": {
-                        "observation_frequency": 1,
+                        "observation_sampling": {"kind": "periodic", "every": 1},
                         "aggregations": ["mean"],
                         "link_cost": 1.0,
                         "decay": 0.5,
@@ -90,7 +90,7 @@ class RandomPolicyTaskTest(unittest.TestCase):
                 "name": "density",
                 "output": "mean",
                 "kwargs": {
-                    "observation_frequency": 1,
+                    "observation_sampling": {"kind": "periodic", "every": 1},
                     "aggregations": ["mean"],
                 },
             },
@@ -98,7 +98,7 @@ class RandomPolicyTaskTest(unittest.TestCase):
                 "name": "triad_census",
                 "output": "mean",
                 "kwargs": {
-                    "observation_frequency": 1,
+                    "observation_sampling": {"kind": "periodic", "every": 1},
                     "aggregations": ["mean"],
                 },
             },
@@ -115,6 +115,29 @@ class RandomPolicyTaskTest(unittest.TestCase):
         output = prepared.run(prepared.inputs[0])
         self.assertEqual(output["density.mean"].shape, (4,))
         self.assertEqual(output["triad_census.mean"].shape, (4, 7))
+
+    def test_prepare_supports_terminal_observer_outputs(self) -> None:
+        config = self._base_config()
+        config["observers"] = [
+            {
+                "name": "density",
+                "output": "mean",
+                "kwargs": {
+                    "observation_sampling": {"kind": "terminal"},
+                    "aggregations": ["mean"],
+                },
+            },
+        ]
+        prepared = RandomPolicyRun().prepare(config)
+
+        self.assertEqual(
+            prepared.output_schema.metadata(),
+            [
+                {"name": "density.mean", "shape": [1], "dtype": "float32"},
+            ],
+        )
+        output = prepared.run(prepared.inputs[0])
+        self.assertEqual(output["density.mean"].shape, (1,))
 
     def test_run_supports_multiple_radius_samples(self) -> None:
         config = self._base_config()

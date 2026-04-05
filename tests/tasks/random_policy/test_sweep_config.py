@@ -30,7 +30,7 @@ class RandomPolicyPreparationTest(unittest.TestCase):
                     "name": "density",
                     "output": "mean",
                     "kwargs": {
-                        "observation_frequency": 1,
+                        "observation_sampling": {"kind": "periodic", "every": 1},
                         "aggregations": ["mean"],
                     },
                 },

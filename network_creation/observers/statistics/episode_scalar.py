@@ -7,7 +7,7 @@ from abc import abstractmethod
 import numpy as np
 from numpy.typing import NDArray
 
-from network_creation.core.observability import EpisodeEndEvent
+from network_creation.core.observability import EpisodeEndEvent, ObservationSampling
 
 from .episode import EpisodeStatisticObserver
 
@@ -19,7 +19,10 @@ class EpisodeScalarStatisticObserver(EpisodeStatisticObserver):
         self,
         aggregations: tuple[str, ...],
     ) -> None:
-        super().__init__(observation_frequency=1, aggregations=aggregations)
+        super().__init__(
+            observation_sampling=ObservationSampling.terminal(),
+            aggregations=aggregations,
+        )
 
     def _get_episode_values(self, event: EpisodeEndEvent) -> NDArray[np.float32]:
         return np.array([self.compute_terminal_value(event)], dtype=np.float32)
@@ -29,9 +32,9 @@ class EpisodeScalarStatisticObserver(EpisodeStatisticObserver):
         cls,
         *,
         max_steps: int,
-        observation_frequency: int,
+        observation_sampling: ObservationSampling,
     ) -> tuple[int, ...]:
-        del cls, max_steps, observation_frequency
+        del cls, max_steps, observation_sampling
         return (1,)
 
     @abstractmethod

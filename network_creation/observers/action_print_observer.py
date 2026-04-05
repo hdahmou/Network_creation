@@ -6,6 +6,7 @@ from network_creation.core.model import Action, ActionType, PolicyDecision
 from network_creation.core.observability import (
     EpisodeEndEvent,
     EpisodeStartEvent,
+    ObservationSampling,
     SimulationObserver,
     StepEvent,
 )
@@ -14,8 +15,12 @@ from network_creation.core.observability import (
 class ActionPrintObserver(SimulationObserver):
     """Print one grouped summary per completed step."""
 
-    def __init__(self, observation_frequency: int, print_empty_steps: bool) -> None:
-        self.observation_frequency = observation_frequency
+    def __init__(
+        self,
+        observation_sampling: ObservationSampling,
+        print_empty_steps: bool,
+    ) -> None:
+        self.observation_sampling = observation_sampling
         self.print_empty_steps = print_empty_steps
         self.reset()
 
@@ -24,7 +29,7 @@ class ActionPrintObserver(SimulationObserver):
 
     def on_episode_start(self, event: EpisodeStartEvent) -> None:
         del event
-        if self.print_empty_steps:
+        if self.print_empty_steps and self.observation_sampling.kind == "periodic":
             print("step 0")
 
     def on_step_end(self, event: StepEvent) -> None:
@@ -48,7 +53,12 @@ class ActionPrintObserver(SimulationObserver):
                 print(f"  {node_id}: {rendered_decision}")
 
     def on_episode_end(self, event: EpisodeEndEvent) -> None:
-        del event
+        if (
+            self.observation_sampling.kind == "terminal"
+            and self.print_empty_steps
+            and event.current_step == 0
+        ):
+            print("step 0")
         self.n_episodes += 1
 
     def get(self) -> None:

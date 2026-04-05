@@ -143,7 +143,7 @@ namespace ObserverAPI {
 
     class SimulationObserver {
         <<interface>>
-        +observation_frequency: int
+        +observation_sampling: ObservationSampling
         +reset() void
         +on_episode_start(event: EpisodeStartEvent) void
         +on_step_end(event: StepEvent) void
@@ -156,7 +156,7 @@ namespace ObserverStatistics {
     class EpisodeStatisticObserver {
         <<abstract>>
         +name: str
-        +observation_frequency: int
+        +observation_sampling: ObservationSampling
         +aggregations: tuple[str, ...]
         +n_episodes: int
         +reset() void
@@ -230,7 +230,7 @@ namespace Observers {
     }
 
     class StateHistoryObserver {
-        +observation_frequency: int
+        +observation_sampling: ObservationSampling
         +keep_runs: bool
         +steps: NDArray
         +graphs: NDArray
@@ -239,7 +239,7 @@ namespace Observers {
     }
 
     class ActionPrintObserver {
-        +observation_frequency: int
+        +observation_sampling: ObservationSampling
         +print_empty_steps: bool
         +reset() void
         +get() None

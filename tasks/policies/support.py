@@ -10,6 +10,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from ..dispatch.runtime import OutputField
+from network_creation.core.observability import ObservationSampling
 from network_creation.core.model import SchedulingMode
 from .parameter_space import generate_parameter_space
 
@@ -79,6 +80,15 @@ def generate_parameter_table(input_spec: Mapping[str, object]) -> ParameterTable
     )
 
 
+def _load_observation_sampling(raw: Mapping[str, object]) -> ObservationSampling:
+    kind = str(raw["kind"])
+    if kind == "periodic":
+        return ObservationSampling.periodic(int(raw["every"]))
+    if kind == "terminal":
+        return ObservationSampling.terminal()
+    raise ValueError(f"unsupported observation sampling kind: {kind}")
+
+
 def load_observers(
     raw_observers: Sequence[Mapping[str, Any]],
     simulation_settings: SimulationSettings,
@@ -91,10 +101,13 @@ def load_observers(
         output = str(observer["output"])
         observer_class = OBSERVER_GRIMOIRE[name]
         kwargs = dict(observer["kwargs"])
-        observation_frequency = int(kwargs["observation_frequency"])
+        observation_sampling = _load_observation_sampling(
+            cast(Mapping[str, object], kwargs["observation_sampling"])
+        )
+        kwargs["observation_sampling"] = observation_sampling
         base_shape = observer_class.fixed_output_shape(
             max_steps=simulation_settings.max_steps,
-            observation_frequency=observation_frequency,
+            observation_sampling=observation_sampling,
         )
         if output == "runs":
             field_shape = (simulation_settings.n_episodes, *base_shape)

@@ -21,6 +21,7 @@ from network_creation.core.model import (
     PolicyDecision,
     SchedulingMode,
 )
+from network_creation.core.observability import ObservationSampling
 from network_creation.core.simulator import Simulator
 from network_creation.observers.density_observer import DensityObserver
 from network_creation.observers.statistics.episode_tensor_series import (
@@ -72,7 +73,7 @@ class MatrixObserver(EpisodeSeriesTensorStatisticObserver):
 class PlotEpisodeSeriesObserverTest(unittest.TestCase):
     def test_plot_raises_when_observer_has_no_episodes(self) -> None:
         observer = DensityObserver(
-            observation_frequency=1,
+            observation_sampling=ObservationSampling.periodic(1),
             aggregations=(),
         )
         figure, axis = plt.subplots()
@@ -84,7 +85,7 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
 
     def test_single_episode_plot_returns_axis(self) -> None:
         observer = DensityObserver(
-            observation_frequency=1,
+            observation_sampling=ObservationSampling.periodic(1),
             aggregations=(),
         )
         simulator = Simulator(
@@ -125,7 +126,7 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
         self,
     ) -> None:
         observer = DensityObserver(
-            observation_frequency=1,
+            observation_sampling=ObservationSampling.periodic(1),
             aggregations=("mean", "std", "runs"),
         )
         simulator = Simulator(
@@ -158,7 +159,7 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
 
     def test_runs_only_plot_uses_single_episode_title_when_needed(self) -> None:
         observer = DensityObserver(
-            observation_frequency=1,
+            observation_sampling=ObservationSampling.periodic(1),
             aggregations=("runs",),
         )
         simulator = Simulator(
@@ -197,7 +198,7 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
         self,
     ) -> None:
         observer = DensityObserver(
-            observation_frequency=1,
+            observation_sampling=ObservationSampling.periodic(1),
             aggregations=("mean", "std", "runs"),
         )
         simulator = Simulator(
@@ -236,7 +237,7 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
         self,
     ) -> None:
         observer = DensityObserver(
-            observation_frequency=1,
+            observation_sampling=ObservationSampling.periodic(1),
             aggregations=("mean", "std"),
         )
         simulator = Simulator(
@@ -278,7 +279,7 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
 
     def test_scalar_plot_rejects_dimension_argument(self) -> None:
         observer = DensityObserver(
-            observation_frequency=1,
+            observation_sampling=ObservationSampling.periodic(1),
             aggregations=(),
         )
         simulator = Simulator(
@@ -307,7 +308,7 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
 
     def test_tensor_plot_raises_without_dimension(self) -> None:
         observer = TriadCensusObserver(
-            observation_frequency=1,
+            observation_sampling=ObservationSampling.periodic(1),
             aggregations=(),
         )
         simulator = Simulator(
@@ -332,7 +333,7 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
 
     def test_tensor_plot_selects_dimension_by_name(self) -> None:
         observer = MatrixObserver(
-            observation_frequency=1,
+            observation_sampling=ObservationSampling.periodic(1),
             aggregations=(),
         )
         simulator = Simulator(
@@ -367,7 +368,7 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
 
     def test_tensor_plot_selects_aggregated_dimension_by_name(self) -> None:
         observer = MatrixObserver(
-            observation_frequency=1,
+            observation_sampling=ObservationSampling.periodic(1),
             aggregations=("mean", "std", "runs"),
         )
         simulator = Simulator(
@@ -405,7 +406,7 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
 
     def test_tensor_plot_rejects_unknown_dimension_name(self) -> None:
         observer = MatrixObserver(
-            observation_frequency=1,
+            observation_sampling=ObservationSampling.periodic(1),
             aggregations=(),
         )
         simulator = Simulator(

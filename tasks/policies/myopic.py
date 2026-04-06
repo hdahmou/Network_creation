@@ -24,9 +24,12 @@ class MyopicPolicyRun(PolicyRun):
         parameter_columns = self.parameter_table.column_index_by_name
         return MyopicPayoffPolicy(
             seed=node_id,
-            link_cost=float(sample[parameter_columns["link_cost"]]),
-            decay=float(sample[parameter_columns["decay"]]),
-            per_link_benefit=float(sample[parameter_columns["per_link_benefit"]]),
+            benefit_to_cost_ratio=float(
+                sample[parameter_columns["benefit_to_cost_ratio"]]
+            ),
+            distance_discount=float(
+                sample[parameter_columns["distance_discount"]]
+            ),
             bridge_probability=float(sample[parameter_columns["bridge_probability"]]),
         )
 

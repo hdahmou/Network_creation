@@ -19,9 +19,11 @@ def build_myopic_config(*, log2_budget: int = 2) -> dict[str, object]:
             "log2_budget": log2_budget,
             "sampler_seed": 123,
             "parameters": {
-                "link_cost": {"type": "fixed", "payload": 20.0},
-                "decay": {"type": "continuous", "payload": {"min": 0.1, "max": 0.9}},
-                "per_link_benefit": {"type": "fixed", "payload": 10.0},
+                "benefit_to_cost_ratio": {"type": "fixed", "payload": 0.5},
+                "distance_discount": {
+                    "type": "continuous",
+                    "payload": {"min": 0.1, "max": 0.9},
+                },
                 "bridge_probability": {
                     "type": "continuous",
                     "payload": {"min": 0.0, "max": 1.0},

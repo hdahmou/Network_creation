@@ -17,9 +17,8 @@ class MyopicPolicyTaskTest(unittest.TestCase):
                 "log2_budget": 0,
                 "sampler_seed": 123,
                 "parameters": {
-                    "link_cost": {"type": "fixed", "payload": 1.0},
-                    "decay": {"type": "fixed", "payload": 0.5},
-                    "per_link_benefit": {"type": "fixed", "payload": 10.0},
+                    "benefit_to_cost_ratio": {"type": "fixed", "payload": 0.1},
+                    "distance_discount": {"type": "fixed", "payload": 0.5},
                     "bridge_probability": {"type": "fixed", "payload": 1.0},
                     "radius": {"type": "fixed", "payload": 2},
                 },
@@ -43,14 +42,13 @@ class MyopicPolicyTaskTest(unittest.TestCase):
                     },
                 },
                 {
-                    "name": "social_welfare",
+                    "name": "normalized_welfare",
                     "output": "mean",
                     "kwargs": {
                         "observation_sampling": {"kind": "periodic", "every": 1},
                         "aggregations": ["mean"],
-                        "link_cost": 1.0,
-                        "decay": 0.5,
-                        "per_link_benefit": 10.0,
+                        "benefit_to_cost_ratio": 0.1,
+                        "distance_discount": 0.5,
                     },
                 },
             ],
@@ -64,22 +62,27 @@ class MyopicPolicyTaskTest(unittest.TestCase):
             prepared.output_schema.metadata(),
             [
                 {"name": "density.mean", "shape": [4], "dtype": "float32"},
-                {"name": "social_welfare.mean", "shape": [4], "dtype": "float32"},
+                {"name": "normalized_welfare.mean", "shape": [4], "dtype": "float32"},
             ],
         )
         self.assertEqual(prepared.inputs, (0,))
         self.assertEqual(
             task.parameter_table.parameter_names,
-            ("link_cost", "decay", "per_link_benefit", "bridge_probability", "radius"),
+            (
+                "benefit_to_cost_ratio",
+                "distance_discount",
+                "bridge_probability",
+                "radius",
+            ),
         )
 
         output = prepared.run(prepared.inputs[0])
 
-        self.assertEqual(set(output), {"density.mean", "social_welfare.mean"})
+        self.assertEqual(set(output), {"density.mean", "normalized_welfare.mean"})
         self.assertEqual(output["density.mean"].shape, (4,))
-        self.assertEqual(output["social_welfare.mean"].shape, (4,))
+        self.assertEqual(output["normalized_welfare.mean"].shape, (4,))
         self.assertEqual(output["density.mean"].dtype, np.float32)
-        self.assertEqual(output["social_welfare.mean"].dtype, np.float32)
+        self.assertEqual(output["normalized_welfare.mean"].dtype, np.float32)
 
     def test_prepared_run_is_deterministic_for_fixed_seed(self) -> None:
         prepared = MyopicPolicyRun().prepare(self._base_config())
@@ -97,9 +100,8 @@ class MyopicPolicyTaskTest(unittest.TestCase):
             "log2_budget": 1,
             "sampler_seed": 55,
             "parameters": {
-                "link_cost": {"type": "fixed", "payload": 1.0},
-                "decay": {"type": "fixed", "payload": 0.5},
-                "per_link_benefit": {"type": "fixed", "payload": 10.0},
+                "benefit_to_cost_ratio": {"type": "fixed", "payload": 0.1},
+                "distance_discount": {"type": "fixed", "payload": 0.5},
                 "bridge_probability": {
                     "type": "continuous",
                     "payload": {

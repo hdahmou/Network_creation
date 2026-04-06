@@ -12,7 +12,7 @@ from .global_closeness_centrality_observer import (
 )
 from .hub_persistence_observer import HubPersistenceObserver
 from .indegree_observer import IndegreeObserver
-from .social_welfare_observer import SocialWelfareObserver
+from .social_welfare_observer import NormalizedWelfareObserver
 from .state_history_observer import StateHistoryObserver
 from .triad_census_observer import TriadCensusObserver
 
@@ -26,7 +26,7 @@ OBSERVER_GRIMOIRE = {
     "global_closeness_centrality": GlobalClosenessCentralityObserver,
     "hub_persistence": HubPersistenceObserver,
     "indegree": IndegreeObserver,
-    "social_welfare": SocialWelfareObserver,
+    "normalized_welfare": NormalizedWelfareObserver,
     "state_history": StateHistoryObserver,
     "triad_census": TriadCensusObserver,
 }

@@ -24,7 +24,7 @@ class MyopicPolicyResultFormatterTest(unittest.TestCase):
                 2,
                 {
                     "density.mean": np.asarray([20.0, 21.0, 22.0, 23.0], dtype=np.float32),
-                    "social_welfare.mean": np.asarray(
+                    "normalized_welfare.mean": np.asarray(
                         [200.0, 201.0, 202.0, 203.0], dtype=np.float32
                     ),
                 },
@@ -33,7 +33,7 @@ class MyopicPolicyResultFormatterTest(unittest.TestCase):
                 0,
                 {
                     "density.mean": np.asarray([0.0, 1.0, 2.0, 3.0], dtype=np.float32),
-                    "social_welfare.mean": np.asarray(
+                    "normalized_welfare.mean": np.asarray(
                         [100.0, 101.0, 102.0, 103.0], dtype=np.float32
                     ),
                 },
@@ -42,7 +42,7 @@ class MyopicPolicyResultFormatterTest(unittest.TestCase):
                 1,
                 {
                     "density.mean": np.asarray([10.0, 11.0, 12.0, 13.0], dtype=np.float32),
-                    "social_welfare.mean": np.asarray(
+                    "normalized_welfare.mean": np.asarray(
                         [110.0, 111.0, 112.0, 113.0], dtype=np.float32
                     ),
                 },
@@ -73,16 +73,15 @@ class MyopicPolicyResultFormatterTest(unittest.TestCase):
         self.assertEqual(
             tuple(formatted.inputs["labels"]["parameter"]),
             (
-                "link_cost",
-                "decay",
-                "per_link_benefit",
+                "benefit_to_cost_ratio",
+                "distance_discount",
                 "bridge_probability",
                 "radius",
             ),
         )
         self.assertEqual(
             tuple(formatted.outputs["labels"]["observable"]),
-            ("density.mean", "social_welfare.mean"),
+            ("density.mean", "normalized_welfare.mean"),
         )
         self.assertEqual(formatted.outputs["tensors"]["timeseries"].shape, (3, 2, 4))
         self.assertEqual(formatted.outputs["tensors"]["final"].shape, (3, 2))

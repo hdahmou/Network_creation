@@ -1,17 +1,14 @@
-"""Tests for social welfare statistics and observer integration."""
+"""Tests for normalized welfare statistics and observer integration."""
 
 from __future__ import annotations
 
 import unittest
 
-import igraph as ig
 import numpy as np
 
 from network_creation.core.agent import Agent
 from network_creation.core.environment import Environment
-from network_creation.core.graph import (
-    create_empty_graph,
-)
+from network_creation.core.graph import create_empty_graph
 from network_creation.core.model import (
     Action,
     ActionSpace,
@@ -23,8 +20,8 @@ from network_creation.core.model import (
 from network_creation.core.observability import ObservationSampling
 from network_creation.core.simulator import Simulator
 from network_creation.observers.social_welfare_observer import (
-    SocialWelfareObserver,
-    _compute_social_welfare,
+    NormalizedWelfareObserver,
+    _compute_normalized_welfare,
 )
 from network_creation.policies.base import Policy
 from tests.graph_factories import graph_from_adjacency_matrix
@@ -48,21 +45,20 @@ class ConstantPolicy(Policy):
 
 
 class SocialWelfareTest(unittest.TestCase):
-    def test_social_welfare_includes_self_terms_and_zero_for_disconnected_pairs(
+    def test_normalized_welfare_excludes_self_terms_and_zeroes_disconnected_pairs(
         self,
     ) -> None:
         graph = create_empty_graph(2)
 
-        welfare = _compute_social_welfare(
+        welfare = _compute_normalized_welfare(
             graph,
-            link_cost=3.0,
-            decay=0.5,
-            per_link_benefit=10.0,
+            benefit_to_cost_ratio=0.3,
+            distance_discount=0.5,
         )
 
-        self.assertEqual(welfare, 20.0)
+        self.assertEqual(welfare, 0.0)
 
-    def test_social_welfare_counts_bilateral_links_twice(self) -> None:
+    def test_normalized_welfare_counts_bilateral_links_in_node_means(self) -> None:
         graph = graph_from_adjacency_matrix(
             np.array(
                 [
@@ -73,33 +69,45 @@ class SocialWelfareTest(unittest.TestCase):
             )
         )
 
-        welfare = _compute_social_welfare(
+        welfare = _compute_normalized_welfare(
             graph,
-            link_cost=3.0,
-            decay=0.5,
-            per_link_benefit=10.0,
+            benefit_to_cost_ratio=0.3,
+            distance_discount=0.5,
         )
 
-        self.assertEqual(welfare, 24.0)
+        self.assertEqual(welfare, -0.85)
 
-    def test_social_welfare_observer_rejects_decay_outside_zero_to_one_interval(
+    def test_normalized_welfare_observer_rejects_decay_outside_zero_to_one_interval(
         self,
     ) -> None:
-        with self.assertRaisesRegex(ValueError, "0 <= decay < 1"):
-            SocialWelfareObserver(
+        with self.assertRaisesRegex(
+            ValueError, "0 <= distance_discount < 1"
+        ):
+            NormalizedWelfareObserver(
                 observation_sampling=ObservationSampling.periodic(1),
-                link_cost=3.0,
-                decay=1.0,
-                per_link_benefit=10.0,
+                benefit_to_cost_ratio=0.3,
+                distance_discount=1.0,
                 aggregations=(),
             )
 
-    def test_social_welfare_observer_tracks_step_series(self) -> None:
-        observer = SocialWelfareObserver(
+    def test_normalized_welfare_observer_rejects_invalid_ratio(self) -> None:
+        with self.assertRaisesRegex(
+            ValueError,
+            "benefit_to_cost_ratio must satisfy 0 <= "
+            "benefit_to_cost_ratio <= 1",
+        ):
+            NormalizedWelfareObserver(
+                observation_sampling=ObservationSampling.periodic(1),
+                benefit_to_cost_ratio=1.1,
+                distance_discount=0.5,
+                aggregations=(),
+            )
+
+    def test_normalized_welfare_observer_tracks_step_series(self) -> None:
+        observer = NormalizedWelfareObserver(
             observation_sampling=ObservationSampling.periodic(1),
-            link_cost=3.0,
-            decay=0.5,
-            per_link_benefit=10.0,
+            benefit_to_cost_ratio=0.3,
+            distance_discount=0.5,
             aggregations=(),
         )
         simulator = Simulator(
@@ -131,82 +139,8 @@ class SocialWelfareTest(unittest.TestCase):
         np.testing.assert_array_equal(observer.steps, np.array([0, 1, 2]))
         np.testing.assert_allclose(
             observer.values,
-            np.array([20.0, 27.0, 27.0], dtype=np.float32),
+            np.array([0.0, -0.35, -0.35], dtype=np.float32),
         )
-
-    def test_social_welfare_observer_can_min_max_normalize_welfare(self) -> None:
-        observer = SocialWelfareObserver(
-            observation_sampling=ObservationSampling.periodic(1),
-            link_cost=3.0,
-            decay=0.5,
-            per_link_benefit=10.0,
-            max_welfare=30.0,
-            baseline_welfare=20.0,
-            aggregations=(),
-        )
-        simulator = Simulator(
-            env=Environment(create_empty_graph(2), seed=3),
-            agents=(
-                Agent(
-                    id=0,
-                    radius=1,
-                    policy=ConstantPolicy(
-                        Action(ActionType.BRIDGE, source=0, target=1)
-                    ),
-                    seed=5,
-                ),
-                Agent(
-                    id=1,
-                    radius=1,
-                    policy=ConstantPolicy(Action(ActionType.PASS, source=1)),
-                    seed=7,
-                ),
-            ),
-            mode=SchedulingMode.SEQUENTIAL,
-            max_steps=2,
-            rng=np.random.default_rng(11),
-            observers=(observer,),
-        )
-
-        simulator.run(n_episodes=1, reset_observers=False)
-
-        np.testing.assert_allclose(
-            observer.values,
-            np.array([0.0, 0.7, 0.7], dtype=np.float32),
-        )
-
-    def test_social_welfare_observer_rejects_partial_normalization_bounds(
-        self,
-    ) -> None:
-        with self.assertRaisesRegex(
-            ValueError,
-            "must be provided together",
-        ):
-            SocialWelfareObserver(
-                observation_sampling=ObservationSampling.periodic(1),
-                link_cost=3.0,
-                decay=0.5,
-                per_link_benefit=10.0,
-                max_welfare=10.0,
-                aggregations=(),
-            )
-
-    def test_social_welfare_observer_rejects_invalid_normalization_bounds(
-        self,
-    ) -> None:
-        with self.assertRaisesRegex(
-            ValueError,
-            "max_welfare must be greater than baseline_welfare",
-        ):
-            SocialWelfareObserver(
-                observation_sampling=ObservationSampling.periodic(1),
-                link_cost=3.0,
-                decay=0.5,
-                per_link_benefit=10.0,
-                max_welfare=10.0,
-                baseline_welfare=10.0,
-                aggregations=(),
-            )
 
 
 if __name__ == "__main__":

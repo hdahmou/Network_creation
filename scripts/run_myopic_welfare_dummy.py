@@ -18,7 +18,9 @@ from network_creation.core.runtime import (
     SimulationSettings,
     create_simulation_runtime,
 )
-from network_creation.observers.social_welfare_observer import SocialWelfareObserver
+from network_creation.observers.social_welfare_observer import (
+    NormalizedWelfareObserver,
+)
 from network_creation.policies.myopic_payoff import MyopicPayoffPolicy
 
 
@@ -27,15 +29,13 @@ MAX_STEPS = 360
 N_EPISODES = 32
 PARAMETER_SETS = (
     {
-        "link_cost": float(N_AGENTS * 2),
-        "decay": 0.9,
-        "per_link_benefit": 10.0,
+        "benefit_to_cost_ratio": 0.5,
+        "distance_discount": 0.9,
         "bridge_probability": 0.4,
     },
     {
-        "link_cost": float(N_AGENTS * 2),
-        "decay": 0.7,
-        "per_link_benefit": 10.0,
+        "benefit_to_cost_ratio": 0.5,
+        "distance_discount": 0.7,
         "bridge_probability": 0.2,
     },
 )
@@ -49,9 +49,8 @@ def run_case(case_index: int, policy_kwargs: dict[str, float]) -> None:
             radius=N_AGENTS + 1,
             policy=MyopicPayoffPolicy(
                 seed=policy_seed,
-                link_cost=policy_kwargs["link_cost"],
-                decay=policy_kwargs["decay"],
-                per_link_benefit=policy_kwargs["per_link_benefit"],
+                benefit_to_cost_ratio=policy_kwargs["benefit_to_cost_ratio"],
+                distance_discount=policy_kwargs["distance_discount"],
                 bridge_probability=policy_kwargs["bridge_probability"],
             ),
             seed=policy_seed,
@@ -65,11 +64,10 @@ def run_case(case_index: int, policy_kwargs: dict[str, float]) -> None:
         n_episodes=N_EPISODES,
         stagnation_patience=None,
     )
-    welfare_observer = SocialWelfareObserver(
+    welfare_observer = NormalizedWelfareObserver(
         observation_sampling=ObservationSampling.periodic(1),
-        link_cost=policy_kwargs["link_cost"],
-        decay=policy_kwargs["decay"],
-        per_link_benefit=policy_kwargs["per_link_benefit"],
+        benefit_to_cost_ratio=policy_kwargs["benefit_to_cost_ratio"],
+        distance_discount=policy_kwargs["distance_discount"],
         aggregations=(),
     )
     _, _, simulator = create_simulation_runtime(

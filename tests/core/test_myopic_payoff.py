@@ -31,10 +31,26 @@ class MyopicPayoffPolicyTest(unittest.TestCase):
         action_space = get_action_space(observation)
         return observation, action_space
 
-    def test_constructor_rejects_invalid_decay_and_bridge_probability(self) -> None:
+    def test_constructor_rejects_invalid_ratio_discount_and_bridge_probability(self) -> None:
         invalid_cases = (
-            ("decay must satisfy 0 <= decay < 1", {"decay": -0.1}),
-            ("decay must satisfy 0 <= decay < 1", {"decay": 1.0}),
+            (
+                "benefit_to_cost_ratio must satisfy 0 <= "
+                "benefit_to_cost_ratio <= 1",
+                {"benefit_to_cost_ratio": -0.1},
+            ),
+            (
+                "benefit_to_cost_ratio must satisfy 0 <= "
+                "benefit_to_cost_ratio <= 1",
+                {"benefit_to_cost_ratio": 1.1},
+            ),
+            (
+                "distance_discount must satisfy 0 <= distance_discount < 1",
+                {"distance_discount": -0.1},
+            ),
+            (
+                "distance_discount must satisfy 0 <= distance_discount < 1",
+                {"distance_discount": 1.0},
+            ),
             (
                 "bridge_probability must satisfy 0 <= bridge_probability <= 1",
                 {"bridge_probability": -0.1},
@@ -49,9 +65,8 @@ class MyopicPayoffPolicyTest(unittest.TestCase):
             with self.subTest(overrides=overrides):
                 kwargs = {
                     "seed": 7,
-                    "link_cost": 1.0,
-                    "decay": 0.5,
-                    "per_link_benefit": 10.0,
+                    "benefit_to_cost_ratio": 0.1,
+                    "distance_discount": 0.5,
                     "bridge_probability": 0.5,
                 }
                 kwargs.update(overrides)
@@ -75,9 +90,8 @@ class MyopicPayoffPolicyTest(unittest.TestCase):
         )
         policy = MyopicPayoffPolicy(
             seed=7,
-            link_cost=1.0,
-            decay=0.5,
-            per_link_benefit=10.0,
+            benefit_to_cost_ratio=0.1,
+            distance_discount=0.5,
             bridge_probability=0.5,
         )
 
@@ -101,9 +115,8 @@ class MyopicPayoffPolicyTest(unittest.TestCase):
         )
         policy = MyopicPayoffPolicy(
             seed=11,
-            link_cost=1.0,
-            decay=0.5,
-            per_link_benefit=10.0,
+            benefit_to_cost_ratio=0.1,
+            distance_discount=0.5,
             bridge_probability=1.0,
         )
         available_bridge_actions = set(action_space[ActionType.BRIDGE])
@@ -131,9 +144,8 @@ class MyopicPayoffPolicyTest(unittest.TestCase):
         )
         policy = MyopicPayoffPolicy(
             seed=13,
-            link_cost=1.0,
-            decay=0.5,
-            per_link_benefit=10.0,
+            benefit_to_cost_ratio=0.1,
+            distance_discount=0.5,
             bridge_probability=1.0,
         )
 
@@ -150,9 +162,8 @@ class MyopicPayoffPolicyTest(unittest.TestCase):
         )
         policy = MyopicPayoffPolicy(
             seed=17,
-            link_cost=1.0,
-            decay=0.5,
-            per_link_benefit=10.0,
+            benefit_to_cost_ratio=0.1,
+            distance_discount=0.5,
             bridge_probability=0.0,
         )
 
@@ -165,20 +176,26 @@ class MyopicPayoffPolicyTest(unittest.TestCase):
         observation, action_space = self._build_observation_and_action_space(
             adjacency=np.array(
                 [
-                    [0, 0, 0],
-                    [1, 0, 1],
-                    [0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 1, 1, 0, 1, 1, 1, 1, 1],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
                 ],
                 dtype=np.int8,
             ),
             node_id=0,
-            radius=2,
+            radius=3,
         )
         policy = MyopicPayoffPolicy(
-            seed=19,
-            link_cost=1.0,
-            decay=0.5,
-            per_link_benefit=10.0,
+            seed=2,
+            benefit_to_cost_ratio=1.0,
+            distance_discount=0.5,
             bridge_probability=0.0,
         )
 
@@ -186,14 +203,14 @@ class MyopicPayoffPolicyTest(unittest.TestCase):
 
         self.assertEqual(
             decision.actions,
-            (Action(ActionType.ADD, source=0, target=2),),
+            (Action(ActionType.ADD, source=0, target=1),),
         )
         assert decision.value is not None
         self.assertEqual(
             decision.value["considered_action"],
-            Action(ActionType.ADD, source=0, target=2),
+            Action(ActionType.ADD, source=0, target=1),
         )
-        self.assertAlmostEqual(float(decision.value["delta"]), 1.5)
+        self.assertAlmostEqual(float(decision.value["delta"]), 0.125)
 
     def test_reciprocal_visible_delete_is_accepted(self) -> None:
         observation, action_space = self._build_observation_and_action_space(
@@ -210,9 +227,8 @@ class MyopicPayoffPolicyTest(unittest.TestCase):
         )
         policy = MyopicPayoffPolicy(
             seed=23,
-            link_cost=1.0,
-            decay=0.5,
-            per_link_benefit=10.0,
+            benefit_to_cost_ratio=0.1,
+            distance_discount=0.5,
             bridge_probability=0.0,
         )
 
@@ -233,21 +249,26 @@ class MyopicPayoffPolicyTest(unittest.TestCase):
         observation, action_space = self._build_observation_and_action_space(
             adjacency=np.array(
                 [
-                    [0, 1, 0, 0],
-                    [0, 0, 0, 0],
-                    [0, 1, 0, 0],
-                    [0, 0, 0, 0],
+                    [0, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
                 ],
                 dtype=np.int8,
             ),
             node_id=0,
-            radius=1,
+            radius=2,
         )
         policy = MyopicPayoffPolicy(
-            seed=29,
-            link_cost=0.1,
-            decay=0.5,
-            per_link_benefit=10.0,
+            seed=9,
+            benefit_to_cost_ratio=1.0,
+            distance_discount=0.5,
             bridge_probability=0.0,
         )
 
@@ -262,14 +283,21 @@ class MyopicPayoffPolicyTest(unittest.TestCase):
             decision.value["considered_action"],
             Action(ActionType.DELETE, source=0, target=1),
         )
-        self.assertAlmostEqual(float(decision.value["delta"]), -4.9)
+        self.assertAlmostEqual(float(decision.value["delta"]), -1.5)
 
     def test_policy_runs_end_to_end_in_simulator(self) -> None:
         adjacency = np.array(
             [
-                [0, 0, 0],
-                [1, 0, 1],
-                [0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 1, 1, 0, 1, 1, 1, 1, 1],
+                [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                [1, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
             ],
             dtype=np.int8,
         )
@@ -278,26 +306,25 @@ class MyopicPayoffPolicyTest(unittest.TestCase):
             agents=(
                 Agent(
                     id=0,
-                    radius=2,
+                    radius=3,
                     policy=MyopicPayoffPolicy(
-                        seed=37,
-                        link_cost=1.0,
-                        decay=0.5,
-                        per_link_benefit=10.0,
+                        seed=2,
+                        benefit_to_cost_ratio=1.0,
+                        distance_discount=0.5,
                         bridge_probability=0.0,
                     ),
-                    seed=37,
+                    seed=2,
                 ),
             ),
             mode=SchedulingMode.SEQUENTIAL,
             max_steps=1,
-            rng=np.random.default_rng(41),
+            rng=np.random.default_rng(7),
             observers=(),
         )
 
         simulator.run(n_episodes=1, reset_observers=False)
 
-        self.assertIn((0, 2), simulator.env.state.graph.get_edgelist())
+        self.assertIn((0, 1), simulator.env.state.graph.get_edgelist())
 
 
 if __name__ == "__main__":

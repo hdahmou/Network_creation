@@ -21,7 +21,7 @@ class RandomPolicyResultFormatterTest(unittest.TestCase):
                 0,
                 {
                     "density.mean": np.asarray([0.0, 1.0, 2.0], dtype=np.float32),
-                    "social_welfare.mean": np.asarray([10.0, 11.0, 12.0], dtype=np.float32),
+                    "normalized_welfare.mean": np.asarray([10.0, 11.0, 12.0], dtype=np.float32),
                 },
             )
         ]
@@ -55,7 +55,7 @@ class RandomPolicyResultFormatterTest(unittest.TestCase):
                 0,
                 {
                     "density.final": np.asarray(0.25, dtype=np.float32),
-                    "social_welfare.final": np.asarray(12.5, dtype=np.float32),
+                    "normalized_welfare.final": np.asarray(12.5, dtype=np.float32),
                 },
             )
         ]
@@ -82,5 +82,5 @@ class RandomPolicyResultFormatterTest(unittest.TestCase):
         )
         self.assertEqual(
             tuple(formatted.outputs["labels"]["observable"]),
-            ("density.final", "social_welfare.final"),
+            ("density.final", "normalized_welfare.final"),
         )

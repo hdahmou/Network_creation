@@ -237,11 +237,10 @@ def _build_contract_test_observer(name: str):
             "aggregations": (),
         },
         "indegree": {"observation_sampling": periodic, "aggregations": ()},
-        "social_welfare": {
+        "normalized_welfare": {
             "observation_sampling": periodic,
-            "link_cost": 1.0,
-            "decay": 0.5,
-            "per_link_benefit": 10.0,
+            "benefit_to_cost_ratio": 0.1,
+            "distance_discount": 0.5,
             "aggregations": (),
         },
         "state_history": {"observation_sampling": periodic, "keep_runs": False},

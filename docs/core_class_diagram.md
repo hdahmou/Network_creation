@@ -44,6 +44,16 @@ namespace CoreModel {
 }
 
 namespace Runtime {
+    class SimulationSettings {
+        +n_agents: int
+        +mode: SchedulingMode
+        +seed: int
+        +max_steps: int
+        +n_episodes: int
+        +stagnation_patience: int | None
+        +initial_graph_kind: str
+    }
+
     class Environment {
         +seed: int
         +state: EnvironmentState
@@ -59,6 +69,7 @@ namespace Runtime {
         +radius: int
         +policy: Policy
         +seed: int
+        +get_radius() int
         +reset(seed: int) void
         +act(observation: Observation, action_space: ActionSpace) PolicyDecision
     }
@@ -87,19 +98,29 @@ namespace Runtime {
 
 namespace Policies {
     class RandomPolicy
+
     class ReplayPolicy {
         +actions_by_step: dict[int, tuple[Action, ...]]
         +next_step_id: int
     }
+
     class MyopicPayoffPolicy {
-        +link_cost: float
-        +decay: float
-        +per_link_benefit: float
+        +benefit_to_cost_ratio: float
+        +distance_discount: float
         +bridge_probability: float
     }
 }
 
 namespace ObserverAPI {
+    class ObservationSampling {
+        +kind: periodic | terminal
+        +every: int | None
+        +periodic(every: int) ObservationSampling
+        +terminal() ObservationSampling
+        +samples_step(step_index: int, max_steps: int) bool
+        +fixed_sample_count(max_steps: int) int
+    }
+
     class StateView {
         +graph: Graph
         +from_state(state: EnvironmentState) StateView
@@ -148,6 +169,7 @@ namespace ObserverAPI {
         +on_episode_start(event: EpisodeStartEvent) void
         +on_step_end(event: StepEvent) void
         +on_episode_end(event: EpisodeEndEvent) void
+        +observes_step(step_index: int, max_steps: int) bool
         +get() Any
     }
 }
@@ -161,6 +183,8 @@ namespace ObserverStatistics {
         +n_episodes: int
         +reset() void
         +get() StatisticResult
+        +fixed_output_shape(max_steps: int, observation_sampling: ObservationSampling) tuple[int, ...]
+        +fixed_output_dtype() dtype
     }
 
     class EpisodeSeriesStatisticObserver {
@@ -185,6 +209,7 @@ namespace ObserverStatistics {
         +y_max: float | None
         +dimension_names: tuple[str, ...]
         +sample_shape: tuple[int, ...]
+        +n_dimensions: int
         +steps: NDArray
         +values: NDArray
         +compute_initial_value(event: EpisodeStartEvent) NDArray
@@ -205,20 +230,19 @@ namespace Observers {
     class GlobalClosenessCentralityObserver
     class CentralPointOfDominanceObserver
 
-    class SocialWelfareObserver {
-        +link_cost: float
-        +decay: float
-        +per_link_benefit: float
-        +max_welfare: float | None
-        +baseline_welfare: float | None
+    class NormalizedWelfareObserver {
+        +benefit_to_cost_ratio: float
+        +distance_discount: float
     }
 
     class HubPersistenceObserver {
         -_window_size: int
+        +observes_step(step_index: int, max_steps: int) bool
     }
 
     class TriadCensusObserver {
         +dimension_names: tuple[str, ...]
+        +triad_type_names: tuple[str, ...]
     }
 
     class StateHistoryResult {
@@ -247,6 +271,7 @@ namespace Observers {
 }
 
 %% Relationships
+SimulationSettings --> SchedulingMode : mode
 Environment *-- EnvironmentState : owns
 Environment --> Observation : produces
 Environment --> ActionSpace : produces
@@ -265,6 +290,8 @@ RandomPolicy --|> Policy : extends
 ReplayPolicy --|> Policy : extends
 MyopicPayoffPolicy --|> Policy : extends
 
+SimulationObserver --> ObservationSampling : sampling
+StateView ..> EnvironmentState : from_state
 EpisodeStartEvent *-- StateView : initial_state
 StepEvent *-- StateView : pre/post
 StepEvent --> PolicyDecision : decisions
@@ -283,7 +310,7 @@ DistanceObserver --|> EpisodeSeriesStatisticObserver : extends
 IndegreeObserver --|> EpisodeSeriesStatisticObserver : extends
 GlobalClosenessCentralityObserver --|> EpisodeSeriesStatisticObserver : extends
 CentralPointOfDominanceObserver --|> EpisodeSeriesStatisticObserver : extends
-SocialWelfareObserver --|> EpisodeSeriesStatisticObserver : extends
+NormalizedWelfareObserver --|> EpisodeSeriesStatisticObserver : extends
 HubPersistenceObserver --|> EpisodeSeriesStatisticObserver : extends
 TriadCensusObserver --|> EpisodeSeriesTensorStatisticObserver : extends
 StateHistoryObserver ..|> SimulationObserver : implements

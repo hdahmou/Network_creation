@@ -1,4 +1,4 @@
-"""Observer that tracks social welfare across simulator steps."""
+"""Observer that tracks normalized welfare across simulator steps."""
 
 from __future__ import annotations
 
@@ -15,108 +15,85 @@ from network_creation.observers.statistics.episode_series import (
 )
 
 
-def _compute_social_welfare(
+def _compute_normalized_welfare(
     graph: ig.Graph,
-    link_cost: float,
-    decay: float,
-    per_link_benefit: float,
+    benefit_to_cost_ratio: float,
+    distance_discount: float,
 ) -> float:
-    n_paid_links = float(graph.ecount())
-    benefit = per_link_benefit * float(
-        np.power(decay, graph.distances(mode="all")).sum()
+    """Return mean normalized node utility."""
+    n = graph.vcount()
+    discounted_distance_sum = float(
+        np.power(distance_discount, graph.distances(mode="all")).sum()
     )
-    cost = link_cost * n_paid_links
-    return benefit - cost
+    return (
+        benefit_to_cost_ratio * (discounted_distance_sum - float(n))
+        - float(graph.ecount())
+    ) / float(n * (n - 1))
 
 
-class SocialWelfareObserver(EpisodeSeriesStatisticObserver):
-    r"""Collect social welfare values per sampled step.
+class NormalizedWelfareObserver(EpisodeSeriesStatisticObserver):
+    r"""Collect normalized welfare per sampled step.
 
-    .. math::
-
-       W = b \sum_{i=1}^{n} \sum_{j=1}^{n} \delta^{d(i, j)}
-       - c \sum_{i=1}^{n} \sum_{j=1}^{n} A_{ij}
-
-    If ``max_welfare`` and ``baseline_welfare`` are provided, the observer
-    returns the min-max normalized value
+    The statistic is
 
     .. math::
 
-       \widetilde{W}
-       = \frac{W - W_{\mathrm{baseline}}}
-       {W_{\max} - W_{\mathrm{baseline}}}
+       \bar U
+       =
+       \frac{1}{n}\sum_{i=1}^n
+       \left(
+       \eta \frac{1}{n-1}\sum_{j \neq i}\delta^{d(i, j)}
+       -
+       \frac{m_i}{n-1}
+       \right)
 
-    where :math:`b` is ``per_link_benefit``, :math:`c` is ``link_cost``,
-    :math:`\delta` is ``decay``, :math:`d(i, j)` is the undirected geodesic
-    distance between nodes :math:`i` and :math:`j`, and :math:`A` is the
-    adjacency matrix. Self-terms are included because :math:`d(i, i) = 0`, and
-    disconnected pairs contribute zero because :math:`\delta^{\infty} = 0` for
-    :math:`0 \leq \delta < 1`. Each directed paid link in :math:`A` contributes
-    one full unit of link cost.
+    where ``benefit_to_cost_ratio = \eta = v/k`` and
+    ``distance_discount = \delta``.
+
+    Disconnected pairs contribute zero, self-terms are excluded, and for
+    :math:`n \ge 2` the returned value lies in :math:`[-1, 1]`.
     """
 
-    label = "Social Welfare"
+    label = "Normalized Welfare"
     x_label = "step"
-    y_label = "social welfare"
+    y_label = "normalized welfare (no units)"
     y_min = None
     y_max = None
 
     def __init__(
         self,
         observation_sampling: ObservationSampling,
-        link_cost: float,
-        decay: float,
-        per_link_benefit: float,
+        benefit_to_cost_ratio: float,
+        distance_discount: float,
         aggregations: tuple[str, ...],
-        max_welfare: float | None = None,
-        baseline_welfare: float | None = None,
     ) -> None:
-        if not 0.0 <= decay < 1.0:
-            raise ValueError("decay must satisfy 0 <= decay < 1")
-        if (max_welfare is None) != (baseline_welfare is None):
+        if not 0.0 <= benefit_to_cost_ratio <= 1.0:
             raise ValueError(
-                "max_welfare and baseline_welfare must be provided together"
+                "benefit_to_cost_ratio must satisfy 0 <= "
+                "benefit_to_cost_ratio <= 1"
             )
-        if (
-            max_welfare is not None
-            and baseline_welfare is not None
-            and max_welfare <= baseline_welfare
-        ):
-            raise ValueError("max_welfare must be greater than baseline_welfare")
+        if not 0.0 <= distance_discount < 1.0:
+            raise ValueError(
+                "distance_discount must satisfy 0 <= distance_discount < 1"
+            )
 
-        self.link_cost = link_cost
-        self.decay = decay
-        self.per_link_benefit = per_link_benefit
-        self.max_welfare = max_welfare
-        self.baseline_welfare = baseline_welfare
+        self.benefit_to_cost_ratio = benefit_to_cost_ratio
+        self.distance_discount = distance_discount
         super().__init__(
             observation_sampling=observation_sampling,
             aggregations=aggregations,
         )
 
-    def _normalize_welfare(self, welfare: float) -> float:
-        if self.max_welfare is None or self.baseline_welfare is None:
-            return welfare
-        return (welfare - self.baseline_welfare) / (
-            self.max_welfare - self.baseline_welfare
-        )
-
     def compute_initial_value(self, event: EpisodeStartEvent) -> float:
-        return self._normalize_welfare(
-            _compute_social_welfare(
-                event.initial_state.graph,
-                link_cost=self.link_cost,
-                decay=self.decay,
-                per_link_benefit=self.per_link_benefit,
-            )
+        return _compute_normalized_welfare(
+            event.initial_state.graph,
+            benefit_to_cost_ratio=self.benefit_to_cost_ratio,
+            distance_discount=self.distance_discount,
         )
 
     def compute_step_value(self, event: StepEvent) -> float:
-        return self._normalize_welfare(
-            _compute_social_welfare(
-                event.post_state.graph,
-                link_cost=self.link_cost,
-                decay=self.decay,
-                per_link_benefit=self.per_link_benefit,
-            )
+        return _compute_normalized_welfare(
+            event.post_state.graph,
+            benefit_to_cost_ratio=self.benefit_to_cost_ratio,
+            distance_discount=self.distance_discount,
         )

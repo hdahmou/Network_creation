@@ -23,7 +23,7 @@ class TaskUtilsTest(unittest.TestCase):
     def test_load_result_zarr_returns_sorted_numpy_content(self) -> None:
         output_schema = [
             {"name": "density.mean", "shape": [3], "dtype": "float32"},
-            {"name": "social_welfare.mean", "shape": [3], "dtype": "float32"},
+            {"name": "normalized_welfare.mean", "shape": [3], "dtype": "float32"},
         ]
         fake_root = _FakeGroup(
             {
@@ -37,7 +37,7 @@ class TaskUtilsTest(unittest.TestCase):
                                     [[0.2, 0.3, 0.4], [0.0, 0.1, 0.2], [0.1, 0.2, 0.3]],
                                     dtype=np.float32,
                                 ),
-                                "social_welfare.mean": np.asarray(
+                                "normalized_welfare.mean": np.asarray(
                                     [[20.0, 21.0, 22.0], [0.0, 1.0, 2.0], [10.0, 11.0, 12.0]],
                                     dtype=np.float32,
                                 ),
@@ -95,7 +95,7 @@ class TaskUtilsTest(unittest.TestCase):
             ),
         )
         np.testing.assert_allclose(
-            result["outputs"]["social_welfare.mean"],
+            result["outputs"]["normalized_welfare.mean"],
             np.asarray(
                 [[0.0, 1.0, 2.0], [10.0, 11.0, 12.0], [20.0, 21.0, 22.0]],
                 dtype=np.float32,

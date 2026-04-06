@@ -7,20 +7,16 @@
     "log2_budget": 4,
     "sampler_seed": 123,
     "parameters": {
-      "link_cost": {
+      "benefit_to_cost_ratio": {
         "type": "fixed",
-        "payload": 20
+        "payload": 0.5
       },
-      "decay": {
+      "distance_discount": {
         "type": "continuous",
         "payload": {
           "min": 0.01,
           "max": 0.99
         }
-      },
-      "per_link_benefit": {
-        "type": "fixed",
-        "payload": 10.0
       },
       "bridge_probability": {
         "type": "continuous",
@@ -56,14 +52,13 @@
       }
     },
     {
-      "name": "social_welfare",
+      "name": "normalized_welfare",
       "output": "mean",
       "kwargs": {
         "observation_sampling": {"kind": "periodic", "every": 1},
         "aggregations": ["mean"],
-        "link_cost": 20.0,
-        "decay": 0.9,
-        "per_link_benefit": 10.0
+        "benefit_to_cost_ratio": 0.5,
+        "distance_discount": 0.9
       }
     }
   ]

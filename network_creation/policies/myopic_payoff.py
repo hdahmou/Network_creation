@@ -38,21 +38,26 @@ class MyopicPayoffPolicy(Policy):
     def __init__(
         self,
         seed: int,
-        link_cost: float,
-        decay: float,
-        per_link_benefit: float,
+        benefit_to_cost_ratio: float,
+        distance_discount: float,
         bridge_probability: float,
     ) -> None:
-        if not 0.0 <= decay < 1.0:
-            raise ValueError("decay must satisfy 0 <= decay < 1")
+        if not 0.0 <= distance_discount < 1.0:
+            raise ValueError(
+                "distance_discount must satisfy 0 <= distance_discount < 1"
+            )
+        if not 0.0 <= benefit_to_cost_ratio <= 1.0:
+            raise ValueError(
+                "benefit_to_cost_ratio must satisfy 0 <= "
+                "benefit_to_cost_ratio <= 1"
+            )
         if not 0.0 <= bridge_probability <= 1.0:
             raise ValueError(
                 "bridge_probability must satisfy 0 <= bridge_probability <= 1"
             )
 
-        self.link_cost = link_cost
-        self.decay = decay
-        self.per_link_benefit = per_link_benefit
+        self.benefit_to_cost_ratio = benefit_to_cost_ratio
+        self.distance_discount = distance_discount
         self.bridge_probability = bridge_probability
         self._rng = np.random.default_rng(seed)
 
@@ -105,23 +110,27 @@ class MyopicPayoffPolicy(Policy):
                 baseline_distances,
                 candidate,
             )
-            link_delta = -self.link_cost
+            link_delta = -1.0
         elif candidate.type is ActionType.DELETE:
             candidate_distances = self._compute_delete_distances(
                 observation.graph,
                 source_idx,
                 candidate,
             )
-            link_delta = self.link_cost
+            link_delta = 1.0
         else:
             raise ValueError(
                 f"unsupported non-bridge action type: {candidate.type.value}"
             )
 
-        baseline_benefit = np.power(self.decay, baseline_distances).sum()
-        candidate_benefit = np.power(self.decay, candidate_distances).sum()
-        benefit_delta = self.per_link_benefit * (candidate_benefit - baseline_benefit)
-        return benefit_delta + link_delta
+        baseline_benefit = np.power(
+            self.distance_discount, baseline_distances
+        ).sum()
+        candidate_benefit = np.power(
+            self.distance_discount, candidate_distances
+        ).sum()
+        benefit_delta = candidate_benefit - baseline_benefit
+        return self.benefit_to_cost_ratio * benefit_delta + link_delta
 
     def _compute_add_distances(
         self,

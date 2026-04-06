@@ -20,9 +20,8 @@ class MyopicPolicyPreparationTest(unittest.TestCase):
                 "log2_budget": 0,
                 "sampler_seed": 123,
                 "parameters": {
-                    "link_cost": {"type": "fixed", "payload": 0.5},
-                    "decay": {"type": "fixed", "payload": 0.5},
-                    "per_link_benefit": {"type": "fixed", "payload": 10.0},
+                    "benefit_to_cost_ratio": {"type": "fixed", "payload": 0.05},
+                    "distance_discount": {"type": "fixed", "payload": 0.5},
                     "bridge_probability": {"type": "fixed", "payload": 0.0},
                     "radius": {"type": "fixed", "payload": 2},
                 },
@@ -46,14 +45,13 @@ class MyopicPolicyPreparationTest(unittest.TestCase):
                     },
                 },
                 {
-                    "name": "social_welfare",
+                    "name": "normalized_welfare",
                     "output": "mean",
                     "kwargs": {
                         "observation_sampling": {"kind": "periodic", "every": 1},
                         "aggregations": ["mean"],
-                        "link_cost": 1.0,
-                        "decay": 0.5,
-                        "per_link_benefit": 10.0,
+                        "benefit_to_cost_ratio": 0.1,
+                        "distance_discount": 0.5,
                     },
                 },
             ],
@@ -74,21 +72,20 @@ class MyopicPolicyPreparationTest(unittest.TestCase):
             "log2_budget": 2,
             "sampler_seed": 123,
             "parameters": {
-                "link_cost": {"type": "fixed", "payload": 0.5},
-                "decay": {
+                "benefit_to_cost_ratio": {"type": "fixed", "payload": 0.05},
+                "distance_discount": {
                     "type": "continuous",
                     "payload": {
                         "min": 0.2,
-                        "max": 0.8
-                    }
+                        "max": 0.8,
+                    },
                 },
-                "per_link_benefit": {"type": "fixed", "payload": 10.0},
                 "bridge_probability": {
                     "type": "continuous",
                     "payload": {
                         "min": 0.0,
-                        "max": 1.0
-                    }
+                        "max": 1.0,
+                    },
                 },
                 "radius": {"type": "fixed", "payload": 2},
             },
@@ -97,22 +94,26 @@ class MyopicPolicyPreparationTest(unittest.TestCase):
 
         self.assertEqual(
             parameter_table.parameter_names,
-            ("link_cost", "decay", "per_link_benefit", "bridge_probability", "radius"),
+            (
+                "benefit_to_cost_ratio",
+                "distance_discount",
+                "bridge_probability",
+                "radius",
+            ),
         )
-        self.assertEqual(parameter_table.parameter_values.shape, (4, 5))
-        np.testing.assert_allclose(parameter_table.parameter_values[:, 0], 0.5)
-        np.testing.assert_allclose(parameter_table.parameter_values[:, 2], 10.0)
-        np.testing.assert_allclose(parameter_table.parameter_values[:, 4], 2.0)
+        self.assertEqual(parameter_table.parameter_values.shape, (4, 4))
+        np.testing.assert_allclose(parameter_table.parameter_values[:, 0], 0.05)
+        np.testing.assert_allclose(parameter_table.parameter_values[:, 3], 2.0)
         self.assertTrue(np.all(parameter_table.parameter_values[:, 1] >= 0.2))
         self.assertTrue(np.all(parameter_table.parameter_values[:, 1] <= 0.8))
-        self.assertTrue(np.all(parameter_table.parameter_values[:, 3] >= 0.0))
-        self.assertTrue(np.all(parameter_table.parameter_values[:, 3] <= 1.0))
+        self.assertTrue(np.all(parameter_table.parameter_values[:, 2] >= 0.0))
+        self.assertTrue(np.all(parameter_table.parameter_values[:, 2] <= 1.0))
         self.assertGreater(
             np.unique(parameter_table.parameter_values[:, 1]).size,
             1,
         )
         self.assertGreater(
-            np.unique(parameter_table.parameter_values[:, 3]).size,
+            np.unique(parameter_table.parameter_values[:, 2]).size,
             1,
         )
 
@@ -121,7 +122,7 @@ class MyopicPolicyPreparationTest(unittest.TestCase):
             "log2_budget": 2,
             "sampler_seed": 123,
             "parameters": {
-                "decay": {
+                "distance_discount": {
                     "type": "continuous",
                     "payload": {"min": 0.2, "max": 0.8},
                 },
@@ -151,7 +152,7 @@ class MyopicPolicyPreparationTest(unittest.TestCase):
 
         self.assertEqual(
             parameter_table.parameter_names,
-            ("decay", "bridge_probability", "radius"),
+            ("distance_discount", "bridge_probability", "radius"),
         )
         np.testing.assert_allclose(parameter_table.parameter_values, expected)
 
@@ -160,9 +161,8 @@ class MyopicPolicyPreparationTest(unittest.TestCase):
             "log2_budget": 3,
             "sampler_seed": 123,
             "parameters": {
-                "link_cost": {"type": "fixed", "payload": 0.5},
-                "decay": {"type": "fixed", "payload": 0.5},
-                "per_link_benefit": {"type": "fixed", "payload": 10.0},
+                "benefit_to_cost_ratio": {"type": "fixed", "payload": 0.05},
+                "distance_discount": {"type": "fixed", "payload": 0.5},
                 "bridge_probability": {"type": "fixed", "payload": 0.0},
                 "radius": {"type": "fixed", "payload": 2},
             },
@@ -170,10 +170,10 @@ class MyopicPolicyPreparationTest(unittest.TestCase):
 
         parameter_table = generate_parameter_table(input_spec)
 
-        self.assertEqual(parameter_table.parameter_values.shape, (1, 5))
+        self.assertEqual(parameter_table.parameter_values.shape, (1, 4))
         np.testing.assert_allclose(
             parameter_table.parameter_values,
-            np.array([[0.5, 0.5, 10.0, 0.0, 2.0]], dtype=np.float32),
+            np.array([[0.05, 0.5, 0.0, 2.0]], dtype=np.float32),
         )
 
     def test_prepare_generates_row_index_inputs_from_input_spec(self) -> None:
@@ -183,11 +183,16 @@ class MyopicPolicyPreparationTest(unittest.TestCase):
         self.assertEqual(prepared.inputs, (0,))
         self.assertEqual(
             task.parameter_table.parameter_names,
-            ("link_cost", "decay", "per_link_benefit", "bridge_probability", "radius"),
+            (
+                "benefit_to_cost_ratio",
+                "distance_discount",
+                "bridge_probability",
+                "radius",
+            ),
         )
         np.testing.assert_allclose(
             task.parameter_table.parameter_values,
-            np.array([[0.5, 0.5, 10.0, 0.0, 2.0]], dtype=np.float32),
+            np.array([[0.05, 0.5, 0.0, 2.0]], dtype=np.float32),
         )
 
     def test_prepare_rejects_missing_radius(self) -> None:
@@ -208,9 +213,8 @@ class MyopicPolicyPreparationTest(unittest.TestCase):
             "log2_budget": 2,
             "sampler_seed": 123,
             "parameters": {
-                "link_cost": {"type": "fixed", "payload": 0.5},
-                "decay": {"type": "fixed", "payload": 0.5},
-                "per_link_benefit": {"type": "fixed", "payload": 10.0},
+                "benefit_to_cost_ratio": {"type": "fixed", "payload": 0.05},
+                "distance_discount": {"type": "fixed", "payload": 0.5},
                 "bridge_probability": {"type": "fixed", "payload": 0.0},
                 "radius": {
                     "type": "sampled_discrete_range",
@@ -220,14 +224,14 @@ class MyopicPolicyPreparationTest(unittest.TestCase):
         }
 
         parameter_table = generate_parameter_table(input_spec)
-        sampled_radius = parameter_table.parameter_values[:, 4]
-        expected_radius = np.random.default_rng(123 + 4).choice(
+        sampled_radius = parameter_table.parameter_values[:, 3]
+        expected_radius = np.random.default_rng(123 + 3).choice(
             np.array([1.0, 2.0, 3.0], dtype=np.float32),
             size=4,
             replace=True,
         )
 
-        self.assertEqual(parameter_table.parameter_values.shape, (4, 5))
+        self.assertEqual(parameter_table.parameter_values.shape, (4, 4))
         self.assertTrue(np.all(sampled_radius >= 1.0))
         self.assertTrue(np.all(sampled_radius <= 3.0))
         self.assertTrue(np.all(sampled_radius == np.floor(sampled_radius)))
@@ -238,12 +242,11 @@ class MyopicPolicyPreparationTest(unittest.TestCase):
             "log2_budget": 2,
             "sampler_seed": 123,
             "parameters": {
-                "link_cost": {
+                "benefit_to_cost_ratio": {
                     "type": "continuous",
                     "payload": {"min": 0.2, "max": 0.8},
                 },
-                "decay": {"type": "fixed", "payload": 0.5},
-                "per_link_benefit": {"type": "fixed", "payload": 10.0},
+                "distance_discount": {"type": "fixed", "payload": 0.5},
                 "bridge_probability": {"type": "fixed", "payload": 0.0},
                 "radius": {
                     "type": "sampled_discrete_range",
@@ -262,7 +265,7 @@ class MyopicPolicyPreparationTest(unittest.TestCase):
             ).random(n=4),
             dtype=np.float32,
         )
-        expected_radius = np.random.default_rng(123 + 4).choice(
+        expected_radius = np.random.default_rng(123 + 3).choice(
             np.array([1.0, 2.0, 3.0], dtype=np.float32),
             size=4,
             replace=True,
@@ -271,13 +274,12 @@ class MyopicPolicyPreparationTest(unittest.TestCase):
             (
                 0.2 + (unit_samples[:, 0] * 0.6),
                 np.full(4, 0.5, dtype=np.float32),
-                np.full(4, 10.0, dtype=np.float32),
                 np.full(4, 0.0, dtype=np.float32),
                 expected_radius,
             )
         ).astype(np.float32, copy=False)
 
-        self.assertEqual(parameter_table.parameter_values.shape, (4, 5))
+        self.assertEqual(parameter_table.parameter_values.shape, (4, 4))
         np.testing.assert_allclose(parameter_table.parameter_values, expected)
 
     def test_generate_parameter_table_rejects_negative_log2_budget(self) -> None:
@@ -285,9 +287,8 @@ class MyopicPolicyPreparationTest(unittest.TestCase):
             "log2_budget": -1,
             "sampler_seed": 123,
             "parameters": {
-                "link_cost": {"type": "fixed", "payload": 0.5},
-                "decay": {"type": "fixed", "payload": 0.5},
-                "per_link_benefit": {"type": "fixed", "payload": 10.0},
+                "benefit_to_cost_ratio": {"type": "fixed", "payload": 0.05},
+                "distance_discount": {"type": "fixed", "payload": 0.5},
                 "bridge_probability": {"type": "fixed", "payload": 0.0},
                 "radius": {"type": "fixed", "payload": 2},
             },

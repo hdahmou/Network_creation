@@ -58,6 +58,7 @@ namespace Runtime {
         +seed: int
         +state: EnvironmentState
         +node_ids: list[int]
+        +graph_size: int
         +reset() EnvironmentState
         +step(actions: Sequence[Action]) EnvironmentState
         +get_observation(agent: Agent) Observation
@@ -66,10 +67,10 @@ namespace Runtime {
 
     class Agent {
         +id: int
-        +radius: int
+        +visibility_fraction: float
         +policy: Policy
         +seed: int
-        +get_radius() int
+        +get_visibility_fraction() float
         +reset(seed: int) void
         +act(observation: Observation, action_space: ActionSpace) PolicyDecision
     }

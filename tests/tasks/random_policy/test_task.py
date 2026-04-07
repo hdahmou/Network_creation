@@ -16,7 +16,7 @@ class RandomPolicyTaskTest(unittest.TestCase):
             "input_spec": {
                 "log2_budget": 0,
                 "sampler_seed": 123,
-                "parameters": {"radius": {"type": "fixed", "payload": 2}},
+                "parameters": {"visibility_fraction": {"type": "fixed", "payload": 1.0}},
             },
             "simulation": {
                 "n_agents": 4,
@@ -61,7 +61,7 @@ class RandomPolicyTaskTest(unittest.TestCase):
             ],
         )
         self.assertEqual(prepared.inputs, (0,))
-        self.assertEqual(task.parameter_table.parameter_names, ("radius",))
+        self.assertEqual(task.parameter_table.parameter_names, ("visibility_fraction",))
         self.assertEqual(task.parameter_table.parameter_values.shape, (1, 1))
 
         output = prepared.run(prepared.inputs[0])
@@ -138,15 +138,15 @@ class RandomPolicyTaskTest(unittest.TestCase):
         output = prepared.run(prepared.inputs[0])
         self.assertEqual(output["density.mean"].shape, (1,))
 
-    def test_run_supports_multiple_radius_samples(self) -> None:
+    def test_run_supports_multiple_visibility_fraction_samples(self) -> None:
         config = self._base_config()
         config["input_spec"] = {
             "log2_budget": 1,
             "sampler_seed": 123,
             "parameters": {
-                "radius": {
-                    "type": "sampled_discrete_range",
-                    "payload": {"min": 1, "max": 2},
+                "visibility_fraction": {
+                    "type": "continuous",
+                    "payload": {"min": 0.0, "max": 1.0},
                 }
             },
         }

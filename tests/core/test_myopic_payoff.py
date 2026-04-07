@@ -306,7 +306,7 @@ class MyopicPayoffPolicyTest(unittest.TestCase):
             agents=(
                 Agent(
                     id=0,
-                    radius=3,
+                    visibility_fraction=1.0,
                     policy=MyopicPayoffPolicy(
                         seed=2,
                         benefit_to_cost_ratio=1.0,

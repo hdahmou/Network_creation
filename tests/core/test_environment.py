@@ -52,9 +52,11 @@ class EnvironmentTest(unittest.TestCase):
             dtype=np.int8,
         )
 
-    def test_get_observation_uses_agent_radius(self) -> None:
+    def test_get_observation_uses_normalized_agent_visibility_fraction(self) -> None:
         env = Environment(graph_from_adjacency_matrix(self._chain_adjacency()), seed=11)
-        agent = Agent(id=0, radius=2, policy=RandomPolicy(seed=17), seed=19)
+        agent = Agent(
+            id=0, visibility_fraction=1.0, policy=RandomPolicy(seed=17), seed=19
+        )
 
         observation = env.get_observation(agent)
 
@@ -62,9 +64,22 @@ class EnvironmentTest(unittest.TestCase):
         self.assertEqual(observation.graph.vs["name"], [0, 1, 2])
         np.testing.assert_array_equal(observation.outside_node_ids, np.array([3]))
 
+    def test_get_observation_floors_normalized_agent_visibility_fraction(self) -> None:
+        env = Environment(graph_from_adjacency_matrix(self._chain_adjacency()), seed=11)
+        agent = Agent(
+            id=0, visibility_fraction=0.25, policy=RandomPolicy(seed=17), seed=19
+        )
+
+        observation = env.get_observation(agent)
+
+        self.assertEqual(observation.graph.vs["name"], [0, 1])
+        np.testing.assert_array_equal(observation.outside_node_ids, np.array([2, 3]))
+
     def test_get_action_space_composes_environment_observation(self) -> None:
         env = Environment(graph_from_adjacency_matrix(self._chain_adjacency()), seed=23)
-        agent = Agent(id=0, radius=2, policy=RandomPolicy(seed=29), seed=31)
+        agent = Agent(
+            id=0, visibility_fraction=1.0, policy=RandomPolicy(seed=29), seed=31
+        )
 
         action_space = env.get_action_space(agent)
 
@@ -101,29 +116,22 @@ class EnvironmentTest(unittest.TestCase):
 
 
 class AgentPolicyIntegrationTest(unittest.TestCase):
-    def test_agent_rejects_radius_below_one(self) -> None:
-        with self.assertRaisesRegex(ValueError, "radius must be at least 1"):
-            Agent(
-                id=0,
-                radius=0,
-                policy=StubPolicy(Action(ActionType.PASS, source=0)),
-                seed=41,
-            )
-
-    def test_agent_get_radius_returns_stored_radius(self) -> None:
+    def test_agent_get_visibility_fraction_returns_stored_visibility_fraction(
+        self,
+    ) -> None:
         agent = Agent(
             id=0,
-            radius=3,
+            visibility_fraction=0.5,
             policy=StubPolicy(Action(ActionType.PASS, source=0)),
             seed=41,
         )
 
-        self.assertEqual(agent.get_radius(), 3)
+        self.assertEqual(agent.get_visibility_fraction(), 0.5)
 
     def test_agent_delegates_act_and_reset_to_policy(self) -> None:
         expected_action = Action(ActionType.PASS, source=0)
         policy = StubPolicy(expected_action)
-        agent = Agent(id=0, radius=1, policy=policy, seed=41)
+        agent = Agent(id=0, visibility_fraction=1.0, policy=policy, seed=41)
         observation = Observation(
             node_id=0,
             graph=Environment(create_empty_graph(1), seed=43).state.graph,
@@ -148,7 +156,9 @@ class AgentPolicyIntegrationTest(unittest.TestCase):
         self.assertEqual(policy.calls, [(observation, action_space)])
         self.assertEqual(policy.reset_calls, 1)
 
-    def test_random_policy_returns_available_actions_and_reset_is_deterministic(self) -> None:
+    def test_random_policy_returns_available_actions_and_reset_is_deterministic(
+        self,
+    ) -> None:
         env = Environment(
             graph_from_adjacency_matrix(
                 np.array(
@@ -163,24 +173,22 @@ class AgentPolicyIntegrationTest(unittest.TestCase):
             ),
             seed=47,
         )
-        agent = Agent(id=0, radius=2, policy=RandomPolicy(seed=7), seed=53)
+        agent = Agent(
+            id=0, visibility_fraction=1.0, policy=RandomPolicy(seed=7), seed=53
+        )
         observation = env.get_observation(agent)
         action_space = env.get_action_space(agent)
         policy = RandomPolicy(seed=7)
         available_actions = {
-            action
-            for actions in action_space.actions.values()
-            for action in actions
+            action for actions in action_space.actions.values() for action in actions
         }
 
         first_run = [
-            policy.get_decision(observation, action_space).actions[0]
-            for _ in range(5)
+            policy.get_decision(observation, action_space).actions[0] for _ in range(5)
         ]
         policy.reset(seed=7)
         second_run = [
-            policy.get_decision(observation, action_space).actions[0]
-            for _ in range(5)
+            policy.get_decision(observation, action_space).actions[0] for _ in range(5)
         ]
 
         self.assertEqual(first_run, second_run)

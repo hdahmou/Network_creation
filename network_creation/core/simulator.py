@@ -8,7 +8,7 @@ import numpy as np
 
 from .agent import Agent
 from .environment import Environment
-from .graph import build_observation_from_state, get_action_space
+from .graph import get_action_space
 from .model import ActionType, SchedulingMode
 from .observability import (
     EpisodeEndEvent,
@@ -99,19 +99,13 @@ class Simulator:
             else:
                 decision_list = []
                 for agent in acting_agents:
-                    observation = build_observation_from_state(
-                        self.env.state,
-                        node_id=agent.id,
-                        radius=agent.get_radius(),
-                    )
+                    observation = self.env.get_observation(agent)
                     action_space = get_action_space(observation)
                     decision_list.append(agent.act(observation, action_space))
                 decisions = tuple(decision_list)
 
             step_actions = tuple(
-                action
-                for decision in decisions
-                for action in decision.actions
+                action for decision in decisions for action in decision.actions
             )
 
             step_observers = self._step_observers_by_step[current_step]

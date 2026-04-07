@@ -21,15 +21,7 @@ if TYPE_CHECKING:
     import igraph as ig
 
 
-def _vertex_index_by_name(graph: ig.Graph, node_id: int) -> int:
-    return int(graph.vs.find(name=node_id).index)
-
-
-def _distances_from_index(graph: ig.Graph, vertex_idx: int) -> NDArray[np.float64]:
-    return np.asarray(
-        graph.distances(source=[vertex_idx], mode="all")[0],
-        dtype=np.float64,
-    )
+from .utils import _distances_from_index, _vertex_index_by_name
 
 
 class MyopicPayoffPolicy(Policy):

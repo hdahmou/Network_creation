@@ -209,7 +209,7 @@ def build_replay_simulator(
     agents = tuple(
         Agent(
             id=node_id,
-            radius=replay_dataset.n_agents,
+            visibility_fraction=1.0,
             policy=ReplayPolicy(replay_dataset.trajectories[node_id].actions_by_step),
             seed=node_id,
         )

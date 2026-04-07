@@ -23,7 +23,7 @@ class MyopicPolicyPreparationTest(unittest.TestCase):
                     "benefit_to_cost_ratio": {"type": "fixed", "payload": 0.05},
                     "distance_discount": {"type": "fixed", "payload": 0.5},
                     "bridge_probability": {"type": "fixed", "payload": 0.0},
-                    "radius": {"type": "fixed", "payload": 2},
+                    "visibility_fraction": {"type": "fixed", "payload": 1.0},
                 },
             },
             "simulation": {
@@ -87,7 +87,7 @@ class MyopicPolicyPreparationTest(unittest.TestCase):
                         "max": 1.0,
                     },
                 },
-                "radius": {"type": "fixed", "payload": 2},
+                "visibility_fraction": {"type": "fixed", "payload": 1.0},
             },
         }
         parameter_table = generate_parameter_table(input_spec)
@@ -98,12 +98,12 @@ class MyopicPolicyPreparationTest(unittest.TestCase):
                 "benefit_to_cost_ratio",
                 "distance_discount",
                 "bridge_probability",
-                "radius",
+                "visibility_fraction",
             ),
         )
         self.assertEqual(parameter_table.parameter_values.shape, (4, 4))
         np.testing.assert_allclose(parameter_table.parameter_values[:, 0], 0.05)
-        np.testing.assert_allclose(parameter_table.parameter_values[:, 3], 2.0)
+        np.testing.assert_allclose(parameter_table.parameter_values[:, 3], 1.0)
         self.assertTrue(np.all(parameter_table.parameter_values[:, 1] >= 0.2))
         self.assertTrue(np.all(parameter_table.parameter_values[:, 1] <= 0.8))
         self.assertTrue(np.all(parameter_table.parameter_values[:, 2] >= 0.0))
@@ -130,7 +130,7 @@ class MyopicPolicyPreparationTest(unittest.TestCase):
                     "type": "continuous",
                     "payload": {"min": 0.0, "max": 1.0},
                 },
-                "radius": {"type": "fixed", "payload": 2},
+                "visibility_fraction": {"type": "fixed", "payload": 1.0},
             },
         }
 
@@ -146,13 +146,13 @@ class MyopicPolicyPreparationTest(unittest.TestCase):
             (
                 0.2 + (unit_samples[:, 0] * 0.6),
                 unit_samples[:, 1],
-                np.full(4, 2.0, dtype=np.float32),
+                np.full(4, 1.0, dtype=np.float32),
             )
         ).astype(np.float32, copy=False)
 
         self.assertEqual(
             parameter_table.parameter_names,
-            ("distance_discount", "bridge_probability", "radius"),
+            ("distance_discount", "bridge_probability", "visibility_fraction"),
         )
         np.testing.assert_allclose(parameter_table.parameter_values, expected)
 
@@ -164,7 +164,7 @@ class MyopicPolicyPreparationTest(unittest.TestCase):
                 "benefit_to_cost_ratio": {"type": "fixed", "payload": 0.05},
                 "distance_discount": {"type": "fixed", "payload": 0.5},
                 "bridge_probability": {"type": "fixed", "payload": 0.0},
-                "radius": {"type": "fixed", "payload": 2},
+                "visibility_fraction": {"type": "fixed", "payload": 1.0},
             },
         }
 
@@ -173,7 +173,7 @@ class MyopicPolicyPreparationTest(unittest.TestCase):
         self.assertEqual(parameter_table.parameter_values.shape, (1, 4))
         np.testing.assert_allclose(
             parameter_table.parameter_values,
-            np.array([[0.05, 0.5, 0.0, 2.0]], dtype=np.float32),
+            np.array([[0.05, 0.5, 0.0, 1.0]], dtype=np.float32),
         )
 
     def test_prepare_generates_row_index_inputs_from_input_spec(self) -> None:
@@ -187,28 +187,30 @@ class MyopicPolicyPreparationTest(unittest.TestCase):
                 "benefit_to_cost_ratio",
                 "distance_discount",
                 "bridge_probability",
-                "radius",
+                "visibility_fraction",
             ),
         )
         np.testing.assert_allclose(
             task.parameter_table.parameter_values,
-            np.array([[0.05, 0.5, 0.0, 2.0]], dtype=np.float32),
+            np.array([[0.05, 0.5, 0.0, 1.0]], dtype=np.float32),
         )
 
-    def test_prepare_rejects_missing_radius(self) -> None:
+    def test_prepare_rejects_missing_visibility_fraction(self) -> None:
         config = self._base_config()
         parameters = dict(config["input_spec"]["parameters"])
-        del parameters["radius"]
+        del parameters["visibility_fraction"]
         config["input_spec"] = {
             "log2_budget": 0,
             "sampler_seed": 123,
             "parameters": parameters,
         }
 
-        with self.assertRaisesRegex(ValueError, "radius is required"):
+        with self.assertRaisesRegex(ValueError, "visibility_fraction is required"):
             MyopicPolicyRun().prepare(config)
 
-    def test_generate_parameter_table_supports_sampled_discrete_radius_ranges(self) -> None:
+    def test_generate_parameter_table_supports_sampled_discrete_visibility_fraction_ranges(
+        self,
+    ) -> None:
         input_spec = {
             "log2_budget": 2,
             "sampler_seed": 123,
@@ -216,26 +218,31 @@ class MyopicPolicyPreparationTest(unittest.TestCase):
                 "benefit_to_cost_ratio": {"type": "fixed", "payload": 0.05},
                 "distance_discount": {"type": "fixed", "payload": 0.5},
                 "bridge_probability": {"type": "fixed", "payload": 0.0},
-                "radius": {
+                "visibility_fraction": {
                     "type": "sampled_discrete_range",
-                    "payload": {"min": 1, "max": 3, "step": 1},
+                    "payload": {"min": 0, "max": 1, "step": 1},
                 },
             },
         }
 
         parameter_table = generate_parameter_table(input_spec)
-        sampled_radius = parameter_table.parameter_values[:, 3]
-        expected_radius = np.random.default_rng(123 + 3).choice(
-            np.array([1.0, 2.0, 3.0], dtype=np.float32),
+        sampled_visibility_fraction = parameter_table.parameter_values[:, 3]
+        expected_visibility_fraction = np.random.default_rng(123 + 3).choice(
+            np.array([0.0, 1.0], dtype=np.float32),
             size=4,
             replace=True,
         )
 
         self.assertEqual(parameter_table.parameter_values.shape, (4, 4))
-        self.assertTrue(np.all(sampled_radius >= 1.0))
-        self.assertTrue(np.all(sampled_radius <= 3.0))
-        self.assertTrue(np.all(sampled_radius == np.floor(sampled_radius)))
-        np.testing.assert_allclose(sampled_radius, expected_radius)
+        self.assertTrue(np.all(sampled_visibility_fraction >= 0.0))
+        self.assertTrue(np.all(sampled_visibility_fraction <= 1.0))
+        self.assertTrue(
+            np.all(sampled_visibility_fraction == np.floor(sampled_visibility_fraction))
+        )
+        np.testing.assert_allclose(
+            sampled_visibility_fraction,
+            expected_visibility_fraction,
+        )
 
     def test_generate_parameter_table_samples_float_and_integer_ranges_rowwise(self) -> None:
         input_spec = {
@@ -248,9 +255,9 @@ class MyopicPolicyPreparationTest(unittest.TestCase):
                 },
                 "distance_discount": {"type": "fixed", "payload": 0.5},
                 "bridge_probability": {"type": "fixed", "payload": 0.0},
-                "radius": {
+                "visibility_fraction": {
                     "type": "sampled_discrete_range",
-                    "payload": {"min": 1, "max": 3, "step": 1},
+                    "payload": {"min": 0, "max": 1, "step": 1},
                 },
             },
         }
@@ -265,8 +272,8 @@ class MyopicPolicyPreparationTest(unittest.TestCase):
             ).random(n=4),
             dtype=np.float32,
         )
-        expected_radius = np.random.default_rng(123 + 3).choice(
-            np.array([1.0, 2.0, 3.0], dtype=np.float32),
+        expected_visibility_fraction = np.random.default_rng(123 + 3).choice(
+            np.array([0.0, 1.0], dtype=np.float32),
             size=4,
             replace=True,
         )
@@ -275,7 +282,7 @@ class MyopicPolicyPreparationTest(unittest.TestCase):
                 0.2 + (unit_samples[:, 0] * 0.6),
                 np.full(4, 0.5, dtype=np.float32),
                 np.full(4, 0.0, dtype=np.float32),
-                expected_radius,
+                expected_visibility_fraction,
             )
         ).astype(np.float32, copy=False)
 
@@ -290,7 +297,7 @@ class MyopicPolicyPreparationTest(unittest.TestCase):
                 "benefit_to_cost_ratio": {"type": "fixed", "payload": 0.05},
                 "distance_discount": {"type": "fixed", "payload": 0.5},
                 "bridge_probability": {"type": "fixed", "payload": 0.0},
-                "radius": {"type": "fixed", "payload": 2},
+                "visibility_fraction": {"type": "fixed", "payload": 1.0},
             },
         }
 

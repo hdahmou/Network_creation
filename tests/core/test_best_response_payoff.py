@@ -1,0 +1,145 @@
+"""Tests for the best-response payoff policy."""
+
+from __future__ import annotations
+
+import unittest
+
+import numpy as np
+
+from network_creation.core.graph import (
+    build_observation_from_state,
+    build_state_from_graph,
+    get_action_space,
+)
+from network_creation.core.model import Action, ActionType, PolicyDecision
+from network_creation.policies.best_response import BestResponsePolicy
+from tests.graph_factories import graph_from_adjacency_matrix
+
+
+class BestResponsePolicyTest(unittest.TestCase):
+    @staticmethod
+    def _build_observation_and_action_space(
+        adjacency: np.ndarray,
+        node_id: int,
+        radius: int,
+    ) -> tuple:
+        state = build_state_from_graph(graph_from_adjacency_matrix(adjacency))
+        observation = build_observation_from_state(
+            state,
+            node_id=node_id,
+            radius=radius,
+        )
+        action_space = get_action_space(observation)
+        return observation, action_space
+
+    def test_constructor_rejects_negative_inertia(self) -> None:
+        with self.assertRaisesRegex(ValueError, "inertia_term must be >= 0"):
+            BestResponsePolicy(
+                seed=7,
+                benefit_to_cost_ratio=0.5,
+                distance_discount=0.5,
+                bridge_value_scale=1.0,
+                inertia_term=-0.1,
+            )
+
+    def test_isolated_node_can_still_choose_bridge_action(self) -> None:
+        observation, action_space = self._build_observation_and_action_space(
+            adjacency=np.zeros((3, 3), dtype=np.int8),
+            node_id=0,
+            radius=1,
+        )
+        policy = BestResponsePolicy(
+            seed=11,
+            benefit_to_cost_ratio=0.5,
+            distance_discount=0.5,
+            bridge_value_scale=1.0,
+            inertia_term=0.0,
+        )
+
+        decision = policy.get_decision(observation, action_space)
+
+        self.assertEqual(decision.actions[0].type, ActionType.BRIDGE)
+        self.assertIn(decision.actions[0], action_space[ActionType.BRIDGE])
+        assert decision.value is not None
+        self.assertAlmostEqual(float(decision.value["value"]), 1.0)
+
+    def test_bridge_value_uses_total_node_count_for_normalization(self) -> None:
+        observation, action_space = self._build_observation_and_action_space(
+            adjacency=np.array(
+                [
+                    [0, 0, 0, 0],
+                    [1, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                ],
+                dtype=np.int8,
+            ),
+            node_id=0,
+            radius=1,
+        )
+        policy = BestResponsePolicy(
+            seed=13,
+            benefit_to_cost_ratio=0.5,
+            distance_discount=0.5,
+            bridge_value_scale=1.0,
+            inertia_term=0.0,
+        )
+
+        decision = policy.get_decision(observation, action_space)
+
+        self.assertEqual(decision.actions[0].type, ActionType.BRIDGE)
+        assert decision.value is not None
+        self.assertAlmostEqual(float(decision.value["value"]), 2.0 / 3.0)
+
+    def test_inertia_term_is_subtracted_from_non_bridge_value(self) -> None:
+        observation, action_space = self._build_observation_and_action_space(
+            adjacency=np.array(
+                [
+                    [0, 1, 0],
+                    [1, 0, 0],
+                    [0, 0, 0],
+                ],
+                dtype=np.int8,
+            ),
+            node_id=0,
+            radius=1,
+        )
+        policy = BestResponsePolicy(
+            seed=17,
+            benefit_to_cost_ratio=0.5,
+            distance_discount=0.5,
+            bridge_value_scale=0.0,
+            inertia_term=0.4,
+        )
+
+        decision = policy.get_decision(observation, action_space)
+
+        self.assertEqual(
+            decision.actions,
+            (Action(ActionType.DELETE, source=0, target=1),),
+        )
+        self.assertIsNotNone(decision.value)
+        self.assertAlmostEqual(float(decision.value["value"]), 0.1)
+
+    def test_bridge_value_below_inertia_returns_pass(self) -> None:
+        observation, action_space = self._build_observation_and_action_space(
+            adjacency=np.zeros((3, 3), dtype=np.int8),
+            node_id=0,
+            radius=1,
+        )
+        policy = BestResponsePolicy(
+            seed=19,
+            benefit_to_cost_ratio=0.5,
+            distance_discount=0.5,
+            bridge_value_scale=1.0,
+            inertia_term=1.1,
+        )
+
+        self.assertEqual(
+            policy.get_decision(observation, action_space),
+            PolicyDecision(actions=(Action(ActionType.PASS, source=0),), value=None),
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()

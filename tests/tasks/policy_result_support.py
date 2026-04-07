@@ -28,7 +28,33 @@ def build_myopic_config(*, log2_budget: int = 2) -> dict[str, object]:
                     "type": "continuous",
                     "payload": {"min": 0.0, "max": 1.0},
                 },
-                "radius": {"type": "fixed", "payload": 2},
+                "visibility_fraction": {"type": "fixed", "payload": 1.0},
+            },
+        },
+    }
+
+
+def build_best_response_config(*, log2_budget: int = 2) -> dict[str, object]:
+    return {
+        "task": "best-response-policy",
+        "input_spec": {
+            "log2_budget": log2_budget,
+            "sampler_seed": 123,
+            "parameters": {
+                "benefit_to_cost_ratio": {"type": "fixed", "payload": 0.5},
+                "distance_discount": {
+                    "type": "continuous",
+                    "payload": {"min": 0.1, "max": 0.9},
+                },
+                "bridge_value_scale": {
+                    "type": "continuous",
+                    "payload": {"min": 0.0, "max": 1.0},
+                },
+                "inertia_term": {
+                    "type": "continuous",
+                    "payload": {"min": 0.0, "max": 0.5},
+                },
+                "visibility_fraction": {"type": "fixed", "payload": 1.0},
             },
         },
     }
@@ -40,7 +66,7 @@ def build_random_config() -> dict[str, object]:
         "input_spec": {
             "log2_budget": 0,
             "sampler_seed": 123,
-            "parameters": {"radius": {"type": "fixed", "payload": 2}},
+            "parameters": {"visibility_fraction": {"type": "fixed", "payload": 1.0}},
         },
     }
 

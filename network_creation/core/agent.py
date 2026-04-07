@@ -13,16 +13,15 @@ class Agent:
     """One acting node plus its policy configuration."""
 
     id: int
-    radius: int
+    visibility_fraction: float
     policy: Policy
     seed: int
 
     def __post_init__(self) -> None:
-        if self.radius < 1:
-            raise ValueError("radius must be at least 1")
+        self.visibility_fraction = float(self.visibility_fraction)
 
-    def get_radius(self) -> int:
-        return self.radius
+    def get_visibility_fraction(self) -> float:
+        return self.visibility_fraction
 
     def reset(self, seed: int) -> None:
         """Reset the internal policy state from one explicit seed."""

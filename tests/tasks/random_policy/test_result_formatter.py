@@ -14,7 +14,7 @@ from ..policy_result_support import build_random_config, write_result_store
 
 
 class RandomPolicyResultFormatterTest(unittest.TestCase):
-    def test_from_zarr_reconstructs_radius_parameter_with_timeseries_outputs(self) -> None:
+    def test_from_zarr_reconstructs_visibility_fraction_parameter_with_timeseries_outputs(self) -> None:
         config = build_random_config()
         outputs_by_index = [
             (
@@ -40,7 +40,7 @@ class RandomPolicyResultFormatterTest(unittest.TestCase):
 
         self.assertEqual(formatted.inputs["tensors"]["parameters"].shape, (1, 1))
         self.assertEqual(formatted.metadata["average_completion_duration_ms"], 1.0)
-        self.assertEqual(tuple(formatted.inputs["labels"]["parameter"]), ("radius",))
+        self.assertEqual(tuple(formatted.inputs["labels"]["parameter"]), ("visibility_fraction",))
         self.assertEqual(formatted.outputs["tensors"]["timeseries"].shape, (1, 2, 3))
         self.assertEqual(formatted.outputs["tensors"]["final"].shape, (1, 2))
         np.testing.assert_allclose(
@@ -74,7 +74,7 @@ class RandomPolicyResultFormatterTest(unittest.TestCase):
 
         self.assertNotIn("timeseries", formatted.outputs["tensors"])
         self.assertEqual(formatted.metadata["average_completion_duration_ms"], 1.0)
-        self.assertEqual(tuple(formatted.inputs["labels"]["parameter"]), ("radius",))
+        self.assertEqual(tuple(formatted.inputs["labels"]["parameter"]), ("visibility_fraction",))
         self.assertEqual(formatted.outputs["tensors"]["final"].shape, (1, 2))
         np.testing.assert_allclose(
             formatted.outputs["tensors"]["final"],

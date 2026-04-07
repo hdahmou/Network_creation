@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from .policies.best_response import BestResponsePolicyRun
 from .policies.myopic import MyopicPolicyRun
 from .policies.random import RandomPolicyRun
 
@@ -12,6 +13,7 @@ if TYPE_CHECKING:
 
 
 TASKS: dict[str, type[PolicyRun]] = {
+    BestResponsePolicyRun.name: BestResponsePolicyRun,
     MyopicPolicyRun.name: MyopicPolicyRun,
     RandomPolicyRun.name: RandomPolicyRun,
 }

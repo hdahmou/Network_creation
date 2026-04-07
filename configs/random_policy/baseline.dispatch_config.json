@@ -7,9 +7,9 @@
     "log2_budget": 0,
     "sampler_seed": 123,
     "parameters": {
-      "radius": {
+      "visibility_fraction": {
         "type": "fixed",
-        "payload": 2
+        "payload": 1.0
       }
     }
   },

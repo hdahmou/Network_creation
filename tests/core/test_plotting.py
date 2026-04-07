@@ -93,13 +93,13 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
             agents=(
                 Agent(
                     id=0,
-                    radius=1,
+                    visibility_fraction=1,
                     policy=ConstantPolicy(Action(ActionType.BRIDGE, source=0, target=1)),
                     seed=5,
                 ),
                 Agent(
                     id=1,
-                    radius=1,
+                    visibility_fraction=1,
                     policy=ConstantPolicy(Action(ActionType.PASS, source=1)),
                     seed=7,
                 ),
@@ -134,7 +134,7 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
             agents=tuple(
                 Agent(
                     id=node_id,
-                    radius=2,
+                    visibility_fraction=1.0,
                     policy=RandomPolicy(seed=17 + node_id),
                     seed=17 + node_id,
                 )
@@ -167,13 +167,13 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
             agents=(
                 Agent(
                     id=0,
-                    radius=1,
+                    visibility_fraction=1,
                     policy=ConstantPolicy(Action(ActionType.BRIDGE, source=0, target=1)),
                     seed=37,
                 ),
                 Agent(
                     id=1,
-                    radius=1,
+                    visibility_fraction=1,
                     policy=ConstantPolicy(Action(ActionType.PASS, source=1)),
                     seed=41,
                 ),
@@ -206,7 +206,7 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
             agents=tuple(
                 Agent(
                     id=node_id,
-                    radius=2,
+                    visibility_fraction=1.0,
                     policy=RandomPolicy(seed=53 + node_id),
                     seed=53 + node_id,
                 )
@@ -245,7 +245,7 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
             agents=tuple(
                 Agent(
                     id=node_id,
-                    radius=2,
+                    visibility_fraction=1.0,
                     policy=RandomPolicy(seed=73 + node_id),
                     seed=73 + node_id,
                 )
@@ -341,7 +341,7 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
             agents=(
                 Agent(
                     id=0,
-                    radius=1,
+                    visibility_fraction=1,
                     policy=ConstantPolicy(Action(ActionType.PASS, source=0)),
                     seed=107,
                 ),
@@ -376,7 +376,7 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
             agents=(
                 Agent(
                     id=0,
-                    radius=1,
+                    visibility_fraction=1,
                     policy=ConstantPolicy(Action(ActionType.PASS, source=0)),
                     seed=127,
                 ),
@@ -414,7 +414,7 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
             agents=(
                 Agent(
                     id=0,
-                    radius=1,
+                    visibility_fraction=1,
                     policy=ConstantPolicy(Action(ActionType.PASS, source=0)),
                     seed=139,
                 ),

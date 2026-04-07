@@ -175,9 +175,9 @@ class SimulatorTest(unittest.TestCase):
         simulator = Simulator(
             env=env,
             agents=(
-                Agent(id=2, radius=1, policy=ConstantPolicy(Action(ActionType.PASS, source=2)), seed=13),
-                Agent(id=0, radius=1, policy=ConstantPolicy(Action(ActionType.PASS, source=0)), seed=11),
-                Agent(id=1, radius=1, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=12),
+                Agent(id=2, visibility_fraction=1, policy=ConstantPolicy(Action(ActionType.PASS, source=2)), seed=13),
+                Agent(id=0, visibility_fraction=1, policy=ConstantPolicy(Action(ActionType.PASS, source=0)), seed=11),
+                Agent(id=1, visibility_fraction=1, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=12),
             ),
             mode=SchedulingMode.SEQUENTIAL,
             max_steps=4,
@@ -195,8 +195,8 @@ class SimulatorTest(unittest.TestCase):
         simulator = Simulator(
             env=env,
             agents=(
-                Agent(id=1, radius=1, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=23),
-                Agent(id=0, radius=1, policy=ConstantPolicy(Action(ActionType.PASS, source=0)), seed=29),
+                Agent(id=1, visibility_fraction=1, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=23),
+                Agent(id=0, visibility_fraction=1, policy=ConstantPolicy(Action(ActionType.PASS, source=0)), seed=29),
             ),
             mode=SchedulingMode.SIMULTANEOUS,
             max_steps=1,
@@ -212,8 +212,8 @@ class SimulatorTest(unittest.TestCase):
         simulator = Simulator(
             env=env,
             agents=(
-                Agent(id=0, radius=1, policy=ConstantPolicy(Action(ActionType.BRIDGE, source=0, target=1)), seed=41),
-                Agent(id=1, radius=1, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=43),
+                Agent(id=0, visibility_fraction=1, policy=ConstantPolicy(Action(ActionType.BRIDGE, source=0, target=1)), seed=41),
+                Agent(id=1, visibility_fraction=1, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=43),
             ),
             mode=SchedulingMode.SEQUENTIAL,
             max_steps=2,
@@ -238,13 +238,13 @@ class SimulatorTest(unittest.TestCase):
             agents=(
                 Agent(
                     id=0,
-                    radius=1,
+                    visibility_fraction=1,
                     policy=ConstantPolicy(Action(ActionType.BRIDGE, source=0, target=1)),
                     seed=47,
                 ),
                 Agent(
                     id=1,
-                    radius=1,
+                    visibility_fraction=1,
                     policy=ConstantPolicy(Action(ActionType.PASS, source=1)),
                     seed=49,
                 ),
@@ -273,13 +273,13 @@ class SimulatorTest(unittest.TestCase):
             agents=(
                 Agent(
                     id=0,
-                    radius=1,
+                    visibility_fraction=1,
                     policy=ConstantPolicy(Action(ActionType.BRIDGE, source=0, target=1)),
                     seed=47,
                 ),
                 Agent(
                     id=1,
-                    radius=1,
+                    visibility_fraction=1,
                     policy=ConstantPolicy(Action(ActionType.PASS, source=1)),
                     seed=49,
                 ),
@@ -305,13 +305,13 @@ class SimulatorTest(unittest.TestCase):
             agents=(
                 Agent(
                     id=0,
-                    radius=1,
+                    visibility_fraction=1,
                     policy=ConstantPolicy(Action(ActionType.BRIDGE, source=0, target=1)),
                     seed=47,
                 ),
                 Agent(
                     id=1,
-                    radius=1,
+                    visibility_fraction=1,
                     policy=ConstantPolicy(Action(ActionType.PASS, source=1)),
                     seed=49,
                 ),
@@ -332,20 +332,31 @@ class SimulatorTest(unittest.TestCase):
         self.assertEqual([event.step for event in periodic_observer.step_events], [1])
         self.assertEqual([event.step for event in terminal_observer.step_events], [2])
 
-    def test_run_builds_observations_from_agent_radii(self) -> None:
-        env = Environment(create_empty_graph(2), seed=52)
+    def test_run_builds_observations_from_agent_visibility_fractions(self) -> None:
+        env = Environment(
+            graph_from_adjacency_matrix(
+                np.array(
+                    [
+                        [0, 1],
+                        [0, 0],
+                    ],
+                    dtype=np.int8,
+                )
+            ),
+            seed=52,
+        )
         simulator = Simulator(
             env=env,
             agents=(
                 Agent(
                     id=0,
-                    radius=2,
+                    visibility_fraction=1.0,
                     policy=ConstantPolicy(Action(ActionType.PASS, source=0)),
                     seed=53,
                 ),
                 Agent(
                     id=1,
-                    radius=1,
+                    visibility_fraction=0.25,
                     policy=ConstantPolicy(Action(ActionType.PASS, source=1)),
                     seed=54,
                 ),
@@ -357,14 +368,14 @@ class SimulatorTest(unittest.TestCase):
         )
 
         with patch(
-            "network_creation.core.simulator.build_observation_from_state",
+            "network_creation.core.environment.build_observation_from_state",
             wraps=build_observation_from_state,
         ) as build_observation:
             simulator.run(n_episodes=1, reset_observers=False)
 
         self.assertEqual(
             [call.kwargs["radius"] for call in build_observation.call_args_list],
-            [2, 1],
+            [2, 0],
         )
 
     def test_run_simultaneous_uses_same_pre_step_state(self) -> None:
@@ -385,9 +396,9 @@ class SimulatorTest(unittest.TestCase):
         simulator = Simulator(
             env=env,
             agents=(
-                Agent(id=0, radius=2, policy=add_or_pass_policy, seed=59),
-                Agent(id=1, radius=1, policy=ConstantPolicy(Action(ActionType.BRIDGE, source=1, target=2)), seed=61),
-                Agent(id=2, radius=1, policy=ConstantPolicy(Action(ActionType.PASS, source=2)), seed=67),
+                Agent(id=0, visibility_fraction=1.0, policy=add_or_pass_policy, seed=59),
+                Agent(id=1, visibility_fraction=1, policy=ConstantPolicy(Action(ActionType.BRIDGE, source=1, target=2)), seed=61),
+                Agent(id=2, visibility_fraction=1, policy=ConstantPolicy(Action(ActionType.PASS, source=2)), seed=67),
             ),
             mode=SchedulingMode.SIMULTANEOUS,
             max_steps=1,
@@ -408,7 +419,7 @@ class SimulatorTest(unittest.TestCase):
             agents=(
                 Agent(
                     id=0,
-                    radius=2,
+                    visibility_fraction=1.0,
                     policy=MultiActionPolicy(
                         [
                             Action(ActionType.BRIDGE, source=0, target=1),
@@ -417,8 +428,8 @@ class SimulatorTest(unittest.TestCase):
                     ),
                     seed=73,
                 ),
-                Agent(id=1, radius=1, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=74),
-                Agent(id=2, radius=1, policy=ConstantPolicy(Action(ActionType.PASS, source=2)), seed=75),
+                Agent(id=1, visibility_fraction=1, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=74),
+                Agent(id=2, visibility_fraction=1, policy=ConstantPolicy(Action(ActionType.PASS, source=2)), seed=75),
             ),
             mode=SchedulingMode.SEQUENTIAL,
             max_steps=1,
@@ -437,8 +448,8 @@ class SimulatorTest(unittest.TestCase):
         simulator = Simulator(
             env=env,
             agents=(
-                Agent(id=0, radius=1, policy=left_policy, seed=79),
-                Agent(id=1, radius=1, policy=right_policy, seed=83),
+                Agent(id=0, visibility_fraction=1, policy=left_policy, seed=79),
+                Agent(id=1, visibility_fraction=1, policy=right_policy, seed=83),
             ),
             mode=SchedulingMode.SEQUENTIAL,
             max_steps=1,
@@ -463,8 +474,8 @@ class SimulatorTest(unittest.TestCase):
         simulator = Simulator(
             env=env,
             agents=(
-                Agent(id=0, radius=1, policy=left_policy, seed=139),
-                Agent(id=1, radius=1, policy=right_policy, seed=149),
+                Agent(id=0, visibility_fraction=1, policy=left_policy, seed=139),
+                Agent(id=1, visibility_fraction=1, policy=right_policy, seed=149),
             ),
             mode=SchedulingMode.SEQUENTIAL,
             max_steps=1,
@@ -496,8 +507,8 @@ class SimulatorTest(unittest.TestCase):
         simulator = Simulator(
             env=env,
             agents=(
-                Agent(id=0, radius=1, policy=ConstantPolicy(Action(ActionType.PASS, source=0)), seed=153),
-                Agent(id=1, radius=1, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=154),
+                Agent(id=0, visibility_fraction=1, policy=ConstantPolicy(Action(ActionType.PASS, source=0)), seed=153),
+                Agent(id=1, visibility_fraction=1, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=154),
             ),
             mode=SchedulingMode.SEQUENTIAL,
             max_steps=1,
@@ -524,8 +535,8 @@ class SimulatorTest(unittest.TestCase):
         simulator = Simulator(
             env=env,
             agents=(
-                Agent(id=0, radius=1, policy=ConstantPolicy(Action(ActionType.PASS, source=0)), seed=91),
-                Agent(id=1, radius=1, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=92),
+                Agent(id=0, visibility_fraction=1, policy=ConstantPolicy(Action(ActionType.PASS, source=0)), seed=91),
+                Agent(id=1, visibility_fraction=1, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=92),
             ),
             mode=SchedulingMode.SEQUENTIAL,
             max_steps=1,
@@ -550,8 +561,8 @@ class SimulatorTest(unittest.TestCase):
         simulator = Simulator(
             env=env,
             agents=(
-                Agent(id=0, radius=1, policy=ConstantPolicy(Action(ActionType.BRIDGE, source=0, target=1)), seed=101),
-                Agent(id=1, radius=1, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=103),
+                Agent(id=0, visibility_fraction=1, policy=ConstantPolicy(Action(ActionType.BRIDGE, source=0, target=1)), seed=101),
+                Agent(id=1, visibility_fraction=1, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=103),
             ),
             mode=SchedulingMode.SEQUENTIAL,
             max_steps=1,
@@ -605,8 +616,8 @@ class SimulatorTest(unittest.TestCase):
         simulator = Simulator(
             env=env,
             agents=(
-                Agent(id=0, radius=1, policy=ConstantPolicy(Action(ActionType.BRIDGE, source=0, target=1)), seed=113),
-                Agent(id=1, radius=1, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=127),
+                Agent(id=0, visibility_fraction=1, policy=ConstantPolicy(Action(ActionType.BRIDGE, source=0, target=1)), seed=113),
+                Agent(id=1, visibility_fraction=1, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=127),
             ),
             mode=SchedulingMode.SEQUENTIAL,
             max_steps=1,
@@ -637,7 +648,7 @@ class SimulatorTest(unittest.TestCase):
                 agents=(
                     Agent(
                         id=0,
-                        radius=1,
+                        visibility_fraction=1,
                         policy=ConstantPolicy(Action(ActionType.PASS, source=0)),
                         seed=179,
                     ),
@@ -657,8 +668,8 @@ class SimulatorTest(unittest.TestCase):
         simulator = Simulator(
             env=env,
             agents=(
-                Agent(id=0, radius=1, policy=left_policy, seed=191),
-                Agent(id=1, radius=1, policy=right_policy, seed=193),
+                Agent(id=0, visibility_fraction=1, policy=left_policy, seed=191),
+                Agent(id=1, visibility_fraction=1, policy=right_policy, seed=193),
             ),
             mode=SchedulingMode.SEQUENTIAL,
             max_steps=5,
@@ -722,8 +733,8 @@ class SimulatorTest(unittest.TestCase):
         simulator = Simulator(
             env=env,
             agents=(
-                Agent(id=0, radius=1, policy=left_policy, seed=211),
-                Agent(id=1, radius=1, policy=right_policy, seed=223),
+                Agent(id=0, visibility_fraction=1, policy=left_policy, seed=211),
+                Agent(id=1, visibility_fraction=1, policy=right_policy, seed=223),
             ),
             mode=SchedulingMode.SEQUENTIAL,
             max_steps=6,

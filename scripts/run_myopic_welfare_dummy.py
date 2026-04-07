@@ -46,7 +46,7 @@ def run_case(case_index: int, policy_kwargs: dict[str, float]) -> None:
         policy_seed = 1_000 * (case_index + 1) + node_id
         return Agent(
             id=node_id,
-            radius=N_AGENTS + 1,
+            visibility_fraction=1.0,
             policy=MyopicPayoffPolicy(
                 seed=policy_seed,
                 benefit_to_cost_ratio=policy_kwargs["benefit_to_cost_ratio"],

@@ -115,7 +115,7 @@ class SocialWelfareTest(unittest.TestCase):
             agents=(
                 Agent(
                     id=0,
-                    radius=1,
+                    visibility_fraction=1,
                     policy=ConstantPolicy(
                         Action(ActionType.BRIDGE, source=0, target=1)
                     ),
@@ -123,7 +123,7 @@ class SocialWelfareTest(unittest.TestCase):
                 ),
                 Agent(
                     id=1,
-                    radius=1,
+                    visibility_fraction=1,
                     policy=ConstantPolicy(Action(ActionType.PASS, source=1)),
                     seed=7,
                 ),

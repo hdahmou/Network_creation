@@ -19,7 +19,7 @@ from network_creation.core.model import (
     ActionType,
     Observation,
     PolicyDecision,
-    SchedulingMode,
+    ActorScheduler,
 )
 from network_creation.core.observability import ObservationSampling
 from network_creation.core.simulator import Simulator
@@ -104,7 +104,7 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
                     seed=7,
                 ),
             ),
-            mode=SchedulingMode.SEQUENTIAL,
+            actor_scheduler=ActorScheduler(n_agents=1, fraction=1.0, seed=21),
             max_steps=2,
             rng=np.random.default_rng(11),
             observers=(observer,),
@@ -140,7 +140,7 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
                 )
                 for node_id in range(4)
             ),
-            mode=SchedulingMode.SEQUENTIAL,
+            actor_scheduler=ActorScheduler(n_agents=1, fraction=1.0, seed=21),
             max_steps=8,
             rng=np.random.default_rng(29),
             observers=(observer,),
@@ -178,7 +178,7 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
                     seed=41,
                 ),
             ),
-            mode=SchedulingMode.SEQUENTIAL,
+            actor_scheduler=ActorScheduler(n_agents=1, fraction=1.0, seed=21),
             max_steps=2,
             rng=np.random.default_rng(43),
             observers=(observer,),
@@ -212,7 +212,7 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
                 )
                 for node_id in range(4)
             ),
-            mode=SchedulingMode.SEQUENTIAL,
+            actor_scheduler=ActorScheduler(n_agents=1, fraction=1.0, seed=21),
             max_steps=8,
             rng=np.random.default_rng(61),
             observers=(observer,),
@@ -251,7 +251,7 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
                 )
                 for node_id in range(4)
             ),
-            mode=SchedulingMode.SEQUENTIAL,
+            actor_scheduler=ActorScheduler(n_agents=1, fraction=1.0, seed=21),
             max_steps=8,
             rng=np.random.default_rng(89),
             observers=(observer,),
@@ -285,7 +285,7 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
         simulator = Simulator(
             env=Environment(create_empty_graph(2), seed=97),
             agents=(),
-            mode=SchedulingMode.SEQUENTIAL,
+            actor_scheduler=ActorScheduler(n_agents=1, fraction=1.0, seed=21),
             max_steps=0,
             rng=np.random.default_rng(101),
             observers=(observer,),
@@ -314,7 +314,7 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
         simulator = Simulator(
             env=Environment(create_empty_graph(3), seed=97),
             agents=(),
-            mode=SchedulingMode.SEQUENTIAL,
+            actor_scheduler=ActorScheduler(n_agents=1, fraction=1.0, seed=21),
             max_steps=0,
             rng=np.random.default_rng(101),
             observers=(observer,),
@@ -346,7 +346,7 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
                     seed=107,
                 ),
             ),
-            mode=SchedulingMode.SEQUENTIAL,
+            actor_scheduler=ActorScheduler(n_agents=1, fraction=1.0, seed=21),
             max_steps=1,
             rng=np.random.default_rng(109),
             observers=(observer,),
@@ -381,7 +381,7 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
                     seed=127,
                 ),
             ),
-            mode=SchedulingMode.SEQUENTIAL,
+            actor_scheduler=ActorScheduler(n_agents=1, fraction=1.0, seed=21),
             max_steps=1,
             rng=np.random.default_rng(131),
             observers=(observer,),
@@ -419,7 +419,7 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
                     seed=139,
                 ),
             ),
-            mode=SchedulingMode.SEQUENTIAL,
+            actor_scheduler=ActorScheduler(n_agents=1, fraction=1.0, seed=21),
             max_steps=1,
             rng=np.random.default_rng(149),
             observers=(observer,),

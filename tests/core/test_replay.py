@@ -23,7 +23,6 @@ from network_creation.core.model import (
     ActionType,
     Observation,
     PolicyDecision,
-    SchedulingMode,
 )
 from network_creation.data.choi_2020 import (
     Choi2020NormalizedData,
@@ -650,8 +649,11 @@ class ReplayTest(unittest.TestCase):
             )
             simulator.run(n_episodes=1, reset_observers=False)
 
-        self.assertEqual(simulator.mode, SchedulingMode.SIMULTANEOUS)
         self.assertEqual(simulator.max_steps, 2)
+        self.assertIs(
+            simulator.actor_scheduler.select_agents(simulator.agents),
+            simulator.agents,
+        )
         self.assertIsNone(simulator.stagnation_patience)
         self.assertEqual(sorted(simulator.env.state.graph.get_edgelist()), [(0, 2), (1, 0)])
 

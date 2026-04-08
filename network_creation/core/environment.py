@@ -38,7 +38,7 @@ class Environment:
         return self.state
 
     def get_observation(self, agent: Agent) -> Observation:
-        hop_radius = floor(agent.get_visibility_fraction() * self.graph_size)
+        hop_radius = max(1, floor(agent.get_visibility_fraction() * self.graph_size))
         return build_observation_from_state(
             self.state,
             node_id=agent.id,

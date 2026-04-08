@@ -1,15 +1,13 @@
-"""Simulation loop for sequential or simultaneous action scheduling."""
+"""Simulation loop for actor-scheduled action selection."""
 
 from __future__ import annotations
-
-from collections.abc import Sequence
 
 import numpy as np
 
 from .agent import Agent
 from .environment import Environment
 from .graph import get_action_space
-from .model import ActionType, SchedulingMode
+from .model import Action, ActionType, ActorScheduler, PolicyDecision
 from .observability import (
     EpisodeEndEvent,
     EpisodeStartEvent,
@@ -26,7 +24,7 @@ class Simulator:
         self,
         env: Environment,
         agents: tuple[Agent, ...],
-        mode: SchedulingMode,
+        actor_scheduler: ActorScheduler,
         max_steps: int,
         rng: np.random.Generator,
         observers: tuple[SimulationObserver, ...],
@@ -37,7 +35,7 @@ class Simulator:
 
         self.rng = rng
         self.env = env
-        self.mode = mode
+        self.actor_scheduler = actor_scheduler
         self.max_steps = max_steps
         self.agents = agents
         self.n_agents = len(self.agents)
@@ -57,11 +55,6 @@ class Simulator:
         self.env.reset()
         for agent in self.agents:
             agent.reset(seed=agent.seed)
-
-    def get_acting_agents(self, step: int) -> Sequence[Agent]:
-        if self.mode is SchedulingMode.SEQUENTIAL:
-            return (self.agents[step % self.n_agents],)
-        return self.agents
 
     def run(self, n_episodes: int, *, reset_observers: bool) -> None:
         """Run a batch of episodes, optionally clearing observer state first."""
@@ -84,7 +77,6 @@ class Simulator:
         episode_start_event = EpisodeStartEvent(
             episode_index=episode_index,
             seed=episode_seed,
-            mode=self.mode,
             max_steps=self.max_steps,
             n_agents=self.n_agents,
             initial_state=StateView.from_state(self.env.state),
@@ -93,18 +85,19 @@ class Simulator:
             observer.on_episode_start(episode_start_event)
 
         while current_step < self.max_steps and self.n_agents > 0:
-            acting_agents = self.get_acting_agents(step=current_step)
+            acting_agents = self.actor_scheduler.select_agents(self.agents)
+            decisions: tuple[PolicyDecision, ...]
             if self._is_stagnated(stagnation_steps):
                 decisions = ()
             else:
-                decision_list = []
+                decision_list: list[PolicyDecision] = []
                 for agent in acting_agents:
                     observation = self.env.get_observation(agent)
                     action_space = get_action_space(observation)
                     decision_list.append(agent.act(observation, action_space))
                 decisions = tuple(decision_list)
 
-            step_actions = tuple(
+            step_actions: tuple[Action, ...] = tuple(
                 action for decision in decisions for action in decision.actions
             )
 
@@ -128,8 +121,6 @@ class Simulator:
             if step_observers:
                 step_event = StepEvent(
                     step=current_step,
-                    mode=self.mode,
-                    acting_agent_ids=tuple(agent.id for agent in acting_agents),
                     decisions=decisions,
                     modified=modified,
                     pre_state=pre_state,
@@ -143,7 +134,6 @@ class Simulator:
         episode_end_event = EpisodeEndEvent(
             episode_index=episode_index,
             seed=episode_seed,
-            mode=self.mode,
             current_step=current_step,
             last_modified_step=last_modified_step,
             final_state=StateView.from_state(self.env.state),

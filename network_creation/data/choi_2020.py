@@ -14,7 +14,7 @@ import numpy as np
 from network_creation.core.agent import Agent
 from network_creation.core.environment import Environment
 from network_creation.core.graph import create_empty_graph
-from network_creation.core.model import Action, ActionType, SchedulingMode
+from network_creation.core.model import Action, ActionType, ActorScheduler
 from network_creation.core.observability import SimulationObserver
 from network_creation.core.simulator import Simulator
 from network_creation.policies.replay import ReplayPolicy
@@ -218,7 +218,11 @@ def build_replay_simulator(
     return Simulator(
         env=env,
         agents=agents,
-        mode=SchedulingMode.SIMULTANEOUS,
+        actor_scheduler=ActorScheduler(
+            fraction=1.0,
+            n_agents=replay_dataset.n_agents,
+            seed=0,
+        ),
         max_steps=replay_dataset.max_step,
         rng=np.random.default_rng(0),
         observers=observers,

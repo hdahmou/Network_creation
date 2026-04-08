@@ -12,7 +12,6 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from network_creation.core.agent import Agent
-from network_creation.core.model import SchedulingMode
 from network_creation.core.observability import ObservationSampling
 from network_creation.core.runtime import (
     SimulationSettings,
@@ -58,7 +57,7 @@ def run_case(case_index: int, policy_kwargs: dict[str, float]) -> None:
 
     settings = SimulationSettings(
         n_agents=N_AGENTS,
-        mode=SchedulingMode.SIMULTANEOUS,
+        actor_fraction=1.0,
         seed=100 + case_index,
         max_steps=MAX_STEPS,
         n_episodes=N_EPISODES,

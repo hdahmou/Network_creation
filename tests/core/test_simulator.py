@@ -16,7 +16,7 @@ from network_creation.core.model import (
     ActionType,
     Observation,
     PolicyDecision,
-    SchedulingMode,
+    ActorScheduler,
 )
 from network_creation.core.observability import (
     EpisodeEndEvent,
@@ -170,42 +170,6 @@ class ScriptedPolicy(Policy):
 
 
 class SimulatorTest(unittest.TestCase):
-    def test_get_acting_agents_sequential_cycles_by_sequence_order(self) -> None:
-        env = Environment(create_empty_graph(3), seed=3)
-        simulator = Simulator(
-            env=env,
-            agents=(
-                Agent(id=2, visibility_fraction=1, policy=ConstantPolicy(Action(ActionType.PASS, source=2)), seed=13),
-                Agent(id=0, visibility_fraction=1, policy=ConstantPolicy(Action(ActionType.PASS, source=0)), seed=11),
-                Agent(id=1, visibility_fraction=1, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=12),
-            ),
-            mode=SchedulingMode.SEQUENTIAL,
-            max_steps=4,
-            rng=np.random.default_rng(17),
-            observers=(),
-        )
-
-        self.assertEqual([agent.id for agent in simulator.get_acting_agents(step=0)], [2])
-        self.assertEqual([agent.id for agent in simulator.get_acting_agents(step=1)], [0])
-        self.assertEqual([agent.id for agent in simulator.get_acting_agents(step=2)], [1])
-        self.assertEqual([agent.id for agent in simulator.get_acting_agents(step=3)], [2])
-
-    def test_get_acting_agents_simultaneous_returns_all_agents_in_sequence_order(self) -> None:
-        env = Environment(create_empty_graph(2), seed=19)
-        simulator = Simulator(
-            env=env,
-            agents=(
-                Agent(id=1, visibility_fraction=1, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=23),
-                Agent(id=0, visibility_fraction=1, policy=ConstantPolicy(Action(ActionType.PASS, source=0)), seed=29),
-            ),
-            mode=SchedulingMode.SIMULTANEOUS,
-            max_steps=1,
-            rng=np.random.default_rng(31),
-            observers=(),
-        )
-
-        self.assertEqual([agent.id for agent in simulator.get_acting_agents(step=0)], [1, 0])
-
     def test_run_sequential_tracks_final_state(self) -> None:
         env = Environment(create_empty_graph(2), seed=37)
         observer = RecordingObserver()
@@ -215,7 +179,7 @@ class SimulatorTest(unittest.TestCase):
                 Agent(id=0, visibility_fraction=1, policy=ConstantPolicy(Action(ActionType.BRIDGE, source=0, target=1)), seed=41),
                 Agent(id=1, visibility_fraction=1, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=43),
             ),
-            mode=SchedulingMode.SEQUENTIAL,
+            actor_scheduler=ActorScheduler(n_agents=2, fraction=0.5, seed=21),
             max_steps=2,
             rng=np.random.default_rng(47),
             observers=(observer,),
@@ -249,7 +213,7 @@ class SimulatorTest(unittest.TestCase):
                     seed=49,
                 ),
             ),
-            mode=SchedulingMode.SEQUENTIAL,
+            actor_scheduler=ActorScheduler(n_agents=2, fraction=0.5, seed=21),
             max_steps=1,
             rng=np.random.default_rng(51),
             observers=(observer,),
@@ -284,7 +248,7 @@ class SimulatorTest(unittest.TestCase):
                     seed=49,
                 ),
             ),
-            mode=SchedulingMode.SEQUENTIAL,
+            actor_scheduler=ActorScheduler(n_agents=2, fraction=0.5, seed=21),
             max_steps=2,
             rng=np.random.default_rng(51),
             observers=(observer,),
@@ -316,7 +280,7 @@ class SimulatorTest(unittest.TestCase):
                     seed=49,
                 ),
             ),
-            mode=SchedulingMode.SEQUENTIAL,
+            actor_scheduler=ActorScheduler(n_agents=2, fraction=0.5, seed=21),
             max_steps=3,
             rng=np.random.default_rng(51),
             observers=(periodic_observer, terminal_observer),
@@ -361,7 +325,7 @@ class SimulatorTest(unittest.TestCase):
                     seed=54,
                 ),
             ),
-            mode=SchedulingMode.SIMULTANEOUS,
+            actor_scheduler=ActorScheduler(n_agents=2, fraction=1.0, seed=21),
             max_steps=1,
             rng=np.random.default_rng(55),
             observers=(),
@@ -375,7 +339,7 @@ class SimulatorTest(unittest.TestCase):
 
         self.assertEqual(
             [call.kwargs["radius"] for call in build_observation.call_args_list],
-            [2, 0],
+            [2, 1],
         )
 
     def test_run_simultaneous_uses_same_pre_step_state(self) -> None:
@@ -400,7 +364,7 @@ class SimulatorTest(unittest.TestCase):
                 Agent(id=1, visibility_fraction=1, policy=ConstantPolicy(Action(ActionType.BRIDGE, source=1, target=2)), seed=61),
                 Agent(id=2, visibility_fraction=1, policy=ConstantPolicy(Action(ActionType.PASS, source=2)), seed=67),
             ),
-            mode=SchedulingMode.SIMULTANEOUS,
+            actor_scheduler=ActorScheduler(n_agents=3, fraction=1.0, seed=21),
             max_steps=1,
             rng=np.random.default_rng(71),
             observers=(),
@@ -431,7 +395,7 @@ class SimulatorTest(unittest.TestCase):
                 Agent(id=1, visibility_fraction=1, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=74),
                 Agent(id=2, visibility_fraction=1, policy=ConstantPolicy(Action(ActionType.PASS, source=2)), seed=75),
             ),
-            mode=SchedulingMode.SEQUENTIAL,
+            actor_scheduler=ActorScheduler(n_agents=2, fraction=0.5, seed=21),
             max_steps=1,
             rng=np.random.default_rng(76),
             observers=(),
@@ -451,7 +415,7 @@ class SimulatorTest(unittest.TestCase):
                 Agent(id=0, visibility_fraction=1, policy=left_policy, seed=79),
                 Agent(id=1, visibility_fraction=1, policy=right_policy, seed=83),
             ),
-            mode=SchedulingMode.SEQUENTIAL,
+            actor_scheduler=ActorScheduler(n_agents=2, fraction=0.5, seed=21),
             max_steps=1,
             rng=np.random.default_rng(89),
             observers=(),
@@ -477,7 +441,7 @@ class SimulatorTest(unittest.TestCase):
                 Agent(id=0, visibility_fraction=1, policy=left_policy, seed=139),
                 Agent(id=1, visibility_fraction=1, policy=right_policy, seed=149),
             ),
-            mode=SchedulingMode.SEQUENTIAL,
+            actor_scheduler=ActorScheduler(n_agents=2, fraction=0.5, seed=21),
             max_steps=1,
             rng=np.random.default_rng(151),
             observers=(observer,),
@@ -510,7 +474,7 @@ class SimulatorTest(unittest.TestCase):
                 Agent(id=0, visibility_fraction=1, policy=ConstantPolicy(Action(ActionType.PASS, source=0)), seed=153),
                 Agent(id=1, visibility_fraction=1, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=154),
             ),
-            mode=SchedulingMode.SEQUENTIAL,
+            actor_scheduler=ActorScheduler(n_agents=2, fraction=0.5, seed=21),
             max_steps=1,
             rng=np.random.default_rng(155),
             observers=(observer,),
@@ -538,7 +502,7 @@ class SimulatorTest(unittest.TestCase):
                 Agent(id=0, visibility_fraction=1, policy=ConstantPolicy(Action(ActionType.PASS, source=0)), seed=91),
                 Agent(id=1, visibility_fraction=1, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=92),
             ),
-            mode=SchedulingMode.SEQUENTIAL,
+            actor_scheduler=ActorScheduler(n_agents=2, fraction=0.5, seed=21),
             max_steps=1,
             rng=np.random.default_rng(93),
             observers=(observer,),
@@ -564,7 +528,7 @@ class SimulatorTest(unittest.TestCase):
                 Agent(id=0, visibility_fraction=1, policy=ConstantPolicy(Action(ActionType.BRIDGE, source=0, target=1)), seed=101),
                 Agent(id=1, visibility_fraction=1, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=103),
             ),
-            mode=SchedulingMode.SEQUENTIAL,
+            actor_scheduler=ActorScheduler(n_agents=2, fraction=0.5, seed=21),
             max_steps=1,
             rng=np.random.default_rng(107),
             observers=(observer,),
@@ -586,7 +550,6 @@ class SimulatorTest(unittest.TestCase):
 
         step_event = observer.step_events[0]
         self.assertEqual(step_event.step, 0)
-        self.assertEqual(step_event.acting_agent_ids, (0,))
         self.assertEqual(
             step_event.decisions,
             (
@@ -619,7 +582,7 @@ class SimulatorTest(unittest.TestCase):
                 Agent(id=0, visibility_fraction=1, policy=ConstantPolicy(Action(ActionType.BRIDGE, source=0, target=1)), seed=113),
                 Agent(id=1, visibility_fraction=1, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=127),
             ),
-            mode=SchedulingMode.SEQUENTIAL,
+            actor_scheduler=ActorScheduler(n_agents=2, fraction=0.5, seed=21),
             max_steps=1,
             rng=np.random.default_rng(131),
             observers=(observer,),
@@ -653,7 +616,7 @@ class SimulatorTest(unittest.TestCase):
                         seed=179,
                     ),
                 ),
-                mode=SchedulingMode.SEQUENTIAL,
+                actor_scheduler=ActorScheduler(n_agents=1, fraction=1.0, seed=21),
                 max_steps=1,
                 rng=np.random.default_rng(181),
                 observers=(),
@@ -671,7 +634,7 @@ class SimulatorTest(unittest.TestCase):
                 Agent(id=0, visibility_fraction=1, policy=left_policy, seed=191),
                 Agent(id=1, visibility_fraction=1, policy=right_policy, seed=193),
             ),
-            mode=SchedulingMode.SEQUENTIAL,
+            actor_scheduler=ActorScheduler(n_agents=2, fraction=0.5, seed=21),
             max_steps=5,
             rng=np.random.default_rng(197),
             observers=(observer,),
@@ -682,10 +645,6 @@ class SimulatorTest(unittest.TestCase):
 
         self.assertEqual(left_policy.get_decision_calls, 1)
         self.assertEqual(right_policy.get_decision_calls, 1)
-        self.assertEqual(
-            [event.acting_agent_ids for event in observer.step_events],
-            [(0,), (1,), (0,), (1,), (0,)],
-        )
         self.assertEqual(
             [event.decisions for event in observer.step_events],
             [
@@ -736,7 +695,7 @@ class SimulatorTest(unittest.TestCase):
                 Agent(id=0, visibility_fraction=1, policy=left_policy, seed=211),
                 Agent(id=1, visibility_fraction=1, policy=right_policy, seed=223),
             ),
-            mode=SchedulingMode.SEQUENTIAL,
+            actor_scheduler=ActorScheduler(n_agents=2, fraction=0.5, seed=21),
             max_steps=6,
             rng=np.random.default_rng(227),
             observers=(observer,),

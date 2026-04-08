@@ -75,6 +75,17 @@ class EnvironmentTest(unittest.TestCase):
         self.assertEqual(observation.graph.vs["name"], [0, 1])
         np.testing.assert_array_equal(observation.outside_node_ids, np.array([2, 3]))
 
+    def test_get_observation_uses_minimum_hop_radius_of_one(self) -> None:
+        env = Environment(graph_from_adjacency_matrix(self._chain_adjacency()), seed=11)
+        agent = Agent(
+            id=0, visibility_fraction=0.01, policy=RandomPolicy(seed=17), seed=19
+        )
+
+        observation = env.get_observation(agent)
+
+        self.assertEqual(observation.graph.vs["name"], [0, 1])
+        np.testing.assert_array_equal(observation.outside_node_ids, np.array([2, 3]))
+
     def test_get_action_space_composes_environment_observation(self) -> None:
         env = Environment(graph_from_adjacency_matrix(self._chain_adjacency()), seed=23)
         agent = Agent(

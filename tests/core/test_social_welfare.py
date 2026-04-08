@@ -15,7 +15,7 @@ from network_creation.core.model import (
     ActionType,
     Observation,
     PolicyDecision,
-    SchedulingMode,
+    ActorScheduler,
 )
 from network_creation.core.observability import ObservationSampling
 from network_creation.core.simulator import Simulator
@@ -128,7 +128,7 @@ class SocialWelfareTest(unittest.TestCase):
                     seed=7,
                 ),
             ),
-            mode=SchedulingMode.SEQUENTIAL,
+            actor_scheduler=ActorScheduler(n_agents=2, fraction=0.5, seed=21),
             max_steps=2,
             rng=np.random.default_rng(11),
             observers=(observer,),

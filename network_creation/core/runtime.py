@@ -10,7 +10,7 @@ import numpy as np
 from .agent import Agent
 from .environment import Environment
 from .graph import create_empty_graph
-from .model import SchedulingMode
+from .model import ActorScheduler
 from .observability import SimulationObserver
 from .simulator import Simulator
 
@@ -20,7 +20,7 @@ class SimulationSettings:
     """Fixed settings for one simulation run family."""
 
     n_agents: int
-    mode: SchedulingMode
+    actor_fraction: float
     seed: int
     max_steps: int
     n_episodes: int
@@ -61,10 +61,15 @@ def create_simulator(
     observers: tuple[SimulationObserver, ...],
     seed: int,
 ) -> Simulator:
+    actor_scheduler = ActorScheduler(
+        seed=seed,
+        n_agents=len(agents),
+        fraction=simulation_settings.actor_fraction,
+    )
     return Simulator(
         env=environment,
         agents=agents,
-        mode=simulation_settings.mode,
+        actor_scheduler=actor_scheduler,
         max_steps=simulation_settings.max_steps,
         rng=np.random.default_rng(seed),
         observers=observers,

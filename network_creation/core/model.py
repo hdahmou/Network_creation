@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+from math import floor
 from typing import TYPE_CHECKING, Annotated, NamedTuple
 
 import numpy as np
@@ -11,6 +12,8 @@ from numpy.typing import NDArray
 
 if TYPE_CHECKING:
     import igraph as ig
+
+    from .agent import Agent
 
 
 class ActionType(str, Enum):
@@ -22,11 +25,40 @@ class ActionType(str, Enum):
     BRIDGE = "BRIDGE"
 
 
-class SchedulingMode(str, Enum):
-    """How a simulator selects acting agents at each step."""
+class ActorScheduler:
+    """Randomly select the agents that act during one simulator step."""
 
-    SEQUENTIAL = "SEQUENTIAL"
-    SIMULTANEOUS = "SIMULTANEOUS"
+    def __init__(
+        self,
+        seed: int,
+        n_agents: int,
+        fraction: float,
+    ) -> None:
+        self._rng = np.random.default_rng(seed)
+        if isinstance(n_agents, bool) or n_agents < 1:
+            raise ValueError("n_agents must be positive")
+        if (
+            isinstance(fraction, bool)
+            or not np.isfinite(fraction)
+            or not 1 / n_agents <= fraction <= 1
+        ):
+            raise ValueError(
+                "ActorScheduler fraction must satisfy 1 / n_agents <= fraction <= 1"
+            )
+
+        self._n_actors = floor(fraction * n_agents)
+
+    def select_agents(self, agents: tuple[Agent, ...]) -> tuple[Agent, ...]:
+        n_agents = len(agents)
+        if self._n_actors >= n_agents:
+            return agents
+        agent_indices = self._rng.choice(
+            n_agents,
+            size=self._n_actors,
+            replace=False,
+            shuffle=False,
+        )
+        return tuple(agents[int(agent_index)] for agent_index in agent_indices)
 
 
 class Action(NamedTuple):

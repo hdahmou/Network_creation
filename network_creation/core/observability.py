@@ -9,7 +9,7 @@ import igraph as ig
 import numpy as np
 from numpy.typing import NDArray
 
-from .model import EnvironmentState, PolicyDecision, SchedulingMode
+from .model import EnvironmentState, PolicyDecision
 
 
 @dataclass(frozen=True)
@@ -68,7 +68,6 @@ class EpisodeStartEvent:
 
     episode_index: int
     seed: int
-    mode: SchedulingMode
     max_steps: int
     n_agents: int
     initial_state: StateView
@@ -79,8 +78,6 @@ class StepEvent:
     """Per-step event emitted after the environment transition."""
 
     step: int
-    mode: SchedulingMode
-    acting_agent_ids: tuple[int, ...]
     decisions: tuple[PolicyDecision, ...]
     modified: bool
     pre_state: StateView
@@ -93,7 +90,6 @@ class EpisodeEndEvent:
 
     episode_index: int
     seed: int
-    mode: SchedulingMode
     current_step: int
     last_modified_step: int
     final_state: StateView

@@ -7,7 +7,6 @@ import unittest
 import numpy as np
 from scipy.stats import qmc
 
-from network_creation.core.model import SchedulingMode
 from tasks.policies import MyopicPolicyRun
 from tasks.policies.support import generate_parameter_table, load_simulation_settings
 
@@ -28,7 +27,7 @@ class MyopicPolicyPreparationTest(unittest.TestCase):
             },
             "simulation": {
                 "n_agents": 4,
-                "mode": "SIMULTANEOUS",
+                "actor_scheduler": {"fraction": 1.0},
                 "seed": 11,
                 "max_steps": 3,
                 "n_episodes": 2,
@@ -60,7 +59,7 @@ class MyopicPolicyPreparationTest(unittest.TestCase):
     def test_load_simulation_settings(self) -> None:
         settings = load_simulation_settings(self._base_config()["simulation"])
         self.assertEqual(settings.n_agents, 4)
-        self.assertEqual(settings.mode, SchedulingMode.SIMULTANEOUS)
+        self.assertEqual(settings.actor_fraction, 1.0)
         self.assertEqual(settings.seed, 11)
         self.assertEqual(settings.max_steps, 3)
         self.assertEqual(settings.n_episodes, 2)

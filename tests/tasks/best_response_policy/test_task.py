@@ -26,7 +26,7 @@ class BestResponsePolicyTaskTest(unittest.TestCase):
             },
             "simulation": {
                 "n_agents": 4,
-                "mode": "SIMULTANEOUS",
+                "actor_scheduler": {"fraction": 1.0},
                 "seed": 11,
                 "max_steps": 3,
                 "n_episodes": 2,

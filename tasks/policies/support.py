@@ -11,7 +11,6 @@ from numpy.typing import NDArray
 
 from ..dispatch.runtime import OutputField
 from network_creation.core.observability import ObservationSampling
-from network_creation.core.model import SchedulingMode
 from .parameter_space import generate_parameter_space
 
 if TYPE_CHECKING:
@@ -46,12 +45,14 @@ def load_simulation_settings(raw: Mapping[str, Any]) -> SimulationSettings:
     stagnation_patience = raw.get("stagnation_patience")
 
     return SimulationSettings(
-        n_agents=int(raw["n_agents"]),
-        mode=SchedulingMode(raw.get("mode", SchedulingMode.SIMULTANEOUS.value)),
+        n_agents=raw["n_agents"],
+        actor_fraction=raw["actor_scheduler"]["fraction"],
         seed=int(raw["seed"]),
         max_steps=int(raw["max_steps"]),
         n_episodes=int(raw["n_episodes"]),
-        stagnation_patience=None if stagnation_patience is None else int(stagnation_patience),
+        stagnation_patience=(
+            None if stagnation_patience is None else int(stagnation_patience)
+        ),
         initial_graph_kind=initial_graph.get("kind", "empty"),
     )
 
@@ -69,9 +70,7 @@ def generate_parameter_table(input_spec: Mapping[str, object]) -> ParameterTable
         sample_budget=sample_budget,
         sampler_seed=sampler_seed,
     )
-    column_index_by_name = {
-        name: index for index, name in enumerate(parameter_names)
-    }
+    column_index_by_name = {name: index for index, name in enumerate(parameter_names)}
 
     return ParameterTable(
         parameter_names=parameter_names,

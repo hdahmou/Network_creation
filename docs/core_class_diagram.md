@@ -10,10 +10,10 @@ namespace CoreModel {
         BRIDGE
     }
 
-    class SchedulingMode {
-        <<enumeration>>
-        SEQUENTIAL
-        SIMULTANEOUS
+    class ActorScheduler {
+        +seed: int
+        +ActorScheduler(seed, n_agents, fraction)
+        +select_agents(agents) tuple[Agent, ...]
     }
 
     class Action {
@@ -46,7 +46,7 @@ namespace CoreModel {
 namespace Runtime {
     class SimulationSettings {
         +n_agents: int
-        +mode: SchedulingMode
+        +actor_fraction: float
         +seed: int
         +max_steps: int
         +n_episodes: int
@@ -87,12 +87,11 @@ namespace Runtime {
         +n_agents: int
         +n_completed_episodes: int
         +env: Environment
-        +mode: SchedulingMode
+        +actor_scheduler: ActorScheduler
         +observers: tuple[SimulationObserver, ...]
         +max_steps: int
         +stagnation_patience: int | None
         +reset() void
-        +get_acting_agents(step: int) Sequence[Agent]
         +run(n_episodes: int, reset_observers: bool) void
     }
 }
@@ -130,7 +129,6 @@ namespace ObserverAPI {
     class EpisodeStartEvent {
         +episode_index: int
         +seed: int
-        +mode: SchedulingMode
         +max_steps: int
         +n_agents: int
         +initial_state: StateView
@@ -138,8 +136,6 @@ namespace ObserverAPI {
 
     class StepEvent {
         +step: int
-        +mode: SchedulingMode
-        +acting_agent_ids: tuple[int, ...]
         +decisions: tuple[PolicyDecision, ...]
         +modified: bool
         +pre_state: StateView
@@ -149,7 +145,6 @@ namespace ObserverAPI {
     class EpisodeEndEvent {
         +episode_index: int
         +seed: int
-        +mode: SchedulingMode
         +current_step: int
         +last_modified_step: int
         +final_state: StateView
@@ -272,7 +267,6 @@ namespace Observers {
 }
 
 %% Relationships
-SimulationSettings --> SchedulingMode : mode
 Environment *-- EnvironmentState : owns
 Environment --> Observation : produces
 Environment --> ActionSpace : produces
@@ -284,7 +278,7 @@ Action --> ActionType : type
 Agent *-- Policy : has
 Simulator --> Environment : uses
 Simulator --> Agent : schedules
-Simulator --> SchedulingMode : mode
+Simulator --> ActorScheduler : actor_scheduler
 Simulator --> SimulationObserver : notifies
 
 RandomPolicy --|> Policy : extends

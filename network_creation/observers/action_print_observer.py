@@ -34,12 +34,9 @@ class ActionPrintObserver(SimulationObserver):
 
     def on_step_end(self, event: StepEvent) -> None:
         rendered_decisions_by_node_id = {
-            node_id: self._format_decision(decision)
-            for node_id, decision in zip(
-                event.acting_agent_ids,
-                event.decisions,
-                strict=True,
-            )
+            decision.actions[0].source: self._format_decision(decision)
+            for decision in event.decisions
+            if decision.actions
         }
 
         if self.print_empty_steps or any(

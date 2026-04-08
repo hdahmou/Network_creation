@@ -13,7 +13,7 @@ from network_creation.core.graph import (
     build_state_from_graph,
     get_action_space,
 )
-from network_creation.core.model import Action, ActionType, PolicyDecision, SchedulingMode
+from network_creation.core.model import ActorScheduler, Action, ActionType, PolicyDecision
 from network_creation.core.simulator import Simulator
 from network_creation.policies.myopic_payoff import MyopicPayoffPolicy
 from tests.graph_factories import graph_from_adjacency_matrix
@@ -316,7 +316,7 @@ class MyopicPayoffPolicyTest(unittest.TestCase):
                     seed=2,
                 ),
             ),
-            mode=SchedulingMode.SEQUENTIAL,
+            actor_scheduler=ActorScheduler(n_agents=1, fraction=1.0, seed=21),
             max_steps=1,
             rng=np.random.default_rng(7),
             observers=(),

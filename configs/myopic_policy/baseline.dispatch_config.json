@@ -33,7 +33,9 @@
   },
   "simulation": {
     "n_agents": 10,
-    "mode": "SEQUENTIAL",
+    "actor_scheduler": {
+      "fraction": 0.1
+    },
     "seed": 11,
     "max_steps": 360,
     "n_episodes": 32,

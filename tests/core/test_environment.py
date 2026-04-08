@@ -8,7 +8,12 @@ import numpy as np
 
 from network_creation.core.agent import Agent
 from network_creation.core.environment import Environment
-from network_creation.core.graph import create_empty_graph
+from network_creation.core.graph import (
+    build_observation_from_state,
+    build_state_from_graph,
+    create_empty_graph,
+    get_action_space,
+)
 from network_creation.core.model import (
     Action,
     ActionSpace,
@@ -60,9 +65,9 @@ class EnvironmentTest(unittest.TestCase):
 
         observation = env.get_observation(agent)
 
-        self.assertEqual(observation.node_id, 0)
+        self.assertEqual(observation.node_idx, 0)
         self.assertEqual(observation.graph.vs["name"], [0, 1, 2])
-        np.testing.assert_array_equal(observation.outside_node_ids, np.array([3]))
+        np.testing.assert_array_equal(observation.outside_node_idxs, np.array([3]))
 
     def test_get_observation_floors_normalized_agent_visibility_fraction(self) -> None:
         env = Environment(graph_from_adjacency_matrix(self._chain_adjacency()), seed=11)
@@ -73,7 +78,7 @@ class EnvironmentTest(unittest.TestCase):
         observation = env.get_observation(agent)
 
         self.assertEqual(observation.graph.vs["name"], [0, 1])
-        np.testing.assert_array_equal(observation.outside_node_ids, np.array([2, 3]))
+        np.testing.assert_array_equal(observation.outside_node_idxs, np.array([2, 3]))
 
     def test_get_observation_uses_minimum_hop_radius_of_one(self) -> None:
         env = Environment(graph_from_adjacency_matrix(self._chain_adjacency()), seed=11)
@@ -84,7 +89,7 @@ class EnvironmentTest(unittest.TestCase):
         observation = env.get_observation(agent)
 
         self.assertEqual(observation.graph.vs["name"], [0, 1])
-        np.testing.assert_array_equal(observation.outside_node_ids, np.array([2, 3]))
+        np.testing.assert_array_equal(observation.outside_node_idxs, np.array([2, 3]))
 
     def test_get_action_space_composes_environment_observation(self) -> None:
         env = Environment(graph_from_adjacency_matrix(self._chain_adjacency()), seed=23)
@@ -143,10 +148,15 @@ class AgentPolicyIntegrationTest(unittest.TestCase):
         expected_action = Action(ActionType.PASS, source=0)
         policy = StubPolicy(expected_action)
         agent = Agent(id=0, visibility_fraction=1.0, policy=policy, seed=41)
+        graph = Environment(create_empty_graph(1), seed=43).state.graph
         observation = Observation(
-            node_id=0,
-            graph=Environment(create_empty_graph(1), seed=43).state.graph,
-            outside_node_ids=np.array([], dtype=np.int_),
+            node_idx=0,
+            graph=graph,
+            outside_node_idxs=np.array([], dtype=np.int_),
+            local_global=Observation.create_local_global_map(
+                graph,
+                np.array([], dtype=np.int_),
+            ),
         )
         action_space = ActionSpace(
             actions={
@@ -190,8 +200,18 @@ class AgentPolicyIntegrationTest(unittest.TestCase):
         observation = env.get_observation(agent)
         action_space = env.get_action_space(agent)
         policy = RandomPolicy(seed=7)
-        available_actions = {
+        local_actions = {
             action for actions in action_space.actions.values() for action in actions
+        }
+        available_actions = {
+            Action(
+                action.type,
+                observation.global_from_local(action.source),
+                None
+                if action.target is None
+                else observation.global_from_local(action.target),
+            )
+            for action in local_actions
         }
 
         first_run = [
@@ -204,6 +224,47 @@ class AgentPolicyIntegrationTest(unittest.TestCase):
 
         self.assertEqual(first_run, second_run)
         self.assertTrue(all(action in available_actions for action in first_run))
+
+    def test_random_policy_returns_local_actions_from_local_action_space(self) -> None:
+        state = build_state_from_graph(
+            graph_from_adjacency_matrix(
+                np.array(
+                    [
+                        [0, 1, 0, 0, 0, 0],
+                        [0, 0, 0, 0, 0, 0],
+                        [0, 1, 0, 0, 0, 1],
+                        [0, 0, 1, 0, 1, 0],
+                        [0, 0, 0, 0, 0, 0],
+                        [0, 0, 0, 0, 0, 0],
+                    ],
+                    dtype=np.int8,
+                )
+            )
+        )
+        observation = build_observation_from_state(state, node_id=4, radius=2)
+        action_space = get_action_space(observation)
+        local_actions = {
+            action for actions in action_space.actions.values() for action in actions
+        }
+        global_actions = {
+            Action(
+                action.type,
+                observation.global_from_local(action.source),
+                None
+                if action.target is None
+                else observation.global_from_local(action.target),
+            )
+            for action in local_actions
+        }
+        policy = RandomPolicy(seed=7)
+
+        samples = [
+            policy.get_decision(observation, action_space).actions[0]
+            for _ in range(20)
+        ]
+
+        self.assertNotEqual(local_actions, global_actions)
+        self.assertTrue(all(action in local_actions for action in samples))
 
 
 if __name__ == "__main__":

@@ -11,7 +11,8 @@ namespace CoreModel {
     }
 
     class ActorScheduler {
-        +seed: int
+        -_rng: Generator
+        -_n_actors: int
         +ActorScheduler(seed, n_agents, fraction)
         +select_agents(agents) tuple[Agent, ...]
     }
@@ -37,9 +38,13 @@ namespace CoreModel {
     }
 
     class Observation {
-        +node_id: int
+        +node_idx: int
         +graph: Graph
-        +outside_node_ids: NDArray
+        +outside_node_idxs: NDArray
+        +local_global: bidict[int, int]
+        +create_local_global_map(graph, outside_global_node_ids) bidict[int, int]
+        +global_from_local(local_idx: int) int
+        +local_from_global(node_id: int) int
     }
 }
 
@@ -89,10 +94,12 @@ namespace Runtime {
         +env: Environment
         +actor_scheduler: ActorScheduler
         +observers: tuple[SimulationObserver, ...]
+        -_step_observers_by_step: tuple[tuple[SimulationObserver, ...], ...]
         +max_steps: int
         +stagnation_patience: int | None
         +reset() void
         +run(n_episodes: int, reset_observers: bool) void
+        -_decision_to_global(observation: Observation, decision: PolicyDecision) PolicyDecision
     }
 }
 
@@ -108,6 +115,13 @@ namespace Policies {
         +benefit_to_cost_ratio: float
         +distance_discount: float
         +bridge_probability: float
+    }
+
+    class BestResponsePolicy {
+        +benefit_to_cost_ratio: float
+        +distance_discount: float
+        +bridge_value_scale: float
+        +inertia_term: float
     }
 }
 
@@ -269,9 +283,9 @@ namespace Observers {
 %% Relationships
 Environment *-- EnvironmentState : owns
 Environment --> Observation : produces
-Environment --> ActionSpace : produces
+Environment --> ActionSpace : produces local actions
 ActionSpace --> ActionType : keys
-ActionSpace --> Action : groups
+ActionSpace --> Action : local candidates
 PolicyDecision --> Action : contains
 Action --> ActionType : type
 
@@ -280,10 +294,13 @@ Simulator --> Environment : uses
 Simulator --> Agent : schedules
 Simulator --> ActorScheduler : actor_scheduler
 Simulator --> SimulationObserver : notifies
+Simulator ..> Observation : converts local decisions
+Simulator ..> PolicyDecision : globalizes actions
 
 RandomPolicy --|> Policy : extends
 ReplayPolicy --|> Policy : extends
 MyopicPayoffPolicy --|> Policy : extends
+BestResponsePolicy --|> Policy : extends
 
 SimulationObserver --> ObservationSampling : sampling
 StateView ..> EnvironmentState : from_state

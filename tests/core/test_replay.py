@@ -98,11 +98,15 @@ class ReplayTest(unittest.TestCase):
 
     @staticmethod
     def _dummy_observation() -> Observation:
-        env = Environment(create_empty_graph(1), seed=7)
+        env = Environment(create_empty_graph(3), seed=7)
         return Observation(
-            node_id=0,
+            node_idx=0,
             graph=env.state.graph,
-            outside_node_ids=np.array([], dtype=np.int_),
+            outside_node_idxs=np.array([], dtype=np.int_),
+            local_global=Observation.create_local_global_map(
+                env.state.graph,
+                np.array([], dtype=np.int_),
+            ),
         )
 
     @staticmethod

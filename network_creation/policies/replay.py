@@ -26,9 +26,20 @@ class ReplayPolicy(Policy):
     def get_decision(
         self, observation: Observation, action_space: ActionSpace
     ) -> PolicyDecision:
-        del observation
         del action_space
 
         actions = self.actions_by_step.get(self.next_step_id, ())
         self.next_step_id += 1
-        return PolicyDecision(actions=actions, value=None)
+        return PolicyDecision(
+            actions=tuple(
+                Action(
+                    action.type,
+                    observation.local_from_global(action.source),
+                    None
+                    if action.target is None
+                    else observation.local_from_global(action.target),
+                )
+                for action in actions
+            ),
+            value=None,
+        )

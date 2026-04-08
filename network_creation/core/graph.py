@@ -37,47 +37,51 @@ def build_observation_from_state(
     visible_mask = np.zeros(state.graph.vcount(), dtype=bool)
     visible_mask[visible_node_ids] = True
 
-    outside_node_ids = np.flatnonzero(~visible_mask)
+    outside_global_node_ids = np.flatnonzero(~visible_mask)
+
+    graph = state.graph.induced_subgraph(visible_node_ids)
+    local_global = Observation.create_local_global_map(graph, outside_global_node_ids)
 
     return Observation(
-        node_id=node_id,
-        graph=state.graph.induced_subgraph(visible_node_ids),
-        outside_node_ids=outside_node_ids,
+        node_idx=local_global.inverse[int(node_id)],
+        graph=graph,
+        outside_node_idxs=np.arange(
+            graph.vcount(),
+            graph.vcount() + len(outside_global_node_ids),
+            dtype=np.int_,
+        ),
+        local_global=local_global,
     )
 
 
 def get_action_space(observation: Observation) -> ActionSpace:
     """Build a structured action space from one node observation."""
 
-    source_node_id = observation.node_id
-    visible_node_ids = tuple(observation.graph.vs["name"])
-    source_subgraph_idx = visible_node_ids.index(source_node_id)
-    neighbor_node_ids = {
-        visible_node_ids[subgraph_idx]
-        for subgraph_idx in observation.graph.neighbors(source_subgraph_idx, mode="all")
-    }
+    graph = observation.graph
+    source_idx = observation.node_idx
+    neighbor_indices = set(graph.neighbors(source_idx, mode="all"))
 
     add_actions = [
-        Action(ActionType.ADD, source_node_id, node_id)
-        for node_id in visible_node_ids
-        if node_id != source_node_id and node_id not in neighbor_node_ids
+        Action(ActionType.ADD, source_idx, target_idx)
+        for target_idx in range(graph.vcount())
+        if target_idx != source_idx and target_idx not in neighbor_indices
     ]
     bridge_actions = [
-        Action(ActionType.BRIDGE, source_node_id, node_id)
-        for node_id in observation.outside_node_ids
+        Action(ActionType.BRIDGE, source_idx, int(target_idx))
+        for target_idx in observation.outside_node_idxs
     ]
     delete_actions = [
         Action(
             ActionType.DELETE,
-            source_node_id,
-            visible_node_ids[subgraph_idx],
+            source_idx,
+            target_idx,
         )
-        for subgraph_idx in observation.graph.neighbors(
-            source_subgraph_idx,
+        for target_idx in graph.neighbors(
+            source_idx,
             mode="out",
         )
     ]
-    pass_action = [Action(ActionType.PASS, source_node_id)]
+    pass_action = [Action(ActionType.PASS, source_idx)]
 
     return ActionSpace(
         actions={

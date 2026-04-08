@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import numpy as np
 from numpy.typing import NDArray
 
@@ -16,12 +14,7 @@ from network_creation.core.model import (
 )
 
 from .base import Policy
-
-if TYPE_CHECKING:
-    import igraph as ig
-
-
-from .utils import _distances_from_index, _vertex_index_by_name
+from .utils import _distances_from_index
 
 
 class MyopicPayoffPolicy(Policy):
@@ -65,10 +58,8 @@ class MyopicPayoffPolicy(Policy):
             bridge_actions = action_space[ActionType.BRIDGE]
             if not bridge_actions:
                 return PolicyDecision(actions=(pass_action,), value=None)
-            return PolicyDecision(
-                actions=(self._sample_action(bridge_actions),),
-                value=None,
-            )
+            bridge_action = self._sample_action(bridge_actions)
+            return PolicyDecision(actions=(bridge_action,), value=None)
 
         non_bridge_actions = (
             action_space[ActionType.ADD] + action_space[ActionType.DELETE]
@@ -93,19 +84,19 @@ class MyopicPayoffPolicy(Policy):
     def _compute_candidate_delta(
         self, observation: Observation, candidate: Action
     ) -> float:
-        source_idx = _vertex_index_by_name(observation.graph, observation.node_id)
+        source_idx = candidate.source
         baseline_distances = _distances_from_index(observation.graph, source_idx)
 
         if candidate.type is ActionType.ADD:
             candidate_distances = self._compute_add_distances(
-                observation.graph,
+                observation,
                 baseline_distances,
                 candidate,
             )
             link_delta = -1.0
         elif candidate.type is ActionType.DELETE:
             candidate_distances = self._compute_delete_distances(
-                observation.graph,
+                observation,
                 source_idx,
                 candidate,
             )
@@ -126,28 +117,29 @@ class MyopicPayoffPolicy(Policy):
 
     def _compute_add_distances(
         self,
-        graph: ig.Graph,
+        observation: Observation,
         baseline_distances: NDArray[np.float64],
         candidate: Action,
     ) -> NDArray[np.float64]:
-        target_idx = _vertex_index_by_name(graph, candidate.target)
-        target_distances = _distances_from_index(graph, target_idx)
+        if candidate.target is None:
+            raise ValueError("ADD actions must define a target")
+
+        target_distances = _distances_from_index(observation.graph, candidate.target)
         return np.minimum(baseline_distances, 1.0 + target_distances)
 
     def _compute_delete_distances(
         self,
-        graph: ig.Graph,
+        observation: Observation,
         source_idx: int,
         candidate: Action,
     ) -> NDArray[np.float64]:
         if candidate.target is None:
             raise ValueError("DELETE actions must define a target")
 
-        target_idx = _vertex_index_by_name(graph, candidate.target)
-        temporary_graph = graph.copy()
+        temporary_graph = observation.graph.copy()
         edge_id = temporary_graph.get_eid(
             source_idx,
-            target_idx,
+            candidate.target,
             directed=True,
             error=True,
         )

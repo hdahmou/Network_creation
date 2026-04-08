@@ -60,6 +60,16 @@ from network_creation.policies.base import Policy
 from tests.graph_factories import graph_from_adjacency_matrix
 
 
+def _local_action(observation: Observation, action: Action) -> Action:
+    return Action(
+        action.type,
+        observation.local_from_global(action.source),
+        None
+        if action.target is None
+        else observation.local_from_global(action.target),
+    )
+
+
 class ConstantPolicy(Policy):
     def __init__(self, action: Action, value: dict[str, object] | None = None) -> None:
         self.action = action
@@ -72,9 +82,11 @@ class ConstantPolicy(Policy):
     def get_decision(
         self, observation: Observation, action_space: ActionSpace
     ) -> PolicyDecision:
-        del observation
         del action_space
-        return PolicyDecision(actions=(self.action,), value=self.value)
+        return PolicyDecision(
+            actions=(_local_action(observation, self.action),),
+            value=self.value,
+        )
 
 
 class ActionListPolicy(Policy):
@@ -88,9 +100,13 @@ class ActionListPolicy(Policy):
     def get_decision(
         self, observation: Observation, action_space: ActionSpace
     ) -> PolicyDecision:
-        del observation
         del action_space
-        return PolicyDecision(actions=tuple(self.actions), value=None)
+        return PolicyDecision(
+            actions=tuple(
+                _local_action(observation, action) for action in self.actions
+            ),
+            value=None,
+        )
 
 
 class EpisodeCallPolicy(Policy):
@@ -110,13 +126,15 @@ class EpisodeCallPolicy(Policy):
     def get_decision(
         self, observation: Observation, action_space: ActionSpace
     ) -> PolicyDecision:
-        del observation
         del action_space
         current_episode_actions = self.episode_actions[self._episode_index]
         action_idx = min(self._call_index, len(current_episode_actions) - 1)
         self._call_index += 1
         return PolicyDecision(
-            actions=tuple(current_episode_actions[action_idx]),
+            actions=tuple(
+                _local_action(observation, action)
+                for action in current_episode_actions[action_idx]
+            ),
             value=None,
         )
 

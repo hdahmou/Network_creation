@@ -8,7 +8,7 @@ from network_creation.core.model import ActionSpace, Observation, PolicyDecision
 
 
 class Policy(ABC):
-    """Strategy interface for choosing one or more actions from an action space."""
+    """Strategy interface for choosing local actions from a local action space."""
 
     @abstractmethod
     def reset(self, seed: int) -> None:
@@ -18,4 +18,4 @@ class Policy(ABC):
     def get_decision(
         self, observation: Observation, action_space: ActionSpace
     ) -> PolicyDecision:
-        """Choose a policy decision from the current observation and action space."""
+        """Return local-index actions for the current local action space."""

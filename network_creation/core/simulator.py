@@ -7,7 +7,7 @@ import numpy as np
 from .agent import Agent
 from .environment import Environment
 from .graph import get_action_space
-from .model import Action, ActionType, ActorScheduler, PolicyDecision
+from .model import Action, ActionType, ActorScheduler, Observation, PolicyDecision
 from .observability import (
     EpisodeEndEvent,
     EpisodeStartEvent,
@@ -94,7 +94,10 @@ class Simulator:
                 for agent in acting_agents:
                     observation = self.env.get_observation(agent)
                     action_space = get_action_space(observation)
-                    decision_list.append(agent.act(observation, action_space))
+                    agent_choose_decision = agent.act(observation, action_space)
+                    decision_list.append(
+                        self._decision_to_global(observation, agent_choose_decision)
+                    )
                 decisions = tuple(decision_list)
 
             step_actions: tuple[Action, ...] = tuple(
@@ -145,6 +148,25 @@ class Simulator:
         return (
             self.stagnation_patience is not None
             and stagnation_steps >= self.stagnation_patience
+        )
+
+    @staticmethod
+    def _decision_to_global(
+        observation: Observation,
+        decision: PolicyDecision,
+    ) -> PolicyDecision:
+        return PolicyDecision(
+            actions=tuple(
+                Action(
+                    action.type,
+                    observation.global_from_local(action.source),
+                    None
+                    if action.target is None
+                    else observation.global_from_local(action.target),
+                )
+                for action in decision.actions
+            ),
+            value=decision.value,
         )
 
     def _reset_for_episode(self) -> int:

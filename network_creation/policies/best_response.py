@@ -49,14 +49,13 @@ class BestResponsePolicy(Policy):
         self, observation: Observation, action_space: ActionSpace
     ) -> PolicyDecision:
         graph = observation.graph
-        total_nodes = graph.vcount() + len(observation.outside_node_ids)
+        total_nodes = graph.vcount() + len(observation.outside_node_idxs)
         pass_action = action_space[ActionType.PASS][0]
 
         if total_nodes <= 1:
             return PolicyDecision(actions=(pass_action,), value=None)
 
-        name_to_index = {vertex["name"]: int(vertex.index) for vertex in graph.vs}
-        source_idx = name_to_index[observation.node_id]
+        source_idx = pass_action.source
 
         baseline_dist = _distances_from_index(graph, source_idx)
         base_benefit = np.sum(self.distance_discount**baseline_dist)
@@ -66,20 +65,15 @@ class BestResponsePolicy(Policy):
         delete_actions = action_space[ActionType.DELETE]
         bridge_actions = action_space[ActionType.BRIDGE]
 
-        add_target_indices = [name_to_index[action.target] for action in add_actions]
-        delete_target_indices = [
-            name_to_index[action.target] for action in delete_actions
-        ]
-
         candidate_actions: list[Action] = []
         candidate_values: list[float] = []
 
         # Plain DELETE using one reusable mutable graph.
         if delete_actions:
             g_delete = graph.copy()
-            for action, target_idx in zip(delete_actions, delete_target_indices):
+            for action in delete_actions:
                 eid = g_delete.get_eid(
-                    source_idx, target_idx, directed=True, error=True
+                    source_idx, action.target, directed=True, error=True
                 )
                 g_delete.delete_edges([eid])
 
@@ -92,18 +86,19 @@ class BestResponsePolicy(Policy):
                 candidate_actions.append(action)
                 candidate_values.append(value)
 
-                g_delete.add_edge(source_idx, target_idx)
+                g_delete.add_edge(source_idx, action.target)
 
         # Batch distances for immediate ADD evaluation in the original graph.
         if add_actions:
             add_target_dists = np.asarray(
-                graph.distances(source=add_target_indices, mode="all"),
+                graph.distances(
+                    source=[action.target for action in add_actions],
+                    mode="all",
+                ),
                 dtype=np.float64,
             )
 
-            for action, target_idx, target_dist in zip(
-                add_actions, add_target_indices, add_target_dists
-            ):
+            for action, target_dist in zip(add_actions, add_target_dists):
                 new_dist_add = np.minimum(baseline_dist, 1.0 + target_dist)
                 new_benefit_add = np.sum(self.distance_discount**new_dist_add)
                 best_add_value = (
@@ -112,12 +107,12 @@ class BestResponsePolicy(Policy):
 
                 if delete_actions:
                     g_add = graph.copy()
-                    g_add.add_edge(source_idx, target_idx)
+                    g_add.add_edge(source_idx, action.target)
 
-                    for del_target_idx in delete_target_indices:
+                    for delete_action in delete_actions:
                         eid = g_add.get_eid(
                             source_idx,
-                            del_target_idx,
+                            delete_action.target,
                             directed=True,
                             error=True,
                         )
@@ -131,7 +126,7 @@ class BestResponsePolicy(Policy):
                         if value > best_add_value:
                             best_add_value = value
 
-                        g_add.add_edge(source_idx, del_target_idx)
+                        g_add.add_edge(source_idx, delete_action.target)
 
                 candidate_actions.append(action)
                 candidate_values.append(best_add_value - self.inertia_term)

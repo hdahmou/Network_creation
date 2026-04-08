@@ -5,7 +5,6 @@ from __future__ import annotations
 import numpy as np
 
 from network_creation.core.model import (
-    Action,
     ActionSpace,
     ActionType,
     Observation,
@@ -27,7 +26,6 @@ class RandomPolicy(Policy):
     def get_decision(
         self, observation: Observation, action_space: ActionSpace
     ) -> PolicyDecision:
-        del observation
         actions = [
             action
             for action_type in ActionType

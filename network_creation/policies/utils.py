@@ -3,10 +3,6 @@ import numpy as np
 from numpy.typing import NDArray
 
 
-def _vertex_index_by_name(graph: ig.Graph, node_id: int) -> int:
-    return int(graph.vs.find(name=node_id).index)
-
-
 def _distances_from_index(graph: ig.Graph, vertex_idx: int) -> NDArray[np.float64]:
     return np.asarray(
         graph.distances(source=[vertex_idx], mode="all")[0],

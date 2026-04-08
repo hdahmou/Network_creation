@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import unittest
 
+from bidict import bidict
 import igraph as ig
 import numpy as np
 
@@ -49,9 +50,9 @@ class GraphOpsTest(unittest.TestCase):
         radius_two = build_observation_from_state(state, node_id=0, radius=2)
 
         self.assertEqual(radius_one.graph.vs["name"], [0, 1])
-        np.testing.assert_array_equal(radius_one.outside_node_ids, np.array([2, 3]))
+        np.testing.assert_array_equal(radius_one.outside_node_idxs, np.array([2, 3]))
         self.assertEqual(radius_two.graph.vs["name"], [0, 1, 2])
-        np.testing.assert_array_equal(radius_two.outside_node_ids, np.array([3]))
+        np.testing.assert_array_equal(radius_two.outside_node_idxs, np.array([3]))
 
     def test_build_state_from_graph_copies_graph_and_assigns_vertex_names(self) -> None:
         graph = ig.Graph(n=2, edges=[(0, 1)], directed=True)
@@ -70,7 +71,7 @@ class GraphOpsTest(unittest.TestCase):
         self.assertEqual(sorted(state.graph.get_edgelist()), [(0, 1), (1, 0)])
         self.assertEqual({frozenset(edge) for edge in state.graph.get_edgelist()}, {frozenset((0, 1))})
 
-    def test_observation_keeps_original_node_ids(self) -> None:
+    def test_observation_keeps_original_node_ids_in_mapping(self) -> None:
         adjacency = np.array(
             [
                 [0, 1, 0, 0],
@@ -84,9 +85,10 @@ class GraphOpsTest(unittest.TestCase):
 
         observation = build_observation_from_state(state, node_id=0, radius=2)
 
-        self.assertEqual(observation.node_id, 0)
+        self.assertEqual(observation.node_idx, 0)
         self.assertEqual(observation.graph.vs["name"], [0, 1, 2])
-        np.testing.assert_array_equal(observation.outside_node_ids, np.array([3]))
+        np.testing.assert_array_equal(observation.outside_node_idxs, np.array([3]))
+        self.assertEqual(observation.local_global, {0: 0, 1: 1, 2: 2, 3: 3})
 
     def test_action_space_separates_add_bridge_delete_and_pass(self) -> None:
         adjacency = np.array(
@@ -138,9 +140,9 @@ class GraphOpsTest(unittest.TestCase):
             2: {
                 ActionType.ADD: [
                     Action(ActionType.ADD, source=1, target=3),
-                    Action(ActionType.ADD, source=1, target=5),
+                    Action(ActionType.ADD, source=1, target=4),
                 ],
-                ActionType.BRIDGE: [Action(ActionType.BRIDGE, source=1, target=4)],
+                ActionType.BRIDGE: [Action(ActionType.BRIDGE, source=1, target=5)],
                 ActionType.DELETE: [],
                 ActionType.PASS: [Action(ActionType.PASS, source=1)],
             },
@@ -172,33 +174,48 @@ class GraphOpsTest(unittest.TestCase):
                 )
                 self.assertEqual(action_space[ActionType.PASS], expected[ActionType.PASS])
 
-    def test_action_space_uses_global_node_ids_when_subgraph_indices_differ(self) -> None:
+    def test_action_space_uses_local_indices_when_subgraph_names_differ(self) -> None:
         state = self._larger_state()
         observation = build_observation_from_state(state, node_id=4, radius=2)
 
         self.assertEqual(observation.graph.vs["name"], [2, 3, 4])
+        self.assertEqual(observation.node_idx, 2)
+        np.testing.assert_array_equal(
+            observation.outside_node_idxs,
+            np.array([3, 4, 5]),
+        )
+        self.assertIsInstance(observation.local_global, bidict)
+        self.assertEqual(
+            observation.local_global,
+            {0: 2, 1: 3, 2: 4, 3: 0, 4: 1, 5: 5},
+        )
+        self.assertEqual(observation.global_from_local(0), 2)
+        self.assertEqual(observation.global_from_local(2), 4)
+        self.assertEqual(observation.global_from_local(5), 5)
+        self.assertEqual(observation.local_from_global(4), 2)
+        self.assertEqual(observation.local_from_global(5), 5)
 
         action_space = get_action_space(observation)
 
         self.assertEqual(
             action_space[ActionType.ADD],
-            [Action(ActionType.ADD, source=4, target=2)],
+            [Action(ActionType.ADD, source=2, target=0)],
         )
         self.assertEqual(
             action_space[ActionType.BRIDGE],
             [
-                Action(ActionType.BRIDGE, source=4, target=0),
-                Action(ActionType.BRIDGE, source=4, target=1),
-                Action(ActionType.BRIDGE, source=4, target=5),
+                Action(ActionType.BRIDGE, source=2, target=3),
+                Action(ActionType.BRIDGE, source=2, target=4),
+                Action(ActionType.BRIDGE, source=2, target=5),
             ],
         )
         self.assertEqual(action_space[ActionType.DELETE], [])
         self.assertEqual(
             action_space[ActionType.PASS],
-            [Action(ActionType.PASS, source=4)],
+            [Action(ActionType.PASS, source=2)],
         )
 
-    def test_delete_actions_use_global_node_ids_when_subgraph_indices_differ(self) -> None:
+    def test_delete_actions_use_local_indices_when_subgraph_names_differ(self) -> None:
         state = self._larger_state()
         observation = build_observation_from_state(state, node_id=3, radius=1)
 
@@ -209,8 +226,8 @@ class GraphOpsTest(unittest.TestCase):
         self.assertEqual(
             action_space[ActionType.DELETE],
             [
-                Action(ActionType.DELETE, source=3, target=2),
-                Action(ActionType.DELETE, source=3, target=4),
+                Action(ActionType.DELETE, source=1, target=0),
+                Action(ActionType.DELETE, source=1, target=2),
             ],
         )
 

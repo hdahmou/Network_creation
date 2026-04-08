@@ -50,10 +50,12 @@ class ConstantPolicy(Policy):
     def get_decision(
         self, observation: Observation, action_space: ActionSpace
     ) -> PolicyDecision:
-        del observation
         del action_space
         self.get_decision_calls += 1
-        return PolicyDecision(actions=(self.action,), value=None)
+        return PolicyDecision(
+            actions=(_local_action(observation, self.action),),
+            value=None,
+        )
 
 
 class PreferAddElsePassPolicy(Policy):
@@ -124,6 +126,16 @@ class BatchRecordingObserver:
         self.episode_end_events.append(event)
 
 
+def _local_action(observation: Observation, action: Action) -> Action:
+    return Action(
+        action.type,
+        observation.local_from_global(action.source),
+        None
+        if action.target is None
+        else observation.local_from_global(action.target),
+    )
+
+
 class MultiActionPolicy(Policy):
     def __init__(self, actions: list[Action]) -> None:
         self.actions = actions
@@ -137,9 +149,13 @@ class MultiActionPolicy(Policy):
     def get_decision(
         self, observation: Observation, action_space: ActionSpace
     ) -> PolicyDecision:
-        del observation
         del action_space
-        return PolicyDecision(actions=tuple(self.actions), value=None)
+        return PolicyDecision(
+            actions=tuple(
+                _local_action(observation, action) for action in self.actions
+            ),
+            value=None,
+        )
 
 
 class ScriptedPolicy(Policy):
@@ -158,7 +174,6 @@ class ScriptedPolicy(Policy):
     def get_decision(
         self, observation: Observation, action_space: ActionSpace
     ) -> PolicyDecision:
-        del observation
         del action_space
         if self._next_call_idx >= len(self.actions_by_call):
             raise AssertionError("policy was queried more times than expected")
@@ -166,7 +181,10 @@ class ScriptedPolicy(Policy):
         self.get_decision_calls += 1
         actions = list(self.actions_by_call[self._next_call_idx])
         self._next_call_idx += 1
-        return PolicyDecision(actions=tuple(actions), value=None)
+        return PolicyDecision(
+            actions=tuple(_local_action(observation, action) for action in actions),
+            value=None,
+        )
 
 
 class SimulatorTest(unittest.TestCase):

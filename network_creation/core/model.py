@@ -7,6 +7,7 @@ from enum import Enum
 from math import floor
 from typing import TYPE_CHECKING, Annotated, NamedTuple
 
+from bidict import bidict
 import numpy as np
 from numpy.typing import NDArray
 
@@ -79,7 +80,7 @@ class PolicyDecision:
 
 @dataclass(slots=True)
 class ActionSpace:
-    """Structured action-space representation for one agent."""
+    """Structured local-index action-space representation for one agent."""
 
     actions: dict[ActionType, list[Action]]
 
@@ -100,6 +101,36 @@ class EnvironmentState:
 class Observation:
     """Agent-local structural view."""
 
-    node_id: int
+    node_idx: int
     graph: ig.Graph
-    outside_node_ids: Annotated[NDArray[np.int_], "shape=(n_outside_nodes,)"]
+    outside_node_idxs: Annotated[NDArray[np.int_], "shape=(n_outside_nodes,)"]
+    local_global: bidict[int, int]
+
+    @staticmethod
+    def create_local_global_map(
+        graph: ig.Graph,
+        outside_global_node_ids: Annotated[
+            NDArray[np.int_],
+            "shape=(n_outside_nodes,)",
+        ],
+    ) -> bidict[int, int]:
+        local_global = bidict(
+            {
+                int(vertex.index): int(vertex["name"])
+                for vertex in graph.vs
+            }
+        )
+        visible_count = graph.vcount()
+        local_global.update(
+            {
+                visible_count + outside_idx: int(node_id)
+                for outside_idx, node_id in enumerate(outside_global_node_ids)
+            }
+        )
+        return local_global
+
+    def global_from_local(self, local_idx: int) -> int:
+        return self.local_global[int(local_idx)]
+
+    def local_from_global(self, node_id: int) -> int:
+        return self.local_global.inverse[int(node_id)]

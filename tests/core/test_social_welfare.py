@@ -27,6 +27,16 @@ from network_creation.policies.base import Policy
 from tests.graph_factories import graph_from_adjacency_matrix
 
 
+def _local_action(observation: Observation, action: Action) -> Action:
+    return Action(
+        action.type,
+        observation.local_from_global(action.source),
+        None
+        if action.target is None
+        else observation.local_from_global(action.target),
+    )
+
+
 class ConstantPolicy(Policy):
     def __init__(self, action: Action) -> None:
         self.action = action
@@ -39,9 +49,11 @@ class ConstantPolicy(Policy):
         observation: Observation,
         action_space: ActionSpace,
     ) -> PolicyDecision:
-        del observation
         del action_space
-        return PolicyDecision(actions=(self.action,), value=None)
+        return PolicyDecision(
+            actions=(_local_action(observation, self.action),),
+            value=None,
+        )
 
 
 class SocialWelfareTest(unittest.TestCase):

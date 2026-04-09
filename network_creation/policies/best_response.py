@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import igraph as ig
 import numpy as np
+from numpy.typing import NDArray
 
 from network_creation.core.model import (
     Action,
@@ -13,7 +15,16 @@ from network_creation.core.model import (
 )
 
 from .base import Policy
-from .utils import _distances_from_index, _sample_argmax
+from .utils import _sample_argmax
+
+
+def _sum_discounted_distances(
+    distance_discount: float,
+    distances: NDArray[np.float32],
+    power_buffer: NDArray[np.float32],
+) -> float:
+    np.power(distance_discount, distances, out=power_buffer)
+    return power_buffer.sum()
 
 
 class BestResponsePolicy(Policy):
@@ -27,8 +38,8 @@ class BestResponsePolicy(Policy):
         bridge_value_scale: float,
         inertia_term: float,
     ) -> None:
-        if not 0.0 <= benefit_to_cost_ratio <= 1.0:
-            raise ValueError("benefit_to_cost_ratio must be in [0,1]")
+        if not 0.0 < benefit_to_cost_ratio <= 1.0:
+            raise ValueError("benefit_to_cost_ratio must be in (0,1]")
         if not 0.0 <= distance_discount < 1.0:
             raise ValueError("distance_discount must be in [0,1)")
         if bridge_value_scale < 0.0:
@@ -49,111 +60,165 @@ class BestResponsePolicy(Policy):
         self, observation: Observation, action_space: ActionSpace
     ) -> PolicyDecision:
         graph = observation.graph
-        total_nodes = graph.vcount() + len(observation.outside_node_idxs)
+        node_count = graph.vcount()
+        total_nodes = node_count + len(observation.outside_node_idxs)
         pass_action = action_space[ActionType.PASS][0]
 
         if total_nodes <= 1:
             return PolicyDecision(actions=(pass_action,), value=None)
 
+        # Baseline state and normalization.
         source_idx = pass_action.source
-
-        baseline_dist = _distances_from_index(graph, source_idx)
-        base_benefit = np.sum(self.distance_discount**baseline_dist)
+        baseline_dist = np.empty(node_count, dtype=np.float32)
+        distance_power_buffer = np.empty(node_count, dtype=np.float32)
+        baseline_dist[:] = graph.distances(source=[source_idx], mode="all")[0]
+        base_benefit = _sum_discounted_distances(
+            self.distance_discount,
+            baseline_dist,
+            distance_power_buffer,
+        )
         norm = float(total_nodes - 1)
 
+        # Partition the action space once so each section has a single job.
         add_actions = action_space[ActionType.ADD]
         delete_actions = action_space[ActionType.DELETE]
         bridge_actions = action_space[ActionType.BRIDGE]
+        add_targets = [action.target for action in add_actions]
 
-        candidate_actions: list[Action] = []
-        candidate_values: list[float] = []
+        candidate_actions: list[Action] = [pass_action]
+        candidate_values: list[float] = [0.0]
 
-        # Plain DELETE using one reusable mutable graph.
+        add_benefit_matrix: np.ndarray | None = None
+        add_target_distance_buffer: NDArray[np.float32] | None = None
+        combo_distance_buffer: NDArray[np.float32] | None = None
+        combo_power_buffer: NDArray[np.float32] | None = None
+        if add_actions:
+            add_benefit_matrix = np.empty(
+                (len(add_actions), len(delete_actions) + 1),
+                dtype=np.float32,
+            )
+            add_target_distance_buffer = np.empty(
+                (len(add_actions), node_count),
+                dtype=np.float32,
+            )
+            combo_distance_buffer = np.empty(
+                (len(add_actions), node_count),
+                dtype=np.float32,
+            )
+            combo_power_buffer = np.empty(
+                (len(add_actions), node_count),
+                dtype=np.float32,
+            )
+
+        # Evaluate DELETE actions and cache the best follow-up benefit for each ADD.
         if delete_actions:
             g_delete = graph.copy()
-            for action in delete_actions:
+            deleted_dist = np.empty(node_count, dtype=np.float32)
+            for delete_idx, action in enumerate(delete_actions):
                 eid = g_delete.get_eid(
                     source_idx, action.target, directed=True, error=True
                 )
                 g_delete.delete_edges([eid])
 
-                new_dist = _distances_from_index(g_delete, source_idx)
-                new_benefit = np.sum(self.distance_discount**new_dist)
+                deleted_dist[:] = g_delete.distances(source=[source_idx], mode="all")[0]
+                deleted_benefit = _sum_discounted_distances(
+                    self.distance_discount,
+                    deleted_dist,
+                    distance_power_buffer,
+                )
                 value = (
-                    self.benefit_to_cost_ratio * (new_benefit - base_benefit) + 1.0
+                    self.benefit_to_cost_ratio * (deleted_benefit - base_benefit) + 1.0
                 ) / norm - self.inertia_term
 
                 candidate_actions.append(action)
                 candidate_values.append(value)
 
+                if (
+                    add_benefit_matrix is not None
+                    and add_target_distance_buffer is not None
+                    and combo_distance_buffer is not None
+                    and combo_power_buffer is not None
+                ):
+                    add_target_distance_buffer[:] = g_delete.distances(
+                        source=add_targets, mode="all"
+                    )
+                    np.add(
+                        add_target_distance_buffer,
+                        1.0,
+                        out=combo_distance_buffer,
+                    )
+                    np.minimum(
+                        combo_distance_buffer,
+                        deleted_dist[None, :],
+                        out=combo_distance_buffer,
+                    )
+                    np.power(
+                        self.distance_discount,
+                        combo_distance_buffer,
+                        out=combo_power_buffer,
+                    )
+                    add_benefit_matrix[:, delete_idx] = np.sum(
+                        combo_power_buffer,
+                        axis=1,
+                    )
+
                 g_delete.add_edge(source_idx, action.target)
 
-        # Batch distances for immediate ADD evaluation in the original graph.
-        if add_actions:
-            add_target_dists = np.asarray(
-                graph.distances(
-                    source=[action.target for action in add_actions],
-                    mode="all",
-                ),
-                dtype=np.float64,
+        # Evaluate ADD actions, using the best add-only or add-then-delete outcome.
+        if (
+            add_benefit_matrix is not None
+            and add_target_distance_buffer is not None
+            and combo_distance_buffer is not None
+            and combo_power_buffer is not None
+        ):
+            add_target_distance_buffer[:] = graph.distances(
+                source=add_targets, mode="all"
+            )
+            np.add(
+                add_target_distance_buffer,
+                1.0,
+                out=combo_distance_buffer,
+            )
+            np.minimum(
+                combo_distance_buffer,
+                baseline_dist[None, :],
+                out=combo_distance_buffer,
+            )
+            np.power(
+                self.distance_discount,
+                combo_distance_buffer,
+                out=combo_power_buffer,
+            )
+            add_only_benefit = combo_power_buffer.sum(axis=1)
+            add_benefit_matrix[:, -1] = add_only_benefit - (
+                1.0 / self.benefit_to_cost_ratio
+            )
+            best_add_values = (
+                self.benefit_to_cost_ratio
+                * (np.max(add_benefit_matrix, axis=1) - base_benefit)
+                / norm
             )
 
-            for action, target_dist in zip(add_actions, add_target_dists):
-                new_dist_add = np.minimum(baseline_dist, 1.0 + target_dist)
-                new_benefit_add = np.sum(self.distance_discount**new_dist_add)
-                best_add_value = (
-                    self.benefit_to_cost_ratio * (new_benefit_add - base_benefit) - 1.0
-                ) / norm
-
-                if delete_actions:
-                    g_add = graph.copy()
-                    g_add.add_edge(source_idx, action.target)
-
-                    for delete_action in delete_actions:
-                        eid = g_add.get_eid(
-                            source_idx,
-                            delete_action.target,
-                            directed=True,
-                            error=True,
-                        )
-                        g_add.delete_edges([eid])
-
-                        new_dist = _distances_from_index(g_add, source_idx)
-                        new_benefit = np.sum(self.distance_discount**new_dist)
-                        value = (
-                            self.benefit_to_cost_ratio * (new_benefit - base_benefit)
-                        ) / norm
-                        if value > best_add_value:
-                            best_add_value = value
-
-                        g_add.add_edge(source_idx, delete_action.target)
-
+            for action, best_add_value in zip(add_actions, best_add_values):
                 candidate_actions.append(action)
                 candidate_values.append(best_add_value - self.inertia_term)
 
+        # Evaluate bridge exploration against PASS and keep tie-breaking random.
         if bridge_actions:
             bridge_value = (
                 self.bridge_value_scale * (len(bridge_actions) / norm)
                 - self.inertia_term
             )
-            if bridge_value > 0.0:
-                bridge_action = bridge_actions[
-                    int(self._rng.integers(len(bridge_actions)))
-                ]
-                candidate_actions.append(bridge_action)
-                candidate_values.append(bridge_value)
+            bridge_action = bridge_actions[int(self._rng.integers(len(bridge_actions)))]
+            candidate_actions.append(bridge_action)
+            candidate_values.append(bridge_value)
 
-        valid_indices = [
-            idx for idx, value in enumerate(candidate_values) if value > 0.0
-        ]
-        if not valid_indices:
+        chosen_idx = _sample_argmax(candidate_values, self._rng)
+        chosen_action = candidate_actions[chosen_idx]
+        if chosen_action.type is ActionType.PASS:
             return PolicyDecision(actions=(pass_action,), value=None)
 
-        valid_actions = [candidate_actions[idx] for idx in valid_indices]
-        valid_values = [candidate_values[idx] for idx in valid_indices]
-        chosen_idx = _sample_argmax(valid_values, self._rng)
-
         return PolicyDecision(
-            actions=(valid_actions[chosen_idx],),
-            value={"value": valid_values[chosen_idx]},
+            actions=(chosen_action,),
+            value={"value": candidate_values[chosen_idx]},
         )

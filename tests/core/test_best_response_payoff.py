@@ -42,6 +42,19 @@ class BestResponsePolicyTest(unittest.TestCase):
                 inertia_term=-0.1,
             )
 
+    def test_constructor_rejects_non_positive_benefit_ratio(self) -> None:
+        with self.assertRaisesRegex(
+            ValueError,
+            r"benefit_to_cost_ratio must be in \(0,1\]",
+        ):
+            BestResponsePolicy(
+                seed=7,
+                benefit_to_cost_ratio=0.0,
+                distance_discount=0.5,
+                bridge_value_scale=1.0,
+                inertia_term=0.0,
+            )
+
     def test_isolated_node_can_still_choose_bridge_action(self) -> None:
         observation, action_space = self._build_observation_and_action_space(
             adjacency=np.zeros((3, 3), dtype=np.int8),
@@ -140,6 +153,27 @@ class BestResponsePolicyTest(unittest.TestCase):
             PolicyDecision(actions=(Action(ActionType.PASS, source=0),), value=None),
         )
 
+    def test_zero_value_bridge_ties_with_pass_and_can_be_selected(self) -> None:
+        observation, action_space = self._build_observation_and_action_space(
+            adjacency=np.zeros((3, 3), dtype=np.int8),
+            node_id=0,
+            radius=1,
+        )
+        policy = BestResponsePolicy(
+            seed=1,
+            benefit_to_cost_ratio=0.5,
+            distance_discount=0.5,
+            bridge_value_scale=1.0,
+            inertia_term=1.0,
+        )
+
+        decision = policy.get_decision(observation, action_space)
+
+        self.assertEqual(decision.actions[0].type, ActionType.BRIDGE)
+        self.assertIn(decision.actions[0], action_space[ActionType.BRIDGE])
+        assert decision.value is not None
+        self.assertAlmostEqual(float(decision.value["value"]), 0.0)
+
     def test_non_contiguous_observation_names_return_local_action(self) -> None:
         adjacency = np.zeros((6, 6), dtype=np.int8)
         adjacency[4, 5] = 1
@@ -156,7 +190,7 @@ class BestResponsePolicyTest(unittest.TestCase):
 
         policy = BestResponsePolicy(
             seed=23,
-            benefit_to_cost_ratio=0.0,
+            benefit_to_cost_ratio=0.5,
             distance_discount=0.5,
             bridge_value_scale=0.0,
             inertia_term=0.0,
@@ -169,7 +203,7 @@ class BestResponsePolicyTest(unittest.TestCase):
             (Action(ActionType.DELETE, source=0, target=1),),
         )
         assert decision.value is not None
-        self.assertAlmostEqual(float(decision.value["value"]), 0.2)
+        self.assertAlmostEqual(float(decision.value["value"]), 0.15)
 
     def test_non_contiguous_bridge_action_returns_local_action(self) -> None:
         observation, action_space = self._build_observation_and_action_space(
@@ -194,7 +228,7 @@ class BestResponsePolicyTest(unittest.TestCase):
         )
         policy = BestResponsePolicy(
             seed=29,
-            benefit_to_cost_ratio=0.0,
+            benefit_to_cost_ratio=0.5,
             distance_discount=0.5,
             bridge_value_scale=1.0,
             inertia_term=0.0,
@@ -205,6 +239,51 @@ class BestResponsePolicyTest(unittest.TestCase):
         self.assertEqual(decision.actions[0].type, ActionType.BRIDGE)
         self.assertEqual(decision.actions[0].source, 0)
         self.assertIn(decision.actions[0].target, {1, 2, 3, 4, 5})
+
+    def test_add_action_can_use_best_add_then_delete_combo(self) -> None:
+        observation, action_space = self._build_observation_and_action_space(
+            adjacency=np.array(
+                [
+                    [0, 0, 1, 0, 0],
+                    [0, 0, 1, 1, 1],
+                    [0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0],
+                ],
+                dtype=np.int8,
+            ),
+            node_id=0,
+            radius=5,
+        )
+        self.assertEqual(
+            action_space[ActionType.DELETE],
+            [Action(ActionType.DELETE, source=0, target=2)],
+        )
+        self.assertEqual(
+            action_space[ActionType.ADD],
+            [
+                Action(ActionType.ADD, source=0, target=1),
+                Action(ActionType.ADD, source=0, target=3),
+                Action(ActionType.ADD, source=0, target=4),
+            ],
+        )
+
+        policy = BestResponsePolicy(
+            seed=31,
+            benefit_to_cost_ratio=1.0,
+            distance_discount=0.5,
+            bridge_value_scale=0.0,
+            inertia_term=0.0,
+        )
+
+        decision = policy.get_decision(observation, action_space)
+
+        self.assertEqual(
+            decision.actions,
+            (Action(ActionType.ADD, source=0, target=1),),
+        )
+        assert decision.value is not None
+        self.assertAlmostEqual(float(decision.value["value"]), 0.0625)
 
 
 if __name__ == "__main__":

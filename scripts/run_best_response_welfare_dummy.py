@@ -83,6 +83,10 @@ def run_case(case_index: int, policy_kwargs: dict[str, float]) -> None:
 
 
 def main() -> None:
+    print("Running best-response welfare dummy script...")
+    print(f"Number of agents: {N_AGENTS}")
+    print(f"Max steps: {MAX_STEPS}")
+    print(f"Number of episodes: {N_EPISODES}")
     for case_index, policy_kwargs in enumerate(PARAMETER_SETS):
         run_case(case_index=case_index, policy_kwargs=policy_kwargs)
 

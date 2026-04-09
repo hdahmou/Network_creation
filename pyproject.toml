@@ -21,7 +21,7 @@ dependencies = [
     "numpy>=2.0.0",
     "pytest>=9.0.2",
     "scipy>=1.17.1",
-    "sbi==0.26.0",
+    "sbi==0.26.1",
     "scienceplots>=2.2.1",
     "zarr==3.1.5",
     "bokeh>=3.9.0",

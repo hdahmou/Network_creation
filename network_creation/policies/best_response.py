@@ -1,8 +1,7 @@
-"""Best-response payoff policy with exploration via bridge actions."""
+"""Best-response payoff policy with Boltzmann action sampling."""
 
 from __future__ import annotations
 
-import igraph as ig
 import numpy as np
 from numpy.typing import NDArray
 
@@ -15,7 +14,6 @@ from network_creation.core.model import (
 )
 
 from .base import Policy
-from .utils import _sample_argmax
 
 
 def _sum_discounted_distances(
@@ -27,8 +25,31 @@ def _sum_discounted_distances(
     return power_buffer.sum()
 
 
+def stable_softmax_boltzmann(
+    values: NDArray[np.float32],
+    temperature: float,
+) -> NDArray[np.float64]:
+    if temperature <= 0.0:
+        raise ValueError("temperature must be > 0")
+
+    scaled_values = np.asarray(values, dtype=np.float64) / (temperature + 1e-12)
+    z = scaled_values - np.max(scaled_values)
+    numerator = np.exp(z)
+    denominator = np.sum(numerator)
+    return numerator / denominator
+
+
+def _sample_boltzmann(
+    values: NDArray[np.float32],
+    temperature: float,
+    rng: np.random.Generator,
+) -> int:
+    probabilities = stable_softmax_boltzmann(values, temperature)
+    return int(rng.choice(len(values), p=probabilities))
+
+
 class BestResponsePolicy(Policy):
-    """Select action with highest normalized payoff delta or bridge alternative."""
+    """Select an action by Boltzmann-weighted sampling over payoff values."""
 
     def __init__(
         self,
@@ -37,6 +58,7 @@ class BestResponsePolicy(Policy):
         distance_discount: float,
         bridge_value_scale: float,
         inertia_term: float,
+        temperature: float,
     ) -> None:
         if not 0.0 < benefit_to_cost_ratio <= 1.0:
             raise ValueError("benefit_to_cost_ratio must be in (0,1]")
@@ -46,11 +68,14 @@ class BestResponsePolicy(Policy):
             raise ValueError("bridge_value_scale must be >= 0")
         if inertia_term < 0.0:
             raise ValueError("inertia_term must be >= 0")
+        if temperature <= 0.0:
+            raise ValueError("temperature must be > 0")
 
         self.benefit_to_cost_ratio = benefit_to_cost_ratio
         self.distance_discount = distance_discount
         self.bridge_value_scale = bridge_value_scale
         self.inertia_term = inertia_term
+        self.temperature = temperature
         self._rng = np.random.default_rng(seed)
 
     def reset(self, seed: int) -> None:
@@ -85,8 +110,14 @@ class BestResponsePolicy(Policy):
         bridge_actions = action_space[ActionType.BRIDGE]
         add_targets = [action.target for action in add_actions]
 
-        candidate_actions: list[Action] = [pass_action]
-        candidate_values: list[float] = [0.0]
+        candidate_count = (
+            1 + len(delete_actions) + len(add_actions) + len(bridge_actions)
+        )
+        candidate_actions: list[Action] = [pass_action] * candidate_count
+        candidate_values = np.empty(candidate_count, dtype=np.float32)
+        candidate_actions[0] = pass_action
+        candidate_values[0] = 0.0
+        candidate_idx = 1
 
         add_benefit_matrix: np.ndarray | None = None
         add_target_distance_buffer: NDArray[np.float32] | None = None
@@ -130,8 +161,9 @@ class BestResponsePolicy(Policy):
                     self.benefit_to_cost_ratio * (deleted_benefit - base_benefit) + 1.0
                 ) / norm - self.inertia_term
 
-                candidate_actions.append(action)
-                candidate_values.append(value)
+                candidate_actions[candidate_idx] = action
+                candidate_values[candidate_idx] = value
+                candidate_idx += 1
 
                 if (
                     add_benefit_matrix is not None
@@ -200,8 +232,9 @@ class BestResponsePolicy(Policy):
             )
 
             for action, best_add_value in zip(add_actions, best_add_values):
-                candidate_actions.append(action)
-                candidate_values.append(best_add_value - self.inertia_term)
+                candidate_actions[candidate_idx] = action
+                candidate_values[candidate_idx] = best_add_value - self.inertia_term
+                candidate_idx += 1
 
         # Evaluate bridge exploration against PASS and keep tie-breaking random.
         if bridge_actions:
@@ -209,15 +242,17 @@ class BestResponsePolicy(Policy):
                 self.bridge_value_scale * (len(bridge_actions) / norm)
                 - self.inertia_term
             )
-            bridge_action = bridge_actions[int(self._rng.integers(len(bridge_actions)))]
-            candidate_actions.append(bridge_action)
-            candidate_values.append(bridge_value)
+            bridge_end = candidate_idx + len(bridge_actions)
+            candidate_actions[candidate_idx:bridge_end] = bridge_actions
+            candidate_values[candidate_idx:bridge_end] = bridge_value
+            candidate_idx = bridge_end
 
-        chosen_idx = _sample_argmax(candidate_values, self._rng)
+        chosen_idx = _sample_boltzmann(
+            candidate_values,
+            self.temperature,
+            self._rng,
+        )
         chosen_action = candidate_actions[chosen_idx]
-        if chosen_action.type is ActionType.PASS:
-            return PolicyDecision(actions=(pass_action,), value=None)
-
         return PolicyDecision(
             actions=(chosen_action,),
             value={"value": candidate_values[chosen_idx]},

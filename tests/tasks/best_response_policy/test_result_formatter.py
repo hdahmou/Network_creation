@@ -76,6 +76,7 @@ class BestResponsePolicyResultFormatterTest(unittest.TestCase):
                 "distance_discount",
                 "bridge_value_scale",
                 "inertia_term",
+                "temperature",
                 "visibility_fraction",
             ),
         )

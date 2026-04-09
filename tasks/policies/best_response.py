@@ -30,6 +30,7 @@ class BestResponsePolicyRun(PolicyRun):
             distance_discount=float(sample[parameter_columns["distance_discount"]]),
             bridge_value_scale=float(sample[parameter_columns["bridge_value_scale"]]),
             inertia_term=float(sample[parameter_columns["inertia_term"]]),
+            temperature=float(sample[parameter_columns["temperature"]]),
         )
 
     @classmethod

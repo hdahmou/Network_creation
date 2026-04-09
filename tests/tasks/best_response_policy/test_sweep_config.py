@@ -23,6 +23,7 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
                     "distance_discount": {"type": "fixed", "payload": 0.5},
                     "bridge_value_scale": {"type": "fixed", "payload": 0.25},
                     "inertia_term": {"type": "fixed", "payload": 0.1},
+                    "temperature": {"type": "fixed", "payload": 1.0},
                     "visibility_fraction": {"type": "fixed", "payload": 1.0},
                 },
             },
@@ -65,6 +66,7 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
                     "type": "continuous",
                     "payload": {"min": 0.0, "max": 0.3},
                 },
+                "temperature": {"type": "fixed", "payload": 1.0},
                 "visibility_fraction": {"type": "fixed", "payload": 1.0},
             },
         }
@@ -78,12 +80,14 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
                 "distance_discount",
                 "bridge_value_scale",
                 "inertia_term",
+                "temperature",
                 "visibility_fraction",
             ),
         )
-        self.assertEqual(parameter_table.parameter_values.shape, (4, 5))
+        self.assertEqual(parameter_table.parameter_values.shape, (4, 6))
         np.testing.assert_allclose(parameter_table.parameter_values[:, 0], 0.05)
         np.testing.assert_allclose(parameter_table.parameter_values[:, 4], 1.0)
+        np.testing.assert_allclose(parameter_table.parameter_values[:, 5], 1.0)
 
     def test_generate_parameter_table_samples_continuous_parameters_jointly(self) -> None:
         input_spec = {
@@ -102,6 +106,7 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
                     "type": "continuous",
                     "payload": {"min": 0.1, "max": 0.4},
                 },
+                "temperature": {"type": "fixed", "payload": 1.0},
                 "visibility_fraction": {"type": "fixed", "payload": 1.0},
             },
         }
@@ -120,6 +125,7 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
                 unit_samples[:, 1],
                 0.1 + (unit_samples[:, 2] * 0.3),
                 np.full(4, 1.0, dtype=np.float32),
+                np.full(4, 1.0, dtype=np.float32),
             )
         ).astype(np.float32, copy=False)
 
@@ -129,6 +135,7 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
                 "distance_discount",
                 "bridge_value_scale",
                 "inertia_term",
+                "temperature",
                 "visibility_fraction",
             ),
         )
@@ -146,12 +153,13 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
                 "distance_discount",
                 "bridge_value_scale",
                 "inertia_term",
+                "temperature",
                 "visibility_fraction",
             ),
         )
         np.testing.assert_allclose(
             task.parameter_table.parameter_values,
-            np.array([[0.05, 0.5, 0.25, 0.1, 1.0]], dtype=np.float32),
+            np.array([[0.05, 0.5, 0.25, 0.1, 1.0, 1.0]], dtype=np.float32),
         )
 
     def test_prepare_rejects_missing_visibility_fraction(self) -> None:

@@ -21,6 +21,7 @@ class BestResponsePolicyTaskTest(unittest.TestCase):
                     "distance_discount": {"type": "fixed", "payload": 0.5},
                     "bridge_value_scale": {"type": "fixed", "payload": 1.0},
                     "inertia_term": {"type": "fixed", "payload": 0.0},
+                    "temperature": {"type": "fixed", "payload": 1.0},
                     "visibility_fraction": {"type": "fixed", "payload": 1.0},
                 },
             },
@@ -74,6 +75,7 @@ class BestResponsePolicyTaskTest(unittest.TestCase):
                 "distance_discount",
                 "bridge_value_scale",
                 "inertia_term",
+                "temperature",
                 "visibility_fraction",
             ),
         )
@@ -112,6 +114,7 @@ class BestResponsePolicyTaskTest(unittest.TestCase):
                     "type": "continuous",
                     "payload": {"min": 0.0, "max": 0.5},
                 },
+                "temperature": {"type": "fixed", "payload": 1.0},
                 "visibility_fraction": {"type": "fixed", "payload": 1.0},
             },
         }

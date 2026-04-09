@@ -122,6 +122,7 @@ namespace Policies {
         +distance_discount: float
         +bridge_value_scale: float
         +inertia_term: float
+        +temperature: float
     }
 }
 

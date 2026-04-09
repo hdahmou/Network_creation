@@ -10,8 +10,7 @@ def _distances_from_index(graph: ig.Graph, vertex_idx: int) -> NDArray[np.float6
     )
 
 
-def _sample_argmax(values: list[float], rng: np.random.Generator) -> int:
+def _sample_argmax(values: NDArray[np.float32], rng: np.random.Generator) -> int:
     """Return the index of a maximal value, breaking ties uniformly at random."""
-    max_value = max(values)
-    best_indices = [idx for idx, value in enumerate(values) if value == max_value]
-    return int(best_indices[int(rng.integers(len(best_indices)))])
+    best_indices = np.flatnonzero(values == values.max())
+    return int(best_indices[int(rng.integers(best_indices.size))])

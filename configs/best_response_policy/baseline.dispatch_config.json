@@ -32,6 +32,10 @@
           "max": 0.5
         }
       },
+      "temperature": {
+        "type": "fixed",
+        "payload": 1.0
+      },
       "visibility_fraction": {
         "type": "fixed",
         "payload": 1.0

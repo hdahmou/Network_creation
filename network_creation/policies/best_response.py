@@ -62,8 +62,8 @@ class BestResponsePolicy(Policy):
     ) -> None:
         if not 0.0 < benefit_to_cost_ratio <= 1.0:
             raise ValueError("benefit_to_cost_ratio must be in (0,1]")
-        if not 0.0 <= distance_discount < 1.0:
-            raise ValueError("distance_discount must be in [0,1)")
+        if not 0.0 < distance_discount < 1.0:
+            raise ValueError("distance_discount must be in (0,1)")
         if bridge_value_scale < 0.0:
             raise ValueError("bridge_value_scale must be >= 0")
         if inertia_term < 0.0:

@@ -63,6 +63,20 @@ class BestResponsePolicyTest(unittest.TestCase):
                 temperature=self.temperature,
             )
 
+    def test_constructor_rejects_non_positive_distance_discount(self) -> None:
+        with self.assertRaisesRegex(
+            ValueError,
+            r"distance_discount must be in \(0,1\)",
+        ):
+            BestResponsePolicy(
+                seed=7,
+                benefit_to_cost_ratio=0.5,
+                distance_discount=0.0,
+                bridge_value_scale=1.0,
+                inertia_term=0.0,
+                temperature=self.temperature,
+            )
+
     def test_constructor_rejects_non_positive_temperature(self) -> None:
         with self.assertRaisesRegex(ValueError, "temperature must be > 0"):
             BestResponsePolicy(

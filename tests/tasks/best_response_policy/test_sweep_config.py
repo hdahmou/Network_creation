@@ -21,7 +21,7 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
                 "parameters": {
                     "benefit_to_cost_ratio": {"type": "fixed", "payload": 0.05},
                     "distance_discount": {"type": "fixed", "payload": 0.5},
-                    "bridge_value_scale": {"type": "fixed", "payload": 0.25},
+                    "bridge_value": {"type": "fixed", "payload": 0.25},
                     "inertia_term": {"type": "fixed", "payload": 0.1},
                     "temperature": {"type": "fixed", "payload": 1.0},
                     "visibility_fraction": {"type": "fixed", "payload": 1.0},
@@ -58,9 +58,9 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
                     "type": "continuous",
                     "payload": {"min": 0.2, "max": 0.8},
                 },
-                "bridge_value_scale": {
+                "bridge_value": {
                     "type": "continuous",
-                    "payload": {"min": 0.0, "max": 1.0},
+                    "payload": {"min": -0.5, "max": 0.5},
                 },
                 "inertia_term": {
                     "type": "continuous",
@@ -78,7 +78,7 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
             (
                 "benefit_to_cost_ratio",
                 "distance_discount",
-                "bridge_value_scale",
+                "bridge_value",
                 "inertia_term",
                 "temperature",
                 "visibility_fraction",
@@ -98,9 +98,9 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
                     "type": "continuous",
                     "payload": {"min": 0.2, "max": 0.8},
                 },
-                "bridge_value_scale": {
+                "bridge_value": {
                     "type": "continuous",
-                    "payload": {"min": 0.0, "max": 1.0},
+                    "payload": {"min": -0.5, "max": 0.5},
                 },
                 "inertia_term": {
                     "type": "continuous",
@@ -122,7 +122,7 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
         expected = np.column_stack(
             (
                 0.2 + (unit_samples[:, 0] * 0.6),
-                unit_samples[:, 1],
+                unit_samples[:, 1] - 0.5,
                 0.1 + (unit_samples[:, 2] * 0.3),
                 np.full(4, 1.0, dtype=np.float32),
                 np.full(4, 1.0, dtype=np.float32),
@@ -133,7 +133,7 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
             parameter_table.parameter_names,
             (
                 "distance_discount",
-                "bridge_value_scale",
+                "bridge_value",
                 "inertia_term",
                 "temperature",
                 "visibility_fraction",
@@ -151,7 +151,7 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
             (
                 "benefit_to_cost_ratio",
                 "distance_discount",
-                "bridge_value_scale",
+                "bridge_value",
                 "inertia_term",
                 "temperature",
                 "visibility_fraction",

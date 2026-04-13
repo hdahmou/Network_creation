@@ -46,13 +46,13 @@ def build_best_response_config(*, log2_budget: int = 2) -> dict[str, object]:
                     "type": "continuous",
                     "payload": {"min": 0.1, "max": 0.9},
                 },
-                "bridge_value_scale": {
+                "bridge_value": {
                     "type": "continuous",
-                    "payload": {"min": 0.0, "max": 1.0},
+                    "payload": {"min": -0.5, "max": 0.5},
                 },
                 "inertia_term": {
                     "type": "continuous",
-                    "payload": {"min": 0.0, "max": 0.5},
+                    "payload": {"min": -0.5, "max": 0.5},
                 },
                 "temperature": {"type": "fixed", "payload": 1.0},
                 "visibility_fraction": {"type": "fixed", "payload": 1.0},

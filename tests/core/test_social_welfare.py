@@ -57,7 +57,7 @@ class ConstantPolicy(Policy):
 
 
 class SocialWelfareTest(unittest.TestCase):
-    def test_normalized_welfare_excludes_self_terms_and_zeroes_disconnected_pairs(
+    def test_normalized_welfare_keeps_empty_graph_in_bounded_positive_range(
         self,
     ) -> None:
         graph = create_empty_graph(2)
@@ -68,9 +68,9 @@ class SocialWelfareTest(unittest.TestCase):
             distance_discount=0.5,
         )
 
-        self.assertEqual(welfare, 0.0)
+        self.assertAlmostEqual(welfare, 13.0 / 30.0)
 
-    def test_normalized_welfare_counts_bilateral_links_in_node_means(self) -> None:
+    def test_normalized_welfare_counts_bilateral_links_on_zero_to_one_scale(self) -> None:
         graph = graph_from_adjacency_matrix(
             np.array(
                 [
@@ -87,7 +87,7 @@ class SocialWelfareTest(unittest.TestCase):
             distance_discount=0.5,
         )
 
-        self.assertEqual(welfare, -0.85)
+        self.assertAlmostEqual(welfare, 0.15)
 
     def test_normalized_welfare_observer_rejects_decay_outside_zero_to_one_interval(
         self,
@@ -151,7 +151,7 @@ class SocialWelfareTest(unittest.TestCase):
         np.testing.assert_array_equal(observer.steps, np.array([0, 1, 2]))
         np.testing.assert_allclose(
             observer.values,
-            np.array([0.0, -0.35, -0.35], dtype=np.float32),
+            np.array([13.0 / 30.0, 19.0 / 60.0, 19.0 / 60.0], dtype=np.float32),
         )
 
 

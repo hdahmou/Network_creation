@@ -128,7 +128,10 @@ class GraphOpsTest(unittest.TestCase):
 
         expected_by_radius = {
             1: {
-                ActionType.ADD: [],
+                ActionType.ADD: [
+                    Action(ActionType.ADD, source=1, target=0),
+                    Action(ActionType.ADD, source=1, target=2),
+                ],
                 ActionType.BRIDGE: [
                     Action(ActionType.BRIDGE, source=1, target=3),
                     Action(ActionType.BRIDGE, source=1, target=4),
@@ -139,6 +142,8 @@ class GraphOpsTest(unittest.TestCase):
             },
             2: {
                 ActionType.ADD: [
+                    Action(ActionType.ADD, source=1, target=0),
+                    Action(ActionType.ADD, source=1, target=2),
                     Action(ActionType.ADD, source=1, target=3),
                     Action(ActionType.ADD, source=1, target=4),
                 ],
@@ -148,6 +153,8 @@ class GraphOpsTest(unittest.TestCase):
             },
             3: {
                 ActionType.ADD: [
+                    Action(ActionType.ADD, source=1, target=0),
+                    Action(ActionType.ADD, source=1, target=2),
                     Action(ActionType.ADD, source=1, target=3),
                     Action(ActionType.ADD, source=1, target=4),
                     Action(ActionType.ADD, source=1, target=5),
@@ -199,7 +206,10 @@ class GraphOpsTest(unittest.TestCase):
 
         self.assertEqual(
             action_space[ActionType.ADD],
-            [Action(ActionType.ADD, source=2, target=0)],
+            [
+                Action(ActionType.ADD, source=2, target=0),
+                Action(ActionType.ADD, source=2, target=1),
+            ],
         )
         self.assertEqual(
             action_space[ActionType.BRIDGE],

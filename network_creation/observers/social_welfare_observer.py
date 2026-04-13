@@ -2,6 +2,23 @@
 
 from __future__ import annotations
 
+r"""
+.. math::
+    \begin{aligned}
+        \text{Network Structure:} & \quad g = (V, E) \text{ is directed; } \bar{g} \text{ is the undirected skeleton.} \\
+        \\
+        \text{Individual Payoff:} & \quad \hat{\Pi}_i = \frac{1}{2n-1} \left[ \frac{V}{k} \sum_{j \in N} \delta^{d(i, j, \bar{g})} - \eta_i(g) + (n-1) \right] \in [0, 1] \\
+        \\
+        \text{Network Value (Sum):} & \quad \mathcal{V}(g) = \sum_{i \in N} \hat{\Pi}_i = \frac{1}{2n-1} \left[ \frac{V}{k} \mathcal{B}(\bar{g}) - |E(g)| + n(n-1) \right] \in [0, n] \\
+        \\
+        \text{Bounded Aggregate:} & \quad \bar{\Pi}_{agg} = \frac{\mathcal{V}(g)}{n} = \frac{1}{n(2n-1)} \left[ \frac{V}{k} \mathcal{B}(\bar{g}) - |E(g)| + n(n-1) \right] \in [0, 1] \\
+        \\
+        \text{Where:} & \quad \mathcal{B}(\bar{g}) = \text{Total Benefit} = \sum_{i \in N} \sum_{j \in N} \delta^{d(i,j, \bar{g})} \\
+        & \quad |E(g)| = \text{Total Directed Edges} = \sum_{i \in N} \eta_i(g)
+   \end{aligned}
+"""
+
+
 import igraph as ig
 import numpy as np
 
@@ -20,39 +37,18 @@ def _compute_normalized_welfare(
     benefit_to_cost_ratio: float,
     distance_discount: float,
 ) -> float:
-    """Return mean normalized node utility."""
     n = graph.vcount()
-    discounted_distance_sum = float(
+    total_benefit = float(
         np.power(distance_discount, graph.distances(mode="all")).sum()
     )
     return (
-        benefit_to_cost_ratio * (discounted_distance_sum - float(n))
+        benefit_to_cost_ratio * total_benefit
         - float(graph.ecount())
-    ) / float(n * (n - 1))
+        + float(n * (n - 1))
+    ) / float(n * (2 * n - 1))
 
 
 class NormalizedWelfareObserver(EpisodeSeriesStatisticObserver):
-    r"""Collect normalized welfare per sampled step.
-
-    The statistic is
-
-    .. math::
-
-       \bar U
-       =
-       \frac{1}{n}\sum_{i=1}^n
-       \left(
-       \eta \frac{1}{n-1}\sum_{j \neq i}\delta^{d(i, j)}
-       -
-       \frac{m_i}{n-1}
-       \right)
-
-    where ``benefit_to_cost_ratio = \eta = v/k`` and
-    ``distance_discount = \delta``.
-
-    Disconnected pairs contribute zero, self-terms are excluded, and for
-    :math:`n \ge 2` the returned value lies in :math:`[-1, 1]`.
-    """
 
     label = "Normalized Welfare"
     x_label = "step"
@@ -69,8 +65,7 @@ class NormalizedWelfareObserver(EpisodeSeriesStatisticObserver):
     ) -> None:
         if not 0.0 <= benefit_to_cost_ratio <= 1.0:
             raise ValueError(
-                "benefit_to_cost_ratio must satisfy 0 <= "
-                "benefit_to_cost_ratio <= 1"
+                "benefit_to_cost_ratio must satisfy 0 <= " "benefit_to_cost_ratio <= 1"
             )
         if not 0.0 <= distance_discount < 1.0:
             raise ValueError(

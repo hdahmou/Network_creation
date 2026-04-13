@@ -23,12 +23,13 @@ class BestResponsePolicyRun(PolicyRun):
     ) -> BestResponsePolicy:
         parameter_columns = self.parameter_table.column_index_by_name
         return BestResponsePolicy(
+            n_nodes=self.simulation_settings.n_agents,
             seed=node_id,
             benefit_to_cost_ratio=float(
                 sample[parameter_columns["benefit_to_cost_ratio"]]
             ),
             distance_discount=float(sample[parameter_columns["distance_discount"]]),
-            bridge_value_scale=float(sample[parameter_columns["bridge_value_scale"]]),
+            bridge_value=float(sample[parameter_columns["bridge_value"]]),
             inertia_term=float(sample[parameter_columns["inertia_term"]]),
             temperature=float(sample[parameter_columns["temperature"]]),
         )

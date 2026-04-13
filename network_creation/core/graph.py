@@ -59,12 +59,12 @@ def get_action_space(observation: Observation) -> ActionSpace:
 
     graph = observation.graph
     source_idx = observation.node_idx
-    neighbor_indices = set(graph.neighbors(source_idx, mode="all"))
+    out_neighbor_indices = set(graph.neighbors(source_idx, mode="out"))
 
     add_actions = [
         Action(ActionType.ADD, source_idx, target_idx)
         for target_idx in range(graph.vcount())
-        if target_idx != source_idx and target_idx not in neighbor_indices
+        if target_idx != source_idx and target_idx not in out_neighbor_indices
     ]
     bridge_actions = [
         Action(ActionType.BRIDGE, source_idx, int(target_idx))

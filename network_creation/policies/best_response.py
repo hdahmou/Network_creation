@@ -1,6 +1,30 @@
-"""Best-response payoff policy with Boltzmann action sampling."""
-
 from __future__ import annotations
+
+
+r"""
+.. math::
+    \begin{aligned}
+        \text{Component Domains:} & \quad \delta \in [0, 1], \quad \frac{V}{k} \in [0, 1], \quad \eta_i(g) \in [0, n-1] \\
+        \\
+        \text{Summation Range:} & \quad 1 \leq \sum_{j \in N} \delta^{d(i,j,\bar{g})} \leq n \\
+        \\
+        \text{Raw Ratio Bounds:} & \quad -(n-1) \leq \underbrace{\frac{V}{k} \sum_{j \in N} \delta^{d(i,j,\bar{g})} - \eta_i(g)}_{x} \leq n \\
+        \\
+        \text{Normalization Step:} & \quad \hat{\Pi}_i = \frac{x - x_{min}}{x_{max} - x_{min}} = \frac{x + (n-1)}{2n-1} \\
+        \\
+        \text{Final Payoff Function:} & \quad \hat{\Pi}_i = \frac{1}{2n-1} \left[ \frac{V}{k} \sum_{j \in N} \delta^{d(i, j, \bar{g})} - \eta_i(g) + (n-1) \right] \\
+        \\
+        \text{Payoff Change:} & \quad \Delta \hat{\Pi}_i = \frac{1}{2n-1} \left[ \frac{V}{k} \Delta \sum_{j \in N} \delta^{d(i, j, \bar{g})} - \Delta \eta_i(g) \right] \\
+        \\
+        \text{where} & \quad \Delta \eta_i = 
+            \begin{cases} 
+                1 &: \text{link addition} \\ 
+                0 &: \text{link swap / no change} \\ 
+                -1 &: \text{link deletion} 
+            \end{cases}
+    \end{aligned}
+"""
+
 
 import numpy as np
 from numpy.typing import NDArray
@@ -49,14 +73,28 @@ def _sample_boltzmann(
 
 
 class BestResponsePolicy(Policy):
-    """Select an action by Boltzmann-weighted sampling over payoff values."""
+    """Select an action by Boltzmann-weighted sampling over utility deltas.
+
+    For acting node i, each candidate action is scored as
+
+        ΔU_i =
+            λ * (1 / (2*N - 1)) * Σ_j [δ^{d*_j} - δ^{d_j}]
+            - Δoutdeg(i) / (2*N - 1)
+
+    where:
+      - λ is the benefit_to_cost_ratio
+      - δ is the distance discount
+      - add:    Δoutdeg = +1
+      - delete: Δoutdeg = -1
+    """
 
     def __init__(
         self,
+        n_nodes: int,
         seed: int,
         benefit_to_cost_ratio: float,
         distance_discount: float,
-        bridge_value_scale: float,
+        bridge_value: float,
         inertia_term: float,
         temperature: float,
     ) -> None:
@@ -64,19 +102,27 @@ class BestResponsePolicy(Policy):
             raise ValueError("benefit_to_cost_ratio must be in (0,1]")
         if not 0.0 < distance_discount < 1.0:
             raise ValueError("distance_discount must be in (0,1)")
-        if bridge_value_scale < 0.0:
-            raise ValueError("bridge_value_scale must be >= 0")
-        if inertia_term < 0.0:
-            raise ValueError("inertia_term must be >= 0")
-        if temperature <= 0.0:
-            raise ValueError("temperature must be > 0")
+        if n_nodes <= 1:
+            raise ValueError("n_nodes must be > 1")
+        if not 0.0 < temperature <= 1.0:
+            raise ValueError("temperature must be in (0,1]")
+        if not -0.5 <= bridge_value <= 0.5:
+            raise ValueError("bridge_value must be in [-0.5,0.5]")
+        if not -0.5 <= inertia_term <= 0.5:
+            raise ValueError("inertia_term must be in [-0.5,0.5]")
 
+        self.n_nodes = n_nodes
         self.benefit_to_cost_ratio = benefit_to_cost_ratio
         self.distance_discount = distance_discount
-        self.bridge_value_scale = bridge_value_scale
         self.inertia_term = inertia_term
+        self.bridge_value = bridge_value
         self.temperature = temperature
         self._rng = np.random.default_rng(seed)
+
+        self.lambda_over_norm = benefit_to_cost_ratio / float(2 * n_nodes - 1)
+        self.one_over_norm = 1.0 / float(2 * n_nodes - 1)
+        self.candidate_actions: list[Action | None] = [None] * n_nodes
+        self.candidate_values = np.empty(n_nodes, dtype=np.float32)
 
     def reset(self, seed: int) -> None:
         self._rng = np.random.default_rng(seed)
@@ -86,43 +132,35 @@ class BestResponsePolicy(Policy):
     ) -> PolicyDecision:
         graph = observation.graph
         node_count = graph.vcount()
-        total_nodes = node_count + len(observation.outside_node_idxs)
         pass_action = action_space[ActionType.PASS][0]
-
-        if total_nodes <= 1:
-            return PolicyDecision(actions=(pass_action,), value=None)
-
-        # Baseline state and normalization.
         source_idx = pass_action.source
+
         baseline_dist = np.empty(node_count, dtype=np.float32)
-        distance_power_buffer = np.empty(node_count, dtype=np.float32)
+        power_buffer = np.empty(node_count, dtype=np.float32)
         baseline_dist[:] = graph.distances(source=[source_idx], mode="all")[0]
         base_benefit = _sum_discounted_distances(
             self.distance_discount,
             baseline_dist,
-            distance_power_buffer,
+            power_buffer,
         )
-        norm = float(total_nodes - 1)
 
-        # Partition the action space once so each section has a single job.
         add_actions = action_space[ActionType.ADD]
         delete_actions = action_space[ActionType.DELETE]
         bridge_actions = action_space[ActionType.BRIDGE]
         add_targets = [action.target for action in add_actions]
 
-        candidate_count = (
-            1 + len(delete_actions) + len(add_actions) + len(bridge_actions)
-        )
-        candidate_actions: list[Action] = [pass_action] * candidate_count
-        candidate_values = np.empty(candidate_count, dtype=np.float32)
-        candidate_actions[0] = pass_action
-        candidate_values[0] = 0.0
-        candidate_idx = 1
+        n_candidates = 1 + len(delete_actions) + len(add_actions) + len(bridge_actions)
+        assert (
+            n_candidates == self.n_nodes
+        ), f"Expected {self.n_nodes} candidate actions, got {n_candidates}"
+
+        candidate_idx = 0
 
         add_benefit_matrix: np.ndarray | None = None
         add_target_distance_buffer: NDArray[np.float32] | None = None
         combo_distance_buffer: NDArray[np.float32] | None = None
         combo_power_buffer: NDArray[np.float32] | None = None
+
         if add_actions:
             add_benefit_matrix = np.empty(
                 (len(add_actions), len(delete_actions) + 1),
@@ -141,7 +179,7 @@ class BestResponsePolicy(Policy):
                 dtype=np.float32,
             )
 
-        # Evaluate DELETE actions and cache the best follow-up benefit for each ADD.
+        # DELETE actions
         if delete_actions:
             g_delete = graph.copy()
             deleted_dist = np.empty(node_count, dtype=np.float32)
@@ -155,14 +193,15 @@ class BestResponsePolicy(Policy):
                 deleted_benefit = _sum_discounted_distances(
                     self.distance_discount,
                     deleted_dist,
-                    distance_power_buffer,
+                    power_buffer,
                 )
-                value = (
-                    self.benefit_to_cost_ratio * (deleted_benefit - base_benefit) + 1.0
-                ) / norm - self.inertia_term
+                delete_value = (
+                    self.lambda_over_norm * (deleted_benefit - base_benefit)
+                    + self.one_over_norm
+                )
 
-                candidate_actions[candidate_idx] = action
-                candidate_values[candidate_idx] = value
+                self.candidate_actions[candidate_idx] = action
+                self.candidate_values[candidate_idx] = delete_value
                 candidate_idx += 1
 
                 if (
@@ -174,11 +213,7 @@ class BestResponsePolicy(Policy):
                     add_target_distance_buffer[:] = g_delete.distances(
                         source=add_targets, mode="all"
                     )
-                    np.add(
-                        add_target_distance_buffer,
-                        1.0,
-                        out=combo_distance_buffer,
-                    )
+                    np.add(add_target_distance_buffer, 1.0, out=combo_distance_buffer)
                     np.minimum(
                         combo_distance_buffer,
                         deleted_dist[None, :],
@@ -196,7 +231,7 @@ class BestResponsePolicy(Policy):
 
                 g_delete.add_edge(source_idx, action.target)
 
-        # Evaluate ADD actions, using the best add-only or add-then-delete outcome.
+        # ADD / SWAP actions
         if (
             add_benefit_matrix is not None
             and add_target_distance_buffer is not None
@@ -206,11 +241,7 @@ class BestResponsePolicy(Policy):
             add_target_distance_buffer[:] = graph.distances(
                 source=add_targets, mode="all"
             )
-            np.add(
-                add_target_distance_buffer,
-                1.0,
-                out=combo_distance_buffer,
-            )
+            np.add(add_target_distance_buffer, 1.0, out=combo_distance_buffer)
             np.minimum(
                 combo_distance_buffer,
                 baseline_dist[None, :],
@@ -221,39 +252,62 @@ class BestResponsePolicy(Policy):
                 combo_distance_buffer,
                 out=combo_power_buffer,
             )
-            add_only_benefit = combo_power_buffer.sum(axis=1)
-            add_benefit_matrix[:, -1] = add_only_benefit - (
-                1.0 / self.benefit_to_cost_ratio
+
+            add_only_benefit = np.sum(combo_power_buffer, axis=1)
+            add_benefit_matrix[:, -1] = add_only_benefit
+
+            add_only_values = (
+                self.lambda_over_norm * (add_only_benefit - base_benefit)
+                - self.one_over_norm
             )
-            best_add_values = (
-                self.benefit_to_cost_ratio
-                * (np.max(add_benefit_matrix, axis=1) - base_benefit)
-                / norm
-            )
+
+            if delete_actions:
+                swap_values = self.lambda_over_norm * (
+                    add_benefit_matrix[:, :-1] - base_benefit
+                )
+                best_add_values = np.maximum(
+                    np.max(swap_values, axis=1),
+                    add_only_values,
+                )
+            else:
+                best_add_values = add_only_values
 
             for action, best_add_value in zip(add_actions, best_add_values):
-                candidate_actions[candidate_idx] = action
-                candidate_values[candidate_idx] = best_add_value - self.inertia_term
+                self.candidate_actions[candidate_idx] = action
+                self.candidate_values[candidate_idx] = best_add_value
                 candidate_idx += 1
 
-        # Evaluate bridge exploration against PASS and keep tie-breaking random.
+        # Median over ordinary actions
+        ordinary_values = self.candidate_values[:candidate_idx]
+        if ordinary_values.size > 0:
+            reference_value = float(np.median(ordinary_values))
+        else:
+            reference_value = 0.0
+
+        # PASS
+        self.candidate_actions[candidate_idx] = pass_action
+        self.candidate_values[candidate_idx] = reference_value + self.inertia_term
+        candidate_idx += 1
+
+        # BRIDGE
         if bridge_actions:
-            bridge_value = (
-                self.bridge_value_scale * (len(bridge_actions) / norm)
-                - self.inertia_term
-            )
             bridge_end = candidate_idx + len(bridge_actions)
-            candidate_actions[candidate_idx:bridge_end] = bridge_actions
-            candidate_values[candidate_idx:bridge_end] = bridge_value
+            self.candidate_actions[candidate_idx:bridge_end] = bridge_actions
+            self.candidate_values[candidate_idx:bridge_end] = (
+                reference_value + self.bridge_value
+            )
             candidate_idx = bridge_end
 
+        assert (
+            candidate_idx == n_candidates
+        ), f"Filled {candidate_idx} candidates, expected {n_candidates}"
+
         chosen_idx = _sample_boltzmann(
-            candidate_values,
+            self.candidate_values[:candidate_idx],
             self.temperature,
             self._rng,
         )
-        chosen_action = candidate_actions[chosen_idx]
         return PolicyDecision(
-            actions=(chosen_action,),
-            value={"value": candidate_values[chosen_idx]},
+            actions=(self.candidate_actions[chosen_idx],),
+            value={"value": float(self.candidate_values[chosen_idx])},
         )

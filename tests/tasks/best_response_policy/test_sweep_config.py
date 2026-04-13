@@ -23,7 +23,7 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
                     "distance_discount": {"type": "fixed", "payload": 0.5},
                     "bridge_value": {"type": "fixed", "payload": 0.25},
                     "inertia_term": {"type": "fixed", "payload": 0.1},
-                    "temperature": {"type": "fixed", "payload": 1.0},
+                    "tau": {"type": "fixed", "payload": 1.0},
                     "visibility_fraction": {"type": "fixed", "payload": 1.0},
                 },
             },
@@ -66,7 +66,7 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
                     "type": "continuous",
                     "payload": {"min": 0.0, "max": 0.3},
                 },
-                "temperature": {"type": "fixed", "payload": 1.0},
+                "tau": {"type": "fixed", "payload": 1.0},
                 "visibility_fraction": {"type": "fixed", "payload": 1.0},
             },
         }
@@ -80,7 +80,7 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
                 "distance_discount",
                 "bridge_value",
                 "inertia_term",
-                "temperature",
+                "tau",
                 "visibility_fraction",
             ),
         )
@@ -106,7 +106,7 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
                     "type": "continuous",
                     "payload": {"min": 0.1, "max": 0.4},
                 },
-                "temperature": {"type": "fixed", "payload": 1.0},
+                "tau": {"type": "fixed", "payload": 1.0},
                 "visibility_fraction": {"type": "fixed", "payload": 1.0},
             },
         }
@@ -135,7 +135,7 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
                 "distance_discount",
                 "bridge_value",
                 "inertia_term",
-                "temperature",
+                "tau",
                 "visibility_fraction",
             ),
         )
@@ -153,7 +153,7 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
                 "distance_discount",
                 "bridge_value",
                 "inertia_term",
-                "temperature",
+                "tau",
                 "visibility_fraction",
             ),
         )

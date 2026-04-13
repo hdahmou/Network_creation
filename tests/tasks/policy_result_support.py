@@ -54,7 +54,7 @@ def build_best_response_config(*, log2_budget: int = 2) -> dict[str, object]:
                     "type": "continuous",
                     "payload": {"min": -0.5, "max": 0.5},
                 },
-                "temperature": {"type": "fixed", "payload": 1.0},
+                "tau": {"type": "fixed", "payload": 1.0},
                 "visibility_fraction": {"type": "fixed", "payload": 1.0},
             },
         },

@@ -19,7 +19,7 @@ r"""
         \text{where} & \quad \Delta \eta_i = 
             \begin{cases} 
                 1 &: \text{link addition} \\ 
-                0 &: \text{link swap / no change} \\ 
+                0 &: \text{no change} \\ 
                 -1 &: \text{link deletion} 
             \end{cases}
     \end{aligned}
@@ -51,24 +51,26 @@ def _sum_discounted_distances(
 
 def stable_softmax_boltzmann(
     values: NDArray[np.float32],
-    temperature: float,
+    tau: float,
 ) -> NDArray[np.float64]:
-    if temperature <= 0.0:
-        raise ValueError("temperature must be > 0")
-
-    scaled_values = np.asarray(values, dtype=np.float64) / (temperature + 1e-12)
-    z = scaled_values - np.max(scaled_values)
-    numerator = np.exp(z)
-    denominator = np.sum(numerator)
-    return numerator / denominator
+    if tau <= 0.0:
+        raise ValueError("tau must be > 0")
+    k = len(values)
+    if k == 1:
+        return np.ones(1, dtype=np.float64)
+    scale = np.log(k) / tau
+    z = np.asarray(values, dtype=np.float64) * scale
+    z = z - np.max(z)
+    probs = np.exp(z)
+    return probs / probs.sum()
 
 
 def _sample_boltzmann(
     values: NDArray[np.float32],
-    temperature: float,
+    tau: float,
     rng: np.random.Generator,
 ) -> int:
-    probabilities = stable_softmax_boltzmann(values, temperature)
+    probabilities = stable_softmax_boltzmann(values, tau)
     return int(rng.choice(len(values), p=probabilities))
 
 
@@ -96,7 +98,7 @@ class BestResponsePolicy(Policy):
         distance_discount: float,
         bridge_value: float,
         inertia_term: float,
-        temperature: float,
+        tau: float,
     ) -> None:
         if not 0.0 < benefit_to_cost_ratio <= 1.0:
             raise ValueError("benefit_to_cost_ratio must be in (0,1]")
@@ -104,8 +106,8 @@ class BestResponsePolicy(Policy):
             raise ValueError("distance_discount must be in (0,1)")
         if n_nodes <= 1:
             raise ValueError("n_nodes must be > 1")
-        if not 0.0 < temperature <= 1.0:
-            raise ValueError("temperature must be in (0,1]")
+        if not 0.0 < tau <= 1.0:
+            raise ValueError("tau must be in (0,1]")
         if not -0.5 <= bridge_value <= 0.5:
             raise ValueError("bridge_value must be in [-0.5,0.5]")
         if not -0.5 <= inertia_term <= 0.5:
@@ -116,7 +118,7 @@ class BestResponsePolicy(Policy):
         self.distance_discount = distance_discount
         self.inertia_term = inertia_term
         self.bridge_value = bridge_value
-        self.temperature = temperature
+        self.tau = tau
         self._rng = np.random.default_rng(seed)
 
         self.lambda_over_norm = benefit_to_cost_ratio / float(2 * n_nodes - 1)
@@ -304,7 +306,7 @@ class BestResponsePolicy(Policy):
 
         chosen_idx = _sample_boltzmann(
             self.candidate_values[:candidate_idx],
-            self.temperature,
+            self.tau,
             self._rng,
         )
         return PolicyDecision(

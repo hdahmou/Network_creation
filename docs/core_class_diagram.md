@@ -118,11 +118,12 @@ namespace Policies {
     }
 
     class BestResponsePolicy {
+        +n_nodes: int
         +benefit_to_cost_ratio: float
         +distance_discount: float
-        +bridge_value_scale: float
+        +bridge_value: float
         +inertia_term: float
-        +temperature: float
+        +tau: float
     }
 }
 

@@ -21,7 +21,7 @@ from tests.graph_factories import graph_from_adjacency_matrix
 
 
 class BestResponsePolicyTest(unittest.TestCase):
-    temperature = 1e-6
+    tau = 1e-6
 
     @staticmethod
     def _build_observation_and_action_space(
@@ -50,7 +50,7 @@ class BestResponsePolicyTest(unittest.TestCase):
                 distance_discount=0.5,
                 bridge_value=0.0,
                 inertia_term=-0.6,
-                temperature=self.temperature,
+                tau=self.tau,
             )
 
     def test_constructor_rejects_non_positive_benefit_ratio(self) -> None:
@@ -65,7 +65,7 @@ class BestResponsePolicyTest(unittest.TestCase):
                 distance_discount=0.5,
                 bridge_value=0.0,
                 inertia_term=0.0,
-                temperature=self.temperature,
+                tau=self.tau,
             )
 
     def test_constructor_rejects_non_positive_distance_discount(self) -> None:
@@ -80,11 +80,11 @@ class BestResponsePolicyTest(unittest.TestCase):
                 distance_discount=0.0,
                 bridge_value=0.0,
                 inertia_term=0.0,
-                temperature=self.temperature,
+                tau=self.tau,
             )
 
-    def test_constructor_rejects_non_positive_temperature(self) -> None:
-        with self.assertRaisesRegex(ValueError, r"temperature must be in \(0,1\]"):
+    def test_constructor_rejects_non_positive_tau(self) -> None:
+        with self.assertRaisesRegex(ValueError, r"tau must be in \(0,1\]"):
             BestResponsePolicy(
                 n_nodes=3,
                 seed=7,
@@ -92,25 +92,25 @@ class BestResponsePolicyTest(unittest.TestCase):
                 distance_discount=0.5,
                 bridge_value=0.0,
                 inertia_term=0.0,
-                temperature=0.0,
+                tau=0.0,
             )
 
     def test_stable_softmax_boltzmann_returns_probabilities(self) -> None:
-        probabilities = stable_softmax_boltzmann(
-            np.array([0.0, 1.0, 1.0], dtype=np.float32),
-            temperature=1.0,
-        )
+        values = np.array([0.0, 1.0, 1.0], dtype=np.float32)
+        probabilities = stable_softmax_boltzmann(values, tau=1.0)
 
-        expected = np.exp(np.array([-1.0, 0.0, 0.0], dtype=np.float64))
+        expected = np.exp(
+            np.array([-np.log(len(values)), 0.0, 0.0], dtype=np.float64)
+        )
         expected /= expected.sum()
         np.testing.assert_allclose(probabilities, expected)
         self.assertAlmostEqual(float(probabilities.sum()), 1.0)
 
-    def test_stable_softmax_boltzmann_rejects_non_positive_temperature(self) -> None:
-        with self.assertRaisesRegex(ValueError, "temperature must be > 0"):
+    def test_stable_softmax_boltzmann_rejects_non_positive_tau(self) -> None:
+        with self.assertRaisesRegex(ValueError, "tau must be > 0"):
             stable_softmax_boltzmann(
                 np.array([0.0, 1.0], dtype=np.float32),
-                temperature=0.0,
+                tau=0.0,
             )
 
     def test_isolated_node_can_still_choose_bridge_action(self) -> None:
@@ -126,7 +126,7 @@ class BestResponsePolicyTest(unittest.TestCase):
             distance_discount=0.5,
             bridge_value=0.5,
             inertia_term=0.0,
-            temperature=self.temperature,
+            tau=self.tau,
         )
 
         decision = policy.get_decision(observation, action_space)
@@ -157,7 +157,7 @@ class BestResponsePolicyTest(unittest.TestCase):
             distance_discount=0.5,
             bridge_value=0.5,
             inertia_term=0.0,
-            temperature=self.temperature,
+            tau=self.tau,
         )
 
         decision = policy.get_decision(observation, action_space)
@@ -186,7 +186,7 @@ class BestResponsePolicyTest(unittest.TestCase):
             distance_discount=0.5,
             bridge_value=0.0,
             inertia_term=0.5,
-            temperature=self.temperature,
+            tau=self.tau,
         )
 
         decision = policy.get_decision(observation, action_space)
@@ -211,7 +211,7 @@ class BestResponsePolicyTest(unittest.TestCase):
             distance_discount=0.5,
             bridge_value=0.25,
             inertia_term=0.5,
-            temperature=self.temperature,
+            tau=self.tau,
         )
 
         decision = policy.get_decision(observation, action_space)
@@ -236,7 +236,7 @@ class BestResponsePolicyTest(unittest.TestCase):
             distance_discount=0.5,
             bridge_value=0.0,
             inertia_term=0.0,
-            temperature=self.temperature,
+            tau=self.tau,
         )
         with patch(
             "network_creation.policies.best_response._sample_boltzmann",
@@ -271,7 +271,7 @@ class BestResponsePolicyTest(unittest.TestCase):
             distance_discount=0.5,
             bridge_value=0.0,
             inertia_term=0.0,
-            temperature=self.temperature,
+            tau=self.tau,
         )
 
         with patch(
@@ -315,7 +315,7 @@ class BestResponsePolicyTest(unittest.TestCase):
             distance_discount=0.5,
             bridge_value=0.5,
             inertia_term=0.0,
-            temperature=self.temperature,
+            tau=self.tau,
         )
 
         decision = policy.get_decision(observation, action_space)
@@ -339,17 +339,17 @@ class BestResponsePolicyTest(unittest.TestCase):
             distance_discount=0.5,
             bridge_value=0.5,
             inertia_term=0.0,
-            temperature=1.0,
+            tau=1.0,
         )
 
         def capture(
             values: np.ndarray,
-            temperature: float,
+            tau: float,
             _rng: np.random.Generator,
         ) -> int:
             self.assertIsInstance(values, np.ndarray)
             np.testing.assert_allclose(values, np.array([0.0, 0.5, 0.5]))
-            self.assertEqual(temperature, 1.0)
+            self.assertEqual(tau, 1.0)
             return 2
 
         with patch(
@@ -379,17 +379,17 @@ class BestResponsePolicyTest(unittest.TestCase):
             distance_discount=0.5,
             bridge_value=0.5,
             inertia_term=0.0,
-            temperature=1.0,
+            tau=1.0,
         )
 
         def capture(
             values: np.ndarray,
-            temperature: float,
+            tau: float,
             _rng: np.random.Generator,
         ) -> int:
             self.assertIsInstance(values, np.ndarray)
             np.testing.assert_allclose(values, np.array([0.0, 0.5, 0.5]))
-            self.assertEqual(temperature, 1.0)
+            self.assertEqual(tau, 1.0)
             return 1
 
         with patch(
@@ -441,7 +441,7 @@ class BestResponsePolicyTest(unittest.TestCase):
             distance_discount=0.5,
             bridge_value=0.0,
             inertia_term=0.0,
-            temperature=self.temperature,
+            tau=self.tau,
         )
 
         decision = policy.get_decision(observation, action_space)

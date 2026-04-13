@@ -30,16 +30,16 @@ PARAMETER_SETS = (
     {
         "benefit_to_cost_ratio": 0.5,
         "distance_discount": 0.9,
-        "bridge_value": 1.0,
+        "bridge_value": 0.0,
         "inertia_term": 0.0,
-        "temperature": 0.001,
+        "tau": 0.001,
     },
     {
         "benefit_to_cost_ratio": 0.5,
         "distance_discount": 0.7,
         "bridge_value": 0.5,
         "inertia_term": 0.1,
-        "temperature": 0.001,
+        "tau": 0.001,
     },
 )
 
@@ -57,7 +57,7 @@ def run_case(case_index: int, policy_kwargs: dict[str, float]) -> None:
                 distance_discount=policy_kwargs["distance_discount"],
                 bridge_value=policy_kwargs["bridge_value"],
                 inertia_term=policy_kwargs["inertia_term"],
-                temperature=policy_kwargs["temperature"],
+                tau=policy_kwargs["tau"],
             ),
             seed=policy_seed,
         )

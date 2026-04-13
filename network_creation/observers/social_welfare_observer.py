@@ -15,6 +15,10 @@ r"""
         \\
         \text{Where:} & \quad \mathcal{B}(\bar{g}) = \text{Total Benefit} = \sum_{i \in N} \sum_{j \in N} \delta^{d(i,j, \bar{g})} \\
         & \quad |E(g)| = \text{Total Directed Edges} = \sum_{i \in N} \eta_i(g)
+        \\
+        \text{PSS Network:} & \quad \bar{\Pi}_{agg} = \frac{1}{n(2n-1)} \left[ \frac{V}{k} \left( n + 2(n-1)\delta + (n-1)(n-2)\delta^2 \right) + (n-1)^2 \right]
+        \\
+        \text{Empty Network:} & \quad \bar{\Pi}_{agg} = \frac{\frac{V}{k} + n - 1}{2n - 1}
    \end{aligned}
 """
 

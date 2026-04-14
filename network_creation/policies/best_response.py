@@ -273,13 +273,7 @@ class BestResponsePolicy(Policy):
                 self.candidate_values[candidate_idx] = best_add_value
                 candidate_idx += 1
 
-        # Median over ordinary actions
-        ordinary_values = self.candidate_values[:candidate_idx]
-        if ordinary_values.size > 0:
-            reference_value = float(np.median(ordinary_values))
-        else:
-            reference_value = 0.0
-
+        reference_value = 0.0
         # PASS
         self.candidate_actions[candidate_idx] = pass_action
         self.candidate_values[candidate_idx] = reference_value + self.inertia_term

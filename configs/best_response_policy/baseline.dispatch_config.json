@@ -4,7 +4,7 @@
   "output_dir": "../../artifacts/best_response_policy",
   "write_batch_size": 64,
   "input_spec": {
-    "log2_budget": 13,
+    "log2_budget": 15,
     "sampler_seed": 123,
     "parameters": {
       "benefit_to_cost_ratio": {
@@ -18,15 +18,15 @@
       "bridge_value": {
         "type": "continuous",
         "payload": {
-          "min": -1.5,
-          "max": 1.5
+          "min": -1.0,
+          "max": 1.0
         }
       },
       "inertia_term": {
         "type": "continuous",
         "payload": {
-          "min": -2.0,
-          "max": 2.0
+          "min": -1.0,
+          "max": 1.0
         }
       },
       "tau": {
@@ -43,13 +43,13 @@
     }
   },
   "simulation": {
-    "n_agents": 10,
+    "n_agents": 20,
     "actor_scheduler": {
-      "fraction": 0.1
+      "fraction": 0.05
     },
     "seed": 11,
     "max_steps": 360,
-    "n_episodes": 16,
+    "n_episodes": 1,
     "stagnation_patience": null,
     "initial_graph": {
       "kind": "empty"
@@ -57,11 +57,11 @@
   },
   "observers": [
     {
-      "name": "density",
+      "name": "central_point_of_dominance",
       "output": "mean",
       "kwargs": {
         "observation_sampling": { "kind": "periodic", "every": 1 },
-        "aggregations": ["mean", "std"]
+        "aggregations": ["mean"]
       }
     },
     {
@@ -69,7 +69,7 @@
       "output": "mean",
       "kwargs": {
         "observation_sampling": { "kind": "periodic", "every": 1 },
-        "aggregations": ["mean", "std"],
+        "aggregations": ["mean"],
         "benefit_to_cost_ratio": 0.5,
         "distance_discount": 0.9
       }

@@ -38,6 +38,31 @@ class BestResponsePolicyTest(unittest.TestCase):
         action_space = get_action_space(observation)
         return observation, action_space
 
+    @staticmethod
+    def _expected_bridge_score(
+        observation,
+        policy: BestResponsePolicy,
+    ) -> float:
+        graph = observation.graph
+        source_idx = observation.node_idx
+        distances = np.asarray(
+            graph.distances(source=[source_idx], mode="all")[0],
+            dtype=np.float32,
+        )
+        base_benefit = float(np.power(policy.distance_discount, distances).sum())
+        current_payoff = (
+            policy.benefit_to_cost_ratio * base_benefit
+            - graph.outdegree(source_idx)
+            + (policy.n_nodes - 1)
+        ) / float(2 * policy.n_nodes - 1)
+        return float(
+            np.clip(
+                (1.0 - 2.0 * current_payoff) + policy.bridge_value,
+                -1.0,
+                1.0,
+            )
+        )
+
     def test_constructor_accepts_values_outside_previous_parameter_bounds(self) -> None:
         policy = BestResponsePolicy(
             n_nodes=3,
@@ -118,13 +143,14 @@ class BestResponsePolicyTest(unittest.TestCase):
         )
 
         decision = policy.get_decision(observation, action_space)
+        expected_bridge_score = self._expected_bridge_score(observation, policy)
 
         self.assertEqual(decision.actions[0].type, ActionType.BRIDGE)
         self.assertIn(decision.actions[0], action_space[ActionType.BRIDGE])
         assert decision.value is not None
-        self.assertAlmostEqual(float(decision.value["value"]), 1.25)
+        self.assertAlmostEqual(float(decision.value["value"]), expected_bridge_score)
 
-    def test_bridge_value_offsets_median_reference_value(self) -> None:
+    def test_bridge_score_offsets_current_normalized_payoff_and_clips(self) -> None:
         observation, action_space = self._build_observation_and_action_space(
             adjacency=np.array(
                 [
@@ -149,14 +175,12 @@ class BestResponsePolicyTest(unittest.TestCase):
         )
 
         decision = policy.get_decision(observation, action_space)
+        expected_bridge_score = self._expected_bridge_score(observation, policy)
 
         self.assertEqual(decision.actions[0].type, ActionType.BRIDGE)
         assert decision.value is not None
-        self.assertAlmostEqual(
-            float(decision.value["value"]),
-            31.0 / 28.0,
-            places=6,
-        )
+        self.assertAlmostEqual(float(decision.value["value"]), expected_bridge_score)
+        self.assertEqual(expected_bridge_score, 1.0)
 
     def test_inertia_term_biases_selection_toward_pass(self) -> None:
         observation, action_space = self._build_observation_and_action_space(
@@ -188,7 +212,7 @@ class BestResponsePolicyTest(unittest.TestCase):
             (Action(ActionType.PASS, source=0),),
         )
         self.assertIsNotNone(decision.value)
-        self.assertAlmostEqual(float(decision.value["value"]), 1.45)
+        self.assertAlmostEqual(float(decision.value["value"]), 1.25)
 
     def test_bridge_value_below_inertia_returns_pass(self) -> None:
         observation, action_space = self._build_observation_and_action_space(
@@ -207,6 +231,7 @@ class BestResponsePolicyTest(unittest.TestCase):
         )
 
         decision = policy.get_decision(observation, action_space)
+        expected_bridge_score = self._expected_bridge_score(observation, policy)
 
         self.assertEqual(
             decision.actions,
@@ -214,6 +239,7 @@ class BestResponsePolicyTest(unittest.TestCase):
         )
         self.assertIsNotNone(decision.value)
         self.assertAlmostEqual(float(decision.value["value"]), 1.25)
+        self.assertLess(expected_bridge_score, policy.inertia_term)
 
     def test_equal_value_bridge_ties_with_pass_and_can_be_selected(self) -> None:
         observation, action_space = self._build_observation_and_action_space(
@@ -311,12 +337,13 @@ class BestResponsePolicyTest(unittest.TestCase):
         )
 
         decision = policy.get_decision(observation, action_space)
+        expected_bridge_score = self._expected_bridge_score(observation, policy)
 
         self.assertEqual(decision.actions[0].type, ActionType.BRIDGE)
         self.assertEqual(decision.actions[0].source, 0)
         self.assertIn(decision.actions[0].target, {1, 2, 3, 4, 5})
         self.assertIsNotNone(decision.value)
-        self.assertAlmostEqual(float(decision.value["value"]), 1.25)
+        self.assertAlmostEqual(float(decision.value["value"]), expected_bridge_score)
 
     def test_bridge_candidates_use_one_random_target_in_boltzmann_input(self) -> None:
         observation, action_space = self._build_observation_and_action_space(
@@ -333,6 +360,7 @@ class BestResponsePolicyTest(unittest.TestCase):
             inertia_term=0.0,
             tau=1.0,
         )
+        expected_bridge_score = self._expected_bridge_score(observation, policy)
 
         def capture(
             values: np.ndarray,
@@ -340,7 +368,7 @@ class BestResponsePolicyTest(unittest.TestCase):
             _rng: np.random.Generator,
         ) -> int:
             self.assertIsInstance(values, np.ndarray)
-            np.testing.assert_allclose(values, np.array([0.0, 1.25]))
+            np.testing.assert_allclose(values, np.array([0.0, expected_bridge_score]))
             self.assertEqual(tau, 1.0)
             return 1
 
@@ -356,7 +384,7 @@ class BestResponsePolicyTest(unittest.TestCase):
             (Action(ActionType.BRIDGE, source=0, target=1),),
         )
         self.assertIsNotNone(decision.value)
-        self.assertAlmostEqual(float(decision.value["value"]), 1.25)
+        self.assertAlmostEqual(float(decision.value["value"]), expected_bridge_score)
 
     def test_policy_uses_boltzmann_sampling(self) -> None:
         observation, action_space = self._build_observation_and_action_space(
@@ -373,6 +401,7 @@ class BestResponsePolicyTest(unittest.TestCase):
             inertia_term=0.0,
             tau=1.0,
         )
+        expected_bridge_score = self._expected_bridge_score(observation, policy)
 
         def capture(
             values: np.ndarray,
@@ -380,7 +409,7 @@ class BestResponsePolicyTest(unittest.TestCase):
             _rng: np.random.Generator,
         ) -> int:
             self.assertIsInstance(values, np.ndarray)
-            np.testing.assert_allclose(values, np.array([0.0, 1.25]))
+            np.testing.assert_allclose(values, np.array([0.0, expected_bridge_score]))
             self.assertEqual(tau, 1.0)
             return 1
 
@@ -396,7 +425,7 @@ class BestResponsePolicyTest(unittest.TestCase):
             (Action(ActionType.BRIDGE, source=0, target=2),),
         )
         self.assertIsNotNone(decision.value)
-        self.assertAlmostEqual(float(decision.value["value"]), 1.25)
+        self.assertAlmostEqual(float(decision.value["value"]), expected_bridge_score)
 
     def test_add_action_can_use_best_add_then_delete_combo(self) -> None:
         observation, action_space = self._build_observation_and_action_space(

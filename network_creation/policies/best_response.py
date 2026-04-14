@@ -75,17 +75,28 @@ def _sample_boltzmann(
 
 
 class BestResponsePolicy(Policy):
-    """Select an action by Boltzmann-weighted sampling over utility deltas.
+    """Select an action by Boltzmann-weighted sampling over candidate scores.
 
-    For acting node i, each candidate action is scored as
+    For acting node i, visible ADD and DELETE candidates use normalized
+    one-step utility deltas
 
         ΔU_i =
             λ * (1 / (2*N - 1)) * Σ_j [δ^{d*_j} - δ^{d_j}]
             - Δoutdeg(i) / (2*N - 1)
 
+    PASS is scored as ``inertia_term``.
+
+    BRIDGE is scored from the current normalized payoff
+
+        clip((1 - 2 * Π_i) + bridge_value, -1, 1)
+
+    so low-payoff nodes are more likely to bridge and high-payoff nodes are
+    less likely to do so.
+
     where:
       - λ is the benefit_to_cost_ratio
       - δ is the distance discount
+      - Π_i is the current normalized payoff on the observed graph
       - add:    Δoutdeg = +1
       - delete: Δoutdeg = -1
     """
@@ -278,16 +289,22 @@ class BestResponsePolicy(Policy):
                 self.candidate_values[candidate_idx] = best_add_value
                 candidate_idx += 1
 
-        reference_value = 0.0
         # PASS
         self.candidate_actions[candidate_idx] = pass_action
-        self.candidate_values[candidate_idx] = reference_value + self.inertia_term
+        self.candidate_values[candidate_idx] = self.inertia_term
         candidate_idx += 1
 
         # BRIDGE
+        current_payoff = (
+            self.benefit_to_cost_ratio * base_benefit
+            - graph.outdegree(source_idx)
+            + (self.n_nodes - 1)
+        ) / float(2 * self.n_nodes - 1)
+        bridge_score = (1.0 - 2.0 * current_payoff) + self.bridge_value
+        bridge_score = float(np.clip(bridge_score, -1.0, 1.0))
         if bridge_action is not None:
             self.candidate_actions[candidate_idx] = bridge_action
-            self.candidate_values[candidate_idx] = reference_value + self.bridge_value
+            self.candidate_values[candidate_idx] = bridge_score
             candidate_idx += 1
 
         assert (

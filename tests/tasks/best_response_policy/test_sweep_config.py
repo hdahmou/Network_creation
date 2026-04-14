@@ -21,9 +21,9 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
                 "parameters": {
                     "benefit_to_cost_ratio": {"type": "fixed", "payload": 0.05},
                     "distance_discount": {"type": "fixed", "payload": 0.5},
-                    "bridge_value": {"type": "fixed", "payload": 0.25},
-                    "inertia_term": {"type": "fixed", "payload": 0.1},
-                    "tau": {"type": "fixed", "payload": 1.0},
+                    "bridge_value": {"type": "fixed", "payload": 0.75},
+                    "inertia_term": {"type": "fixed", "payload": -1.25},
+                    "tau": {"type": "fixed", "payload": 2.0},
                     "visibility_fraction": {"type": "fixed", "payload": 1.0},
                 },
             },
@@ -60,13 +60,13 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
                 },
                 "bridge_value": {
                     "type": "continuous",
-                    "payload": {"min": -0.5, "max": 0.5},
+                    "payload": {"min": -1.5, "max": 1.5},
                 },
                 "inertia_term": {
                     "type": "continuous",
-                    "payload": {"min": 0.0, "max": 0.3},
+                    "payload": {"min": -2.0, "max": 1.0},
                 },
-                "tau": {"type": "fixed", "payload": 1.0},
+                "tau": {"type": "fixed", "payload": 2.0},
                 "visibility_fraction": {"type": "fixed", "payload": 1.0},
             },
         }
@@ -86,7 +86,7 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
         )
         self.assertEqual(parameter_table.parameter_values.shape, (4, 6))
         np.testing.assert_allclose(parameter_table.parameter_values[:, 0], 0.05)
-        np.testing.assert_allclose(parameter_table.parameter_values[:, 4], 1.0)
+        np.testing.assert_allclose(parameter_table.parameter_values[:, 4], 2.0)
         np.testing.assert_allclose(parameter_table.parameter_values[:, 5], 1.0)
 
     def test_generate_parameter_table_samples_continuous_parameters_jointly(self) -> None:
@@ -100,20 +100,23 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
                 },
                 "bridge_value": {
                     "type": "continuous",
-                    "payload": {"min": -0.5, "max": 0.5},
+                    "payload": {"min": -1.5, "max": 1.5},
                 },
                 "inertia_term": {
                     "type": "continuous",
-                    "payload": {"min": 0.1, "max": 0.4},
+                    "payload": {"min": -2.0, "max": 1.0},
                 },
-                "tau": {"type": "fixed", "payload": 1.0},
+                "tau": {
+                    "type": "continuous",
+                    "payload": {"min": 0.25, "max": 2.25},
+                },
                 "visibility_fraction": {"type": "fixed", "payload": 1.0},
             },
         }
 
         parameter_table = generate_parameter_table(input_spec)
         sampler = qmc.Sobol(
-            d=3,
+            d=4,
             scramble=True,
             optimization="random-cd",
             rng=123,
@@ -122,9 +125,9 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
         expected = np.column_stack(
             (
                 0.2 + (unit_samples[:, 0] * 0.6),
-                unit_samples[:, 1] - 0.5,
-                0.1 + (unit_samples[:, 2] * 0.3),
-                np.full(4, 1.0, dtype=np.float32),
+                -1.5 + (unit_samples[:, 1] * 3.0),
+                -2.0 + (unit_samples[:, 2] * 3.0),
+                0.25 + (unit_samples[:, 3] * 2.0),
                 np.full(4, 1.0, dtype=np.float32),
             )
         ).astype(np.float32, copy=False)
@@ -159,7 +162,7 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
         )
         np.testing.assert_allclose(
             task.parameter_table.parameter_values,
-            np.array([[0.05, 0.5, 0.25, 0.1, 1.0, 1.0]], dtype=np.float32),
+            np.array([[0.05, 0.5, 0.75, -1.25, 2.0, 1.0]], dtype=np.float32),
         )
 
     def test_prepare_rejects_missing_visibility_fraction(self) -> None:

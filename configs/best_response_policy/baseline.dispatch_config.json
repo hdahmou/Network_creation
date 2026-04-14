@@ -4,7 +4,7 @@
   "output_dir": "../../artifacts/best_response_policy",
   "write_batch_size": 64,
   "input_spec": {
-    "log2_budget": 6,
+    "log2_budget": 13,
     "sampler_seed": 123,
     "parameters": {
       "benefit_to_cost_ratio": {
@@ -18,22 +18,22 @@
       "bridge_value": {
         "type": "continuous",
         "payload": {
-          "min": -0.5,
-          "max": 0.5
+          "min": -1.5,
+          "max": 1.5
         }
       },
       "inertia_term": {
         "type": "continuous",
         "payload": {
-          "min": -0.5,
-          "max": 0.5
+          "min": -2.0,
+          "max": 2.0
         }
       },
       "tau": {
         "type": "continuous",
         "payload": {
-          "min": 0.0,
-          "max": 0.5
+          "min": 0.001,
+          "max": 1.0
         }
       },
       "visibility_fraction": {

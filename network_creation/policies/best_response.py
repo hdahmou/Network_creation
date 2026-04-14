@@ -106,12 +106,6 @@ class BestResponsePolicy(Policy):
             raise ValueError("distance_discount must be in (0,1)")
         if n_nodes <= 1:
             raise ValueError("n_nodes must be > 1")
-        if not 0.0 < tau <= 1.0:
-            raise ValueError("tau must be in (0,1]")
-        if not -0.5 <= bridge_value <= 0.5:
-            raise ValueError("bridge_value must be in [-0.5,0.5]")
-        if not -0.5 <= inertia_term <= 0.5:
-            raise ValueError("inertia_term must be in [-0.5,0.5]")
 
         self.n_nodes = n_nodes
         self.benefit_to_cost_ratio = benefit_to_cost_ratio

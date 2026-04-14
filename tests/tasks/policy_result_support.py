@@ -48,13 +48,16 @@ def build_best_response_config(*, log2_budget: int = 2) -> dict[str, object]:
                 },
                 "bridge_value": {
                     "type": "continuous",
-                    "payload": {"min": -0.5, "max": 0.5},
+                    "payload": {"min": -1.5, "max": 1.5},
                 },
                 "inertia_term": {
                     "type": "continuous",
-                    "payload": {"min": -0.5, "max": 0.5},
+                    "payload": {"min": -2.0, "max": 1.0},
                 },
-                "tau": {"type": "fixed", "payload": 1.0},
+                "tau": {
+                    "type": "continuous",
+                    "payload": {"min": 0.25, "max": 2.25},
+                },
                 "visibility_fraction": {"type": "fixed", "payload": 1.0},
             },
         },

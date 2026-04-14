@@ -19,9 +19,9 @@ class BestResponsePolicyTaskTest(unittest.TestCase):
                 "parameters": {
                     "benefit_to_cost_ratio": {"type": "fixed", "payload": 0.1},
                     "distance_discount": {"type": "fixed", "payload": 0.5},
-                    "bridge_value": {"type": "fixed", "payload": 0.25},
-                    "inertia_term": {"type": "fixed", "payload": 0.0},
-                    "tau": {"type": "fixed", "payload": 1.0},
+                    "bridge_value": {"type": "fixed", "payload": 0.75},
+                    "inertia_term": {"type": "fixed", "payload": -1.25},
+                    "tau": {"type": "fixed", "payload": 2.0},
                     "visibility_fraction": {"type": "fixed", "payload": 1.0},
                 },
             },
@@ -108,13 +108,16 @@ class BestResponsePolicyTaskTest(unittest.TestCase):
                 "distance_discount": {"type": "fixed", "payload": 0.5},
                 "bridge_value": {
                     "type": "continuous",
-                    "payload": {"min": -0.5, "max": 0.5},
+                    "payload": {"min": -1.5, "max": 1.5},
                 },
                 "inertia_term": {
                     "type": "continuous",
-                    "payload": {"min": 0.0, "max": 0.5},
+                    "payload": {"min": -2.0, "max": 1.0},
                 },
-                "tau": {"type": "fixed", "payload": 1.0},
+                "tau": {
+                    "type": "continuous",
+                    "payload": {"min": 0.25, "max": 2.25},
+                },
                 "visibility_fraction": {"type": "fixed", "payload": 1.0},
             },
         }

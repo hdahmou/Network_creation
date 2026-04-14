@@ -38,20 +38,20 @@ class BestResponsePolicyTest(unittest.TestCase):
         action_space = get_action_space(observation)
         return observation, action_space
 
-    def test_constructor_rejects_inertia_below_lower_bound(self) -> None:
-        with self.assertRaisesRegex(
-            ValueError,
-            r"inertia_term must be in \[-0\.5,0\.5\]",
-        ):
-            BestResponsePolicy(
-                n_nodes=3,
-                seed=7,
-                benefit_to_cost_ratio=0.5,
-                distance_discount=0.5,
-                bridge_value=0.0,
-                inertia_term=-0.6,
-                tau=self.tau,
-            )
+    def test_constructor_accepts_values_outside_previous_parameter_bounds(self) -> None:
+        policy = BestResponsePolicy(
+            n_nodes=3,
+            seed=7,
+            benefit_to_cost_ratio=0.5,
+            distance_discount=0.5,
+            bridge_value=1.25,
+            inertia_term=-1.75,
+            tau=2.0,
+        )
+
+        self.assertEqual(policy.bridge_value, 1.25)
+        self.assertEqual(policy.inertia_term, -1.75)
+        self.assertEqual(policy.tau, 2.0)
 
     def test_constructor_rejects_non_positive_benefit_ratio(self) -> None:
         with self.assertRaisesRegex(
@@ -83,18 +83,6 @@ class BestResponsePolicyTest(unittest.TestCase):
                 tau=self.tau,
             )
 
-    def test_constructor_rejects_non_positive_tau(self) -> None:
-        with self.assertRaisesRegex(ValueError, r"tau must be in \(0,1\]"):
-            BestResponsePolicy(
-                n_nodes=3,
-                seed=7,
-                benefit_to_cost_ratio=0.5,
-                distance_discount=0.5,
-                bridge_value=0.0,
-                inertia_term=0.0,
-                tau=0.0,
-            )
-
     def test_stable_softmax_boltzmann_returns_probabilities(self) -> None:
         values = np.array([0.0, 1.0, 1.0], dtype=np.float32)
         probabilities = stable_softmax_boltzmann(values, tau=1.0)
@@ -124,7 +112,7 @@ class BestResponsePolicyTest(unittest.TestCase):
             seed=11,
             benefit_to_cost_ratio=0.5,
             distance_discount=0.5,
-            bridge_value=0.5,
+            bridge_value=1.25,
             inertia_term=0.0,
             tau=self.tau,
         )
@@ -134,7 +122,7 @@ class BestResponsePolicyTest(unittest.TestCase):
         self.assertEqual(decision.actions[0].type, ActionType.BRIDGE)
         self.assertIn(decision.actions[0], action_space[ActionType.BRIDGE])
         assert decision.value is not None
-        self.assertAlmostEqual(float(decision.value["value"]), 0.5)
+        self.assertAlmostEqual(float(decision.value["value"]), 1.25)
 
     def test_bridge_value_offsets_median_reference_value(self) -> None:
         observation, action_space = self._build_observation_and_action_space(
@@ -155,7 +143,7 @@ class BestResponsePolicyTest(unittest.TestCase):
             seed=13,
             benefit_to_cost_ratio=0.5,
             distance_discount=0.5,
-            bridge_value=0.5,
+            bridge_value=1.25,
             inertia_term=0.0,
             tau=self.tau,
         )
@@ -164,7 +152,11 @@ class BestResponsePolicyTest(unittest.TestCase):
 
         self.assertEqual(decision.actions[0].type, ActionType.BRIDGE)
         assert decision.value is not None
-        self.assertAlmostEqual(float(decision.value["value"]), 5.0 / 14.0)
+        self.assertAlmostEqual(
+            float(decision.value["value"]),
+            31.0 / 28.0,
+            places=6,
+        )
 
     def test_inertia_term_biases_selection_toward_pass(self) -> None:
         observation, action_space = self._build_observation_and_action_space(
@@ -185,7 +177,7 @@ class BestResponsePolicyTest(unittest.TestCase):
             benefit_to_cost_ratio=0.5,
             distance_discount=0.5,
             bridge_value=0.0,
-            inertia_term=0.5,
+            inertia_term=1.25,
             tau=self.tau,
         )
 
@@ -196,7 +188,7 @@ class BestResponsePolicyTest(unittest.TestCase):
             (Action(ActionType.PASS, source=0),),
         )
         self.assertIsNotNone(decision.value)
-        self.assertAlmostEqual(float(decision.value["value"]), 0.7)
+        self.assertAlmostEqual(float(decision.value["value"]), 1.45)
 
     def test_bridge_value_below_inertia_returns_pass(self) -> None:
         observation, action_space = self._build_observation_and_action_space(
@@ -209,8 +201,8 @@ class BestResponsePolicyTest(unittest.TestCase):
             seed=19,
             benefit_to_cost_ratio=0.5,
             distance_discount=0.5,
-            bridge_value=0.25,
-            inertia_term=0.5,
+            bridge_value=0.75,
+            inertia_term=1.25,
             tau=self.tau,
         )
 
@@ -221,7 +213,7 @@ class BestResponsePolicyTest(unittest.TestCase):
             (Action(ActionType.PASS, source=0),),
         )
         self.assertIsNotNone(decision.value)
-        self.assertAlmostEqual(float(decision.value["value"]), 0.5)
+        self.assertAlmostEqual(float(decision.value["value"]), 1.25)
 
     def test_equal_value_bridge_ties_with_pass_and_can_be_selected(self) -> None:
         observation, action_space = self._build_observation_and_action_space(
@@ -313,7 +305,7 @@ class BestResponsePolicyTest(unittest.TestCase):
             seed=29,
             benefit_to_cost_ratio=0.5,
             distance_discount=0.5,
-            bridge_value=0.5,
+            bridge_value=1.25,
             inertia_term=0.0,
             tau=self.tau,
         )
@@ -324,7 +316,7 @@ class BestResponsePolicyTest(unittest.TestCase):
         self.assertEqual(decision.actions[0].source, 0)
         self.assertIn(decision.actions[0].target, {1, 2, 3, 4, 5})
         self.assertIsNotNone(decision.value)
-        self.assertAlmostEqual(float(decision.value["value"]), 0.5)
+        self.assertAlmostEqual(float(decision.value["value"]), 1.25)
 
     def test_bridge_candidates_are_duplicated_in_boltzmann_input(self) -> None:
         observation, action_space = self._build_observation_and_action_space(
@@ -337,7 +329,7 @@ class BestResponsePolicyTest(unittest.TestCase):
             seed=37,
             benefit_to_cost_ratio=0.5,
             distance_discount=0.5,
-            bridge_value=0.5,
+            bridge_value=1.25,
             inertia_term=0.0,
             tau=1.0,
         )
@@ -348,7 +340,7 @@ class BestResponsePolicyTest(unittest.TestCase):
             _rng: np.random.Generator,
         ) -> int:
             self.assertIsInstance(values, np.ndarray)
-            np.testing.assert_allclose(values, np.array([0.0, 0.5, 0.5]))
+            np.testing.assert_allclose(values, np.array([0.0, 1.25, 1.25]))
             self.assertEqual(tau, 1.0)
             return 2
 
@@ -364,7 +356,7 @@ class BestResponsePolicyTest(unittest.TestCase):
             (Action(ActionType.BRIDGE, source=0, target=2),),
         )
         self.assertIsNotNone(decision.value)
-        self.assertAlmostEqual(float(decision.value["value"]), 0.5)
+        self.assertAlmostEqual(float(decision.value["value"]), 1.25)
 
     def test_policy_uses_boltzmann_sampling(self) -> None:
         observation, action_space = self._build_observation_and_action_space(
@@ -377,7 +369,7 @@ class BestResponsePolicyTest(unittest.TestCase):
             seed=41,
             benefit_to_cost_ratio=0.5,
             distance_discount=0.5,
-            bridge_value=0.5,
+            bridge_value=1.25,
             inertia_term=0.0,
             tau=1.0,
         )
@@ -388,7 +380,7 @@ class BestResponsePolicyTest(unittest.TestCase):
             _rng: np.random.Generator,
         ) -> int:
             self.assertIsInstance(values, np.ndarray)
-            np.testing.assert_allclose(values, np.array([0.0, 0.5, 0.5]))
+            np.testing.assert_allclose(values, np.array([0.0, 1.25, 1.25]))
             self.assertEqual(tau, 1.0)
             return 1
 
@@ -404,7 +396,7 @@ class BestResponsePolicyTest(unittest.TestCase):
             (Action(ActionType.BRIDGE, source=0, target=1),),
         )
         self.assertIsNotNone(decision.value)
-        self.assertAlmostEqual(float(decision.value["value"]), 0.5)
+        self.assertAlmostEqual(float(decision.value["value"]), 1.25)
 
     def test_add_action_can_use_best_add_then_delete_combo(self) -> None:
         observation, action_space = self._build_observation_and_action_space(

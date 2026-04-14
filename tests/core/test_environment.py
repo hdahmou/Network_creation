@@ -57,11 +57,9 @@ class EnvironmentTest(unittest.TestCase):
             dtype=np.int8,
         )
 
-    def test_get_observation_uses_normalized_agent_visibility_fraction(self) -> None:
+    def test_get_observation_uses_supplied_visibility_distance(self) -> None:
         env = Environment(graph_from_adjacency_matrix(self._chain_adjacency()), seed=11)
-        agent = Agent(
-            id=0, visibility_fraction=1.0, policy=RandomPolicy(seed=17), seed=19
-        )
+        agent = Agent(id=0, visibility_distance=2, policy=RandomPolicy(seed=17), seed=19)
 
         observation = env.get_observation(agent)
 
@@ -69,33 +67,29 @@ class EnvironmentTest(unittest.TestCase):
         self.assertEqual(observation.graph.vs["name"], [0, 1, 2])
         np.testing.assert_array_equal(observation.outside_node_idxs, np.array([3]))
 
-    def test_get_observation_floors_normalized_agent_visibility_fraction(self) -> None:
+    def test_get_observation_uses_one_hop_visibility_distance(self) -> None:
         env = Environment(graph_from_adjacency_matrix(self._chain_adjacency()), seed=11)
-        agent = Agent(
-            id=0, visibility_fraction=0.25, policy=RandomPolicy(seed=17), seed=19
-        )
+        agent = Agent(id=0, visibility_distance=1, policy=RandomPolicy(seed=17), seed=19)
 
         observation = env.get_observation(agent)
 
         self.assertEqual(observation.graph.vs["name"], [0, 1])
         np.testing.assert_array_equal(observation.outside_node_idxs, np.array([2, 3]))
 
-    def test_get_observation_uses_minimum_hop_radius_of_one(self) -> None:
+    def test_get_observation_supports_distance_larger_than_graph_diameter(self) -> None:
         env = Environment(graph_from_adjacency_matrix(self._chain_adjacency()), seed=11)
         agent = Agent(
-            id=0, visibility_fraction=0.01, policy=RandomPolicy(seed=17), seed=19
+            id=0, visibility_distance=10, policy=RandomPolicy(seed=17), seed=19
         )
 
         observation = env.get_observation(agent)
 
-        self.assertEqual(observation.graph.vs["name"], [0, 1])
-        np.testing.assert_array_equal(observation.outside_node_idxs, np.array([2, 3]))
+        self.assertEqual(observation.graph.vs["name"], [0, 1, 2])
+        np.testing.assert_array_equal(observation.outside_node_idxs, np.array([3]))
 
     def test_get_action_space_composes_environment_observation(self) -> None:
         env = Environment(graph_from_adjacency_matrix(self._chain_adjacency()), seed=23)
-        agent = Agent(
-            id=0, visibility_fraction=1.0, policy=RandomPolicy(seed=29), seed=31
-        )
+        agent = Agent(id=0, visibility_distance=2, policy=RandomPolicy(seed=29), seed=31)
 
         action_space = env.get_action_space(agent)
 
@@ -132,22 +126,38 @@ class EnvironmentTest(unittest.TestCase):
 
 
 class AgentPolicyIntegrationTest(unittest.TestCase):
-    def test_agent_get_visibility_fraction_returns_stored_visibility_fraction(
-        self,
-    ) -> None:
+    def test_agent_rejects_non_integer_visibility_distance(self) -> None:
+        with self.assertRaisesRegex(ValueError, "positive integer"):
+            Agent(
+                id=0,
+                visibility_distance=0.5,
+                policy=StubPolicy(Action(ActionType.PASS, source=0)),
+                seed=41,
+            )
+
+    def test_agent_rejects_non_positive_visibility_distance(self) -> None:
+        with self.assertRaisesRegex(ValueError, "positive integer"):
+            Agent(
+                id=0,
+                visibility_distance=0,
+                policy=StubPolicy(Action(ActionType.PASS, source=0)),
+                seed=41,
+            )
+
+    def test_agent_get_visibility_distance_returns_stored_visibility_distance(self) -> None:
         agent = Agent(
             id=0,
-            visibility_fraction=0.5,
+            visibility_distance=2,
             policy=StubPolicy(Action(ActionType.PASS, source=0)),
             seed=41,
         )
 
-        self.assertEqual(agent.get_visibility_fraction(), 0.5)
+        self.assertEqual(agent.get_visibility_distance(), 2)
 
     def test_agent_delegates_act_and_reset_to_policy(self) -> None:
         expected_action = Action(ActionType.PASS, source=0)
         policy = StubPolicy(expected_action)
-        agent = Agent(id=0, visibility_fraction=1.0, policy=policy, seed=41)
+        agent = Agent(id=0, visibility_distance=1, policy=policy, seed=41)
         graph = Environment(create_empty_graph(1), seed=43).state.graph
         observation = Observation(
             node_idx=0,
@@ -195,7 +205,7 @@ class AgentPolicyIntegrationTest(unittest.TestCase):
             seed=47,
         )
         agent = Agent(
-            id=0, visibility_fraction=1.0, policy=RandomPolicy(seed=7), seed=53
+            id=0, visibility_distance=2, policy=RandomPolicy(seed=7), seed=53
         )
         observation = env.get_observation(agent)
         action_space = env.get_action_space(agent)

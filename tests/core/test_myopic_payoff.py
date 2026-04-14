@@ -338,7 +338,7 @@ class MyopicPayoffPolicyTest(unittest.TestCase):
             agents=(
                 Agent(
                     id=0,
-                    visibility_fraction=1.0,
+                    visibility_distance=10,
                     policy=MyopicPayoffPolicy(
                         seed=2,
                         benefit_to_cost_ratio=1.0,
@@ -348,7 +348,7 @@ class MyopicPayoffPolicyTest(unittest.TestCase):
                     seed=2,
                 ),
             ),
-            actor_scheduler=ActorScheduler(n_agents=1, fraction=1.0, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, seed=21),
             max_steps=1,
             rng=np.random.default_rng(7),
             observers=(),

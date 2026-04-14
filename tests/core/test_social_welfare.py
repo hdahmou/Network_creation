@@ -127,7 +127,7 @@ class SocialWelfareTest(unittest.TestCase):
             agents=(
                 Agent(
                     id=0,
-                    visibility_fraction=1,
+                    visibility_distance=10,
                     policy=ConstantPolicy(
                         Action(ActionType.BRIDGE, source=0, target=1)
                     ),
@@ -135,12 +135,12 @@ class SocialWelfareTest(unittest.TestCase):
                 ),
                 Agent(
                     id=1,
-                    visibility_fraction=1,
+                    visibility_distance=10,
                     policy=ConstantPolicy(Action(ActionType.PASS, source=1)),
                     seed=7,
                 ),
             ),
-            actor_scheduler=ActorScheduler(n_agents=2, fraction=0.5, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=2, n_actors=1, seed=21),
             max_steps=2,
             rng=np.random.default_rng(11),
             observers=(observer,),

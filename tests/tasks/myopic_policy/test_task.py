@@ -20,12 +20,12 @@ class MyopicPolicyTaskTest(unittest.TestCase):
                     "benefit_to_cost_ratio": {"type": "fixed", "payload": 0.1},
                     "distance_discount": {"type": "fixed", "payload": 0.5},
                     "bridge_probability": {"type": "fixed", "payload": 1.0},
-                    "visibility_fraction": {"type": "fixed", "payload": 1.0},
+                    "visibility_distance": {"type": "fixed", "payload": 4},
                 },
             },
             "simulation": {
                 "n_agents": 4,
-                "actor_scheduler": {"fraction": 1.0},
+                "actor_scheduler": {"n_actors": 4},
                 "seed": 11,
                 "max_steps": 3,
                 "n_episodes": 2,
@@ -72,7 +72,7 @@ class MyopicPolicyTaskTest(unittest.TestCase):
                 "benefit_to_cost_ratio",
                 "distance_discount",
                 "bridge_probability",
-                "visibility_fraction",
+                "visibility_distance",
             ),
         )
 
@@ -109,7 +109,7 @@ class MyopicPolicyTaskTest(unittest.TestCase):
                         "max": 1.0,
                     },
                 },
-                "visibility_fraction": {"type": "fixed", "payload": 1.0},
+                "visibility_distance": {"type": "fixed", "payload": 4},
             },
         }
         prepared = MyopicPolicyRun().prepare(config)

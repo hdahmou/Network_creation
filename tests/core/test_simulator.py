@@ -194,10 +194,10 @@ class SimulatorTest(unittest.TestCase):
         simulator = Simulator(
             env=env,
             agents=(
-                Agent(id=0, visibility_fraction=1, policy=ConstantPolicy(Action(ActionType.BRIDGE, source=0, target=1)), seed=41),
-                Agent(id=1, visibility_fraction=1, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=43),
+                Agent(id=0, visibility_distance=10, policy=ConstantPolicy(Action(ActionType.BRIDGE, source=0, target=1)), seed=41),
+                Agent(id=1, visibility_distance=10, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=43),
             ),
-            actor_scheduler=ActorScheduler(n_agents=2, fraction=0.5, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=2, n_actors=1, seed=21),
             max_steps=2,
             rng=np.random.default_rng(47),
             observers=(observer,),
@@ -220,18 +220,18 @@ class SimulatorTest(unittest.TestCase):
             agents=(
                 Agent(
                     id=0,
-                    visibility_fraction=1,
+                    visibility_distance=10,
                     policy=ConstantPolicy(Action(ActionType.BRIDGE, source=0, target=1)),
                     seed=47,
                 ),
                 Agent(
                     id=1,
-                    visibility_fraction=1,
+                    visibility_distance=10,
                     policy=ConstantPolicy(Action(ActionType.PASS, source=1)),
                     seed=49,
                 ),
             ),
-            actor_scheduler=ActorScheduler(n_agents=2, fraction=0.5, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=2, n_actors=1, seed=21),
             max_steps=1,
             rng=np.random.default_rng(51),
             observers=(observer,),
@@ -255,18 +255,18 @@ class SimulatorTest(unittest.TestCase):
             agents=(
                 Agent(
                     id=0,
-                    visibility_fraction=1,
+                    visibility_distance=10,
                     policy=ConstantPolicy(Action(ActionType.BRIDGE, source=0, target=1)),
                     seed=47,
                 ),
                 Agent(
                     id=1,
-                    visibility_fraction=1,
+                    visibility_distance=10,
                     policy=ConstantPolicy(Action(ActionType.PASS, source=1)),
                     seed=49,
                 ),
             ),
-            actor_scheduler=ActorScheduler(n_agents=2, fraction=0.5, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=2, n_actors=1, seed=21),
             max_steps=2,
             rng=np.random.default_rng(51),
             observers=(observer,),
@@ -287,18 +287,18 @@ class SimulatorTest(unittest.TestCase):
             agents=(
                 Agent(
                     id=0,
-                    visibility_fraction=1,
+                    visibility_distance=10,
                     policy=ConstantPolicy(Action(ActionType.BRIDGE, source=0, target=1)),
                     seed=47,
                 ),
                 Agent(
                     id=1,
-                    visibility_fraction=1,
+                    visibility_distance=10,
                     policy=ConstantPolicy(Action(ActionType.PASS, source=1)),
                     seed=49,
                 ),
             ),
-            actor_scheduler=ActorScheduler(n_agents=2, fraction=0.5, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=2, n_actors=1, seed=21),
             max_steps=3,
             rng=np.random.default_rng(51),
             observers=(periodic_observer, terminal_observer),
@@ -314,7 +314,7 @@ class SimulatorTest(unittest.TestCase):
         self.assertEqual([event.step for event in periodic_observer.step_events], [1])
         self.assertEqual([event.step for event in terminal_observer.step_events], [2])
 
-    def test_run_builds_observations_from_agent_visibility_fractions(self) -> None:
+    def test_run_builds_observations_from_agent_visibility_distances(self) -> None:
         env = Environment(
             graph_from_adjacency_matrix(
                 np.array(
@@ -332,18 +332,18 @@ class SimulatorTest(unittest.TestCase):
             agents=(
                 Agent(
                     id=0,
-                    visibility_fraction=1.0,
+                    visibility_distance=2,
                     policy=ConstantPolicy(Action(ActionType.PASS, source=0)),
                     seed=53,
                 ),
                 Agent(
                     id=1,
-                    visibility_fraction=0.25,
+                    visibility_distance=1,
                     policy=ConstantPolicy(Action(ActionType.PASS, source=1)),
                     seed=54,
                 ),
             ),
-            actor_scheduler=ActorScheduler(n_agents=2, fraction=1.0, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=2, n_actors=2, seed=21),
             max_steps=1,
             rng=np.random.default_rng(55),
             observers=(),
@@ -378,11 +378,11 @@ class SimulatorTest(unittest.TestCase):
         simulator = Simulator(
             env=env,
             agents=(
-                Agent(id=0, visibility_fraction=1.0, policy=add_or_pass_policy, seed=59),
-                Agent(id=1, visibility_fraction=1, policy=ConstantPolicy(Action(ActionType.BRIDGE, source=1, target=2)), seed=61),
-                Agent(id=2, visibility_fraction=1, policy=ConstantPolicy(Action(ActionType.PASS, source=2)), seed=67),
+                Agent(id=0, visibility_distance=10, policy=add_or_pass_policy, seed=59),
+                Agent(id=1, visibility_distance=10, policy=ConstantPolicy(Action(ActionType.BRIDGE, source=1, target=2)), seed=61),
+                Agent(id=2, visibility_distance=10, policy=ConstantPolicy(Action(ActionType.PASS, source=2)), seed=67),
             ),
-            actor_scheduler=ActorScheduler(n_agents=3, fraction=1.0, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=3, n_actors=3, seed=21),
             max_steps=1,
             rng=np.random.default_rng(71),
             observers=(),
@@ -401,7 +401,7 @@ class SimulatorTest(unittest.TestCase):
             agents=(
                 Agent(
                     id=0,
-                    visibility_fraction=1.0,
+                    visibility_distance=10,
                     policy=MultiActionPolicy(
                         [
                             Action(ActionType.BRIDGE, source=0, target=1),
@@ -410,10 +410,10 @@ class SimulatorTest(unittest.TestCase):
                     ),
                     seed=73,
                 ),
-                Agent(id=1, visibility_fraction=1, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=74),
-                Agent(id=2, visibility_fraction=1, policy=ConstantPolicy(Action(ActionType.PASS, source=2)), seed=75),
+                Agent(id=1, visibility_distance=10, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=74),
+                Agent(id=2, visibility_distance=10, policy=ConstantPolicy(Action(ActionType.PASS, source=2)), seed=75),
             ),
-            actor_scheduler=ActorScheduler(n_agents=2, fraction=0.5, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=2, n_actors=1, seed=21),
             max_steps=1,
             rng=np.random.default_rng(76),
             observers=(),
@@ -430,10 +430,10 @@ class SimulatorTest(unittest.TestCase):
         simulator = Simulator(
             env=env,
             agents=(
-                Agent(id=0, visibility_fraction=1, policy=left_policy, seed=79),
-                Agent(id=1, visibility_fraction=1, policy=right_policy, seed=83),
+                Agent(id=0, visibility_distance=10, policy=left_policy, seed=79),
+                Agent(id=1, visibility_distance=10, policy=right_policy, seed=83),
             ),
-            actor_scheduler=ActorScheduler(n_agents=2, fraction=0.5, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=2, n_actors=1, seed=21),
             max_steps=1,
             rng=np.random.default_rng(89),
             observers=(),
@@ -456,10 +456,10 @@ class SimulatorTest(unittest.TestCase):
         simulator = Simulator(
             env=env,
             agents=(
-                Agent(id=0, visibility_fraction=1, policy=left_policy, seed=139),
-                Agent(id=1, visibility_fraction=1, policy=right_policy, seed=149),
+                Agent(id=0, visibility_distance=10, policy=left_policy, seed=139),
+                Agent(id=1, visibility_distance=10, policy=right_policy, seed=149),
             ),
-            actor_scheduler=ActorScheduler(n_agents=2, fraction=0.5, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=2, n_actors=1, seed=21),
             max_steps=1,
             rng=np.random.default_rng(151),
             observers=(observer,),
@@ -489,10 +489,10 @@ class SimulatorTest(unittest.TestCase):
         simulator = Simulator(
             env=env,
             agents=(
-                Agent(id=0, visibility_fraction=1, policy=ConstantPolicy(Action(ActionType.PASS, source=0)), seed=153),
-                Agent(id=1, visibility_fraction=1, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=154),
+                Agent(id=0, visibility_distance=10, policy=ConstantPolicy(Action(ActionType.PASS, source=0)), seed=153),
+                Agent(id=1, visibility_distance=10, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=154),
             ),
-            actor_scheduler=ActorScheduler(n_agents=2, fraction=0.5, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=2, n_actors=1, seed=21),
             max_steps=1,
             rng=np.random.default_rng(155),
             observers=(observer,),
@@ -517,10 +517,10 @@ class SimulatorTest(unittest.TestCase):
         simulator = Simulator(
             env=env,
             agents=(
-                Agent(id=0, visibility_fraction=1, policy=ConstantPolicy(Action(ActionType.PASS, source=0)), seed=91),
-                Agent(id=1, visibility_fraction=1, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=92),
+                Agent(id=0, visibility_distance=10, policy=ConstantPolicy(Action(ActionType.PASS, source=0)), seed=91),
+                Agent(id=1, visibility_distance=10, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=92),
             ),
-            actor_scheduler=ActorScheduler(n_agents=2, fraction=0.5, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=2, n_actors=1, seed=21),
             max_steps=1,
             rng=np.random.default_rng(93),
             observers=(observer,),
@@ -543,10 +543,10 @@ class SimulatorTest(unittest.TestCase):
         simulator = Simulator(
             env=env,
             agents=(
-                Agent(id=0, visibility_fraction=1, policy=ConstantPolicy(Action(ActionType.BRIDGE, source=0, target=1)), seed=101),
-                Agent(id=1, visibility_fraction=1, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=103),
+                Agent(id=0, visibility_distance=10, policy=ConstantPolicy(Action(ActionType.BRIDGE, source=0, target=1)), seed=101),
+                Agent(id=1, visibility_distance=10, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=103),
             ),
-            actor_scheduler=ActorScheduler(n_agents=2, fraction=0.5, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=2, n_actors=1, seed=21),
             max_steps=1,
             rng=np.random.default_rng(107),
             observers=(observer,),
@@ -597,10 +597,10 @@ class SimulatorTest(unittest.TestCase):
         simulator = Simulator(
             env=env,
             agents=(
-                Agent(id=0, visibility_fraction=1, policy=ConstantPolicy(Action(ActionType.BRIDGE, source=0, target=1)), seed=113),
-                Agent(id=1, visibility_fraction=1, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=127),
+                Agent(id=0, visibility_distance=10, policy=ConstantPolicy(Action(ActionType.BRIDGE, source=0, target=1)), seed=113),
+                Agent(id=1, visibility_distance=10, policy=ConstantPolicy(Action(ActionType.PASS, source=1)), seed=127),
             ),
-            actor_scheduler=ActorScheduler(n_agents=2, fraction=0.5, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=2, n_actors=1, seed=21),
             max_steps=1,
             rng=np.random.default_rng(131),
             observers=(observer,),
@@ -629,12 +629,12 @@ class SimulatorTest(unittest.TestCase):
                 agents=(
                     Agent(
                         id=0,
-                        visibility_fraction=1,
+                        visibility_distance=10,
                         policy=ConstantPolicy(Action(ActionType.PASS, source=0)),
                         seed=179,
                     ),
                 ),
-                actor_scheduler=ActorScheduler(n_agents=1, fraction=1.0, seed=21),
+                actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, seed=21),
                 max_steps=1,
                 rng=np.random.default_rng(181),
                 observers=(),
@@ -649,10 +649,10 @@ class SimulatorTest(unittest.TestCase):
         simulator = Simulator(
             env=env,
             agents=(
-                Agent(id=0, visibility_fraction=1, policy=left_policy, seed=191),
-                Agent(id=1, visibility_fraction=1, policy=right_policy, seed=193),
+                Agent(id=0, visibility_distance=10, policy=left_policy, seed=191),
+                Agent(id=1, visibility_distance=10, policy=right_policy, seed=193),
             ),
-            actor_scheduler=ActorScheduler(n_agents=2, fraction=0.5, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=2, n_actors=1, seed=21),
             max_steps=5,
             rng=np.random.default_rng(197),
             observers=(observer,),
@@ -710,10 +710,10 @@ class SimulatorTest(unittest.TestCase):
         simulator = Simulator(
             env=env,
             agents=(
-                Agent(id=0, visibility_fraction=1, policy=left_policy, seed=211),
-                Agent(id=1, visibility_fraction=1, policy=right_policy, seed=223),
+                Agent(id=0, visibility_distance=10, policy=left_policy, seed=211),
+                Agent(id=1, visibility_distance=10, policy=right_policy, seed=223),
             ),
-            actor_scheduler=ActorScheduler(n_agents=2, fraction=0.5, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=2, n_actors=1, seed=21),
             max_steps=6,
             rng=np.random.default_rng(227),
             observers=(observer,),

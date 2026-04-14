@@ -57,33 +57,37 @@ class PolicyRun(ABC):
 
     def validate_input_spec(self, input_spec: Mapping[str, object]) -> None:
         parameters = cast(Mapping[str, object], input_spec["parameters"])
-        if "visibility_fraction" not in parameters:
-            raise ValueError("input_spec.parameters.visibility_fraction is required")
+        if "visibility_distance" not in parameters:
+            raise ValueError("input_spec.parameters.visibility_distance is required")
 
     def validate_sample_idx(self, sample_idx: int) -> None:
         del sample_idx
 
     def validate_parameter_table(self) -> None:
-        visibility_fraction_column = self.parameter_table.column_index_by_name[
-            "visibility_fraction"
+        visibility_distance_column = self.parameter_table.column_index_by_name[
+            "visibility_distance"
         ]
-        visibility_fraction_values = self.parameter_table.parameter_values[
+        visibility_distance_values = self.parameter_table.parameter_values[
             :,
-            visibility_fraction_column,
+            visibility_distance_column,
         ]
-        if np.any((visibility_fraction_values < 0) | (visibility_fraction_values > 1)):
+        if np.any(visibility_distance_values < 1):
             raise ValueError(
-                "input_spec.parameters.visibility_fraction must satisfy "
-                "0 <= visibility_fraction <= 1"
+                "input_spec.parameters.visibility_distance must satisfy "
+                "visibility_distance >= 1"
+            )
+        if np.any(visibility_distance_values != np.floor(visibility_distance_values)):
+            raise ValueError(
+                "input_spec.parameters.visibility_distance must contain only integers"
             )
 
     def build_agent(self, node_id: int, sample: NDArray[np.float32]) -> Agent:
-        visibility_fraction_column = self.parameter_table.column_index_by_name[
-            "visibility_fraction"
+        visibility_distance_column = self.parameter_table.column_index_by_name[
+            "visibility_distance"
         ]
         return Agent(
             id=node_id,
-            visibility_fraction=float(sample[visibility_fraction_column]),
+            visibility_distance=int(sample[visibility_distance_column]),
             policy=self.build_policy(node_id, sample),
             seed=node_id,
         )

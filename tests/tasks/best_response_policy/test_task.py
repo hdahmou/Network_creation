@@ -22,12 +22,12 @@ class BestResponsePolicyTaskTest(unittest.TestCase):
                     "bridge_value": {"type": "fixed", "payload": 0.75},
                     "inertia_term": {"type": "fixed", "payload": -1.25},
                     "tau": {"type": "fixed", "payload": 2.0},
-                    "visibility_fraction": {"type": "fixed", "payload": 1.0},
+                    "visibility_distance": {"type": "fixed", "payload": 4},
                 },
             },
             "simulation": {
                 "n_agents": 4,
-                "actor_scheduler": {"fraction": 1.0},
+                "actor_scheduler": {"n_actors": 4},
                 "seed": 11,
                 "max_steps": 3,
                 "n_episodes": 2,
@@ -76,7 +76,7 @@ class BestResponsePolicyTaskTest(unittest.TestCase):
                 "bridge_value",
                 "inertia_term",
                 "tau",
-                "visibility_fraction",
+                "visibility_distance",
             ),
         )
 
@@ -118,7 +118,7 @@ class BestResponsePolicyTaskTest(unittest.TestCase):
                     "type": "continuous",
                     "payload": {"min": 0.25, "max": 2.25},
                 },
-                "visibility_fraction": {"type": "fixed", "payload": 1.0},
+                "visibility_distance": {"type": "fixed", "payload": 4},
             },
         }
         prepared = BestResponsePolicyRun().prepare(config)

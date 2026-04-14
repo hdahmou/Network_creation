@@ -77,7 +77,7 @@ class BestResponsePolicyResultFormatterTest(unittest.TestCase):
                 "bridge_value",
                 "inertia_term",
                 "tau",
-                "visibility_fraction",
+                "visibility_distance",
             ),
         )
         self.assertEqual(

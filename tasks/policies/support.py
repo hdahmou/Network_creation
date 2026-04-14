@@ -46,7 +46,7 @@ def load_simulation_settings(raw: Mapping[str, Any]) -> SimulationSettings:
 
     return SimulationSettings(
         n_agents=raw["n_agents"],
-        actor_fraction=raw["actor_scheduler"]["fraction"],
+        n_actors=raw["actor_scheduler"]["n_actors"],
         seed=int(raw["seed"]),
         max_steps=int(raw["max_steps"]),
         n_episodes=int(raw["n_episodes"]),

@@ -13,7 +13,7 @@ namespace CoreModel {
     class ActorScheduler {
         -_rng: Generator
         -_n_actors: int
-        +ActorScheduler(seed, n_agents, fraction)
+        +ActorScheduler(seed, n_agents, n_actors)
         +select_agents(agents) tuple[Agent, ...]
     }
 
@@ -51,7 +51,7 @@ namespace CoreModel {
 namespace Runtime {
     class SimulationSettings {
         +n_agents: int
-        +actor_fraction: float
+        +n_actors: int
         +seed: int
         +max_steps: int
         +n_episodes: int
@@ -72,10 +72,10 @@ namespace Runtime {
 
     class Agent {
         +id: int
-        +visibility_fraction: float
+        +visibility_distance: int
         +policy: Policy
         +seed: int
-        +get_visibility_fraction() float
+        +get_visibility_distance() int
         +reset(seed: int) void
         +act(observation: Observation, action_space: ActionSpace) PolicyDecision
     }

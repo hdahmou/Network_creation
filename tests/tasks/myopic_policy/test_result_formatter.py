@@ -76,7 +76,7 @@ class MyopicPolicyResultFormatterTest(unittest.TestCase):
                 "benefit_to_cost_ratio",
                 "distance_discount",
                 "bridge_probability",
-                "visibility_fraction",
+                "visibility_distance",
             ),
         )
         self.assertEqual(

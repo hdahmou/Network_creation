@@ -17,32 +17,33 @@ class ActionTest(unittest.TestCase):
 
 
 class ActorSchedulerTest(unittest.TestCase):
-    def test_rejects_invalid_fraction(self) -> None:
+    def test_rejects_invalid_actor_count(self) -> None:
         cases = (
-            (1, 0.0),
-            (1, -0.1),
-            (1, 1.1),
+            (1, 0),
+            (1, -1),
+            (1, 2),
+            (1, 1.0),
             (1, float("nan")),
             (1, True),
-            (5, 0.1),
+            (5, 2.5),
         )
-        for n_agents, fraction in cases:
-            with self.subTest(n_agents=n_agents, fraction=fraction):
+        for n_agents, n_actors in cases:
+            with self.subTest(n_agents=n_agents, n_actors=n_actors):
                 with self.assertRaisesRegex(
-                    ValueError, "1 / n_agents <= fraction <= 1"
+                    ValueError, "1 <= n_actors <= n_agents"
                 ):
-                    ActorScheduler(seed=1, n_agents=n_agents, fraction=fraction)
+                    ActorScheduler(seed=1, n_agents=n_agents, n_actors=n_actors)
 
     def test_rejects_non_positive_agent_count(self) -> None:
-        with self.assertRaisesRegex(ValueError, "n_agents must be positive"):
-            ActorScheduler(seed=1, n_agents=0, fraction=1.0)
+        with self.assertRaisesRegex(ValueError, "n_agents must be a positive integer"):
+            ActorScheduler(seed=1, n_agents=0, n_actors=1)
 
-    def test_select_agents_resolves_fraction_and_all_agent_fast_path(self) -> None:
+    def test_select_agents_uses_actor_count_and_all_agent_fast_path(self) -> None:
         agents = ("a0", "a1", "a2", "a3", "a4")
         cases = (
-            (ActorScheduler(seed=0, n_agents=5, fraction=0.2), ("a4",)),
-            (ActorScheduler(seed=0, n_agents=5, fraction=0.4), ("a3", "a4")),
-            (ActorScheduler(seed=0, n_agents=5, fraction=1.0), agents),
+            (ActorScheduler(seed=0, n_agents=5, n_actors=1), ("a4",)),
+            (ActorScheduler(seed=0, n_agents=5, n_actors=2), ("a3", "a4")),
+            (ActorScheduler(seed=0, n_agents=5, n_actors=5), agents),
         )
 
         for scheduler, expected_agents in cases:
@@ -53,7 +54,7 @@ class ActorSchedulerTest(unittest.TestCase):
                     self.assertIs(selected_agents, agents)
 
     def test_select_agents_samples_from_supplied_agents_tuple(self) -> None:
-        scheduler = ActorScheduler(seed=0, n_agents=5, fraction=0.2)
+        scheduler = ActorScheduler(seed=0, n_agents=5, n_actors=1)
         agents = ("a0", "a1")
 
         self.assertIn(scheduler.select_agents(agents)[0], agents)

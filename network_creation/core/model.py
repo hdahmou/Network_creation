@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from math import floor
+from numbers import Integral
 from typing import TYPE_CHECKING, Annotated, NamedTuple
 
 from bidict import bidict
@@ -33,21 +33,25 @@ class ActorScheduler:
         self,
         seed: int,
         n_agents: int,
-        fraction: float,
+        n_actors: int,
     ) -> None:
         self._rng = np.random.default_rng(seed)
-        if isinstance(n_agents, bool) or n_agents < 1:
-            raise ValueError("n_agents must be positive")
         if (
-            isinstance(fraction, bool)
-            or not np.isfinite(fraction)
-            or not 1 / n_agents <= fraction <= 1
+            isinstance(n_agents, bool)
+            or not isinstance(n_agents, Integral)
+            or n_agents < 1
+        ):
+            raise ValueError("n_agents must be a positive integer")
+        if (
+            isinstance(n_actors, bool)
+            or not isinstance(n_actors, Integral)
+            or not 1 <= n_actors <= n_agents
         ):
             raise ValueError(
-                "ActorScheduler fraction must satisfy 1 / n_agents <= fraction <= 1"
+                "ActorScheduler n_actors must satisfy 1 <= n_actors <= n_agents"
             )
 
-        self._n_actors = floor(fraction * n_agents)
+        self._n_actors = int(n_actors)
 
     def select_agents(self, agents: tuple[Agent, ...]) -> tuple[Agent, ...]:
         n_agents = len(agents)

@@ -25,16 +25,16 @@
           "max": 1.0
         }
       },
-      "visibility_fraction": {
+      "visibility_distance": {
         "type": "fixed",
-        "payload": 1.0
+        "payload": 10
       }
     }
   },
   "simulation": {
     "n_agents": 10,
     "actor_scheduler": {
-      "fraction": 0.1
+      "n_actors": 1
     },
     "seed": 11,
     "max_steps": 360,

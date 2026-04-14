@@ -28,7 +28,7 @@ def build_myopic_config(*, log2_budget: int = 2) -> dict[str, object]:
                     "type": "continuous",
                     "payload": {"min": 0.0, "max": 1.0},
                 },
-                "visibility_fraction": {"type": "fixed", "payload": 1.0},
+                "visibility_distance": {"type": "fixed", "payload": 4.0},
             },
         },
     }
@@ -58,7 +58,7 @@ def build_best_response_config(*, log2_budget: int = 2) -> dict[str, object]:
                     "type": "continuous",
                     "payload": {"min": 0.25, "max": 2.25},
                 },
-                "visibility_fraction": {"type": "fixed", "payload": 1.0},
+                "visibility_distance": {"type": "fixed", "payload": 4.0},
             },
         },
     }
@@ -70,7 +70,7 @@ def build_random_config() -> dict[str, object]:
         "input_spec": {
             "log2_budget": 0,
             "sampler_seed": 123,
-            "parameters": {"visibility_fraction": {"type": "fixed", "payload": 1.0}},
+            "parameters": {"visibility_distance": {"type": "fixed", "payload": 4.0}},
         },
     }
 

@@ -49,7 +49,7 @@ def run_case(case_index: int, policy_kwargs: dict[str, float]) -> None:
         policy_seed = 1_000 * (case_index + 1) + node_id
         return Agent(
             id=node_id,
-            visibility_fraction=1.0,
+            visibility_distance=N_AGENTS,
             policy=BestResponsePolicy(
                 n_nodes=N_AGENTS,
                 seed=policy_seed,
@@ -64,7 +64,7 @@ def run_case(case_index: int, policy_kwargs: dict[str, float]) -> None:
 
     settings = SimulationSettings(
         n_agents=N_AGENTS,
-        actor_fraction=2 / N_AGENTS,
+        n_actors=2,
         seed=100 + case_index,
         max_steps=MAX_STEPS,
         n_episodes=N_EPISODES,

@@ -20,7 +20,7 @@ class SimulationSettings:
     """Fixed settings for one simulation run family."""
 
     n_agents: int
-    actor_fraction: float
+    n_actors: int
     seed: int
     max_steps: int
     n_episodes: int
@@ -64,7 +64,7 @@ def create_simulator(
     actor_scheduler = ActorScheduler(
         seed=seed,
         n_agents=len(agents),
-        fraction=simulation_settings.actor_fraction,
+        n_actors=simulation_settings.n_actors,
     )
     return Simulator(
         env=environment,

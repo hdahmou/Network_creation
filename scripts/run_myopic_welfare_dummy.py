@@ -45,7 +45,7 @@ def run_case(case_index: int, policy_kwargs: dict[str, float]) -> None:
         policy_seed = 1_000 * (case_index + 1) + node_id
         return Agent(
             id=node_id,
-            visibility_fraction=1.0,
+            visibility_distance=N_AGENTS,
             policy=MyopicPayoffPolicy(
                 seed=policy_seed,
                 benefit_to_cost_ratio=policy_kwargs["benefit_to_cost_ratio"],
@@ -57,7 +57,7 @@ def run_case(case_index: int, policy_kwargs: dict[str, float]) -> None:
 
     settings = SimulationSettings(
         n_agents=N_AGENTS,
-        actor_fraction=1.0,
+        n_actors=N_AGENTS,
         seed=100 + case_index,
         max_steps=MAX_STEPS,
         n_episodes=N_EPISODES,

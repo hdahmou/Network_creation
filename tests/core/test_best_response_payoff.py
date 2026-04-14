@@ -318,7 +318,7 @@ class BestResponsePolicyTest(unittest.TestCase):
         self.assertIsNotNone(decision.value)
         self.assertAlmostEqual(float(decision.value["value"]), 1.25)
 
-    def test_bridge_candidates_are_duplicated_in_boltzmann_input(self) -> None:
+    def test_bridge_candidates_use_one_random_target_in_boltzmann_input(self) -> None:
         observation, action_space = self._build_observation_and_action_space(
             adjacency=np.zeros((3, 3), dtype=np.int8),
             node_id=0,
@@ -340,9 +340,9 @@ class BestResponsePolicyTest(unittest.TestCase):
             _rng: np.random.Generator,
         ) -> int:
             self.assertIsInstance(values, np.ndarray)
-            np.testing.assert_allclose(values, np.array([0.0, 1.25, 1.25]))
+            np.testing.assert_allclose(values, np.array([0.0, 1.25]))
             self.assertEqual(tau, 1.0)
-            return 2
+            return 1
 
         with patch(
             "network_creation.policies.best_response._sample_boltzmann",
@@ -353,7 +353,7 @@ class BestResponsePolicyTest(unittest.TestCase):
         sample_boltzmann.assert_called_once()
         self.assertEqual(
             decision.actions,
-            (Action(ActionType.BRIDGE, source=0, target=2),),
+            (Action(ActionType.BRIDGE, source=0, target=1),),
         )
         self.assertIsNotNone(decision.value)
         self.assertAlmostEqual(float(decision.value["value"]), 1.25)
@@ -380,7 +380,7 @@ class BestResponsePolicyTest(unittest.TestCase):
             _rng: np.random.Generator,
         ) -> int:
             self.assertIsInstance(values, np.ndarray)
-            np.testing.assert_allclose(values, np.array([0.0, 1.25, 1.25]))
+            np.testing.assert_allclose(values, np.array([0.0, 1.25]))
             self.assertEqual(tau, 1.0)
             return 1
 
@@ -393,7 +393,7 @@ class BestResponsePolicyTest(unittest.TestCase):
         sample_boltzmann.assert_called_once()
         self.assertEqual(
             decision.actions,
-            (Action(ActionType.BRIDGE, source=0, target=1),),
+            (Action(ActionType.BRIDGE, source=0, target=2),),
         )
         self.assertIsNotNone(decision.value)
         self.assertAlmostEqual(float(decision.value["value"]), 1.25)

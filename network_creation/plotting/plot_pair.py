@@ -2,8 +2,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.ticker import FormatStrFormatter
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
-from scipy.interpolate import griddata
-from pykrige.ok import OrdinaryKriging
 from scipy.stats import binned_statistic_2d
 from scipy.ndimage import gaussian_filter
 from matplotlib.axes import Axes
@@ -23,7 +21,7 @@ def plot_2d_descriptor(
     alpha: float = 0.5,
     sigma: float = 1.5,
 ):
-    if method not in {"points", "nearest", "cubic", "kriging", "gaussian"}:
+    if method not in {"points", "gaussian"}:
         raise ValueError(f"{method} is not a valid method for plotting")
 
     if bounds is None:
@@ -47,69 +45,30 @@ def plot_2d_descriptor(
         ax.set_ylim(ymin, ymax)
         return ax
 
-    if method == "gaussian":
-        # Sum of z in each bin
-        z_sum, x_edge, y_edge, _ = binned_statistic_2d(
-            x,
-            y,
-            z,
-            statistic="sum",
-            bins=resolution,
-            range=[[xmin, xmax], [ymin, ymax]],
-        )
+    z_sum, _, _, _ = binned_statistic_2d(
+        x,
+        y,
+        z,
+        statistic="sum",
+        bins=resolution,
+        range=[[xmin, xmax], [ymin, ymax]],
+    )
 
-        # Count in each bin
-        z_count, _, _, _ = binned_statistic_2d(
-            x,
-            y,
-            z,
-            statistic="count",
-            bins=resolution,
-            range=[[xmin, xmax], [ymin, ymax]],
-        )
+    z_count, _, _, _ = binned_statistic_2d(
+        x,
+        y,
+        z,
+        statistic="count",
+        bins=resolution,
+        range=[[xmin, xmax], [ymin, ymax]],
+    )
 
-        # Smooth both, then divide
-        z_sum_s = gaussian_filter(z_sum, sigma=sigma, mode="nearest")
-        z_count_s = gaussian_filter(z_count, sigma=sigma, mode="nearest")
-        zi = z_sum_s / np.maximum(z_count_s, 1e-12)
-
-    elif method in {"nearest", "cubic"}:
-        xi = np.linspace(xmin, xmax, resolution)
-        yi = np.linspace(ymin, ymax, resolution)
-        xi, yi = np.meshgrid(xi, yi)
-        zi = griddata(
-            points=(x, y),
-            values=z,
-            xi=(xi, yi),
-            method=method,
-            rescale=True,
-        )
-
-    else:  # kriging
-        if OrdinaryKriging is None:
-            raise ImportError(
-                "`kriging` requires pykrige. Install it with `pip install pykrige`."
-            )
-        xi = np.linspace(xmin, xmax, resolution)
-        yi = np.linspace(ymin, ymax, resolution)
-        ok = OrdinaryKriging(
-            x=x,
-            y=y,
-            z=z,
-            variogram_model="gaussian",
-            exact_values=False,
-            verbose=False,
-        )
-        zi, _ = ok.execute(
-            style="grid",
-            xpoints=xi,
-            ypoints=yi,
-            backend="C",
-            n_closest_points=5,
-        )
+    z_sum_s = gaussian_filter(z_sum, sigma=sigma, mode="nearest")
+    z_count_s = gaussian_filter(z_count, sigma=sigma, mode="nearest")
+    zi = z_sum_s / np.maximum(z_count_s, 1e-12)
 
     ax.imshow(
-        zi.T if method == "gaussian" else zi,
+        zi.T,
         cmap=cmap,
         origin="lower",
         extent=bounds,
@@ -133,13 +92,17 @@ def plot_pair(
     resolution=100,
     point_size=6,
     alpha=0.5,
+    sigma=1.5,
 ):
-
     d = X.shape[1]
+
     if labels is None:
         labels = [f"x{i}" for i in range(d)]
     if len(labels) != d:
         raise ValueError(f"`labels` must have length {d}, got {len(labels)}")
+
+    if method not in {"points", "gaussian"}:
+        raise ValueError(f"{method} is not a valid method for plotting")
 
     keep = np.var(X, axis=0) > atol
     if not np.any(keep):
@@ -186,6 +149,7 @@ def plot_pair(
                 cmap=cmap,
                 point_size=point_size,
                 alpha=alpha,
+                sigma=sigma,
             )
 
             ax.set_box_aspect(1)
@@ -195,14 +159,22 @@ def plot_pair(
                 ax.set_xlabel(labels[j])
             else:
                 ax.tick_params(
-                    axis="x", which="both", bottom=False, top=False, labelbottom=False
+                    axis="x",
+                    which="both",
+                    bottom=False,
+                    top=False,
+                    labelbottom=False,
                 )
 
             if j == 0:
                 ax.set_ylabel(labels[i + 1])
             else:
                 ax.tick_params(
-                    axis="y", which="both", left=False, right=False, labelleft=False
+                    axis="y",
+                    which="both",
+                    left=False,
+                    right=False,
+                    labelleft=False,
                 )
 
     mappable = plt.cm.ScalarMappable(

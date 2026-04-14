@@ -143,12 +143,17 @@ class BestResponsePolicy(Policy):
         add_actions = action_space[ActionType.ADD]
         delete_actions = action_space[ActionType.DELETE]
         bridge_actions = action_space[ActionType.BRIDGE]
+        bridge_action = None
+        if bridge_actions:
+            bridge_action = bridge_actions[int(self._rng.integers(len(bridge_actions)))]
         add_targets = [action.target for action in add_actions]
 
-        n_candidates = 1 + len(delete_actions) + len(add_actions) + len(bridge_actions)
+        n_candidates = (
+            1 + len(delete_actions) + len(add_actions) + int(bridge_action is not None)
+        )
         assert (
-            n_candidates == self.n_nodes
-        ), f"Expected {self.n_nodes} candidate actions, got {n_candidates}"
+            n_candidates <= self.n_nodes
+        ), f"Expected at most {self.n_nodes} candidate actions, got {n_candidates}"
 
         candidate_idx = 0
 
@@ -280,13 +285,10 @@ class BestResponsePolicy(Policy):
         candidate_idx += 1
 
         # BRIDGE
-        if bridge_actions:
-            bridge_end = candidate_idx + len(bridge_actions)
-            self.candidate_actions[candidate_idx:bridge_end] = bridge_actions
-            self.candidate_values[candidate_idx:bridge_end] = (
-                reference_value + self.bridge_value
-            )
-            candidate_idx = bridge_end
+        if bridge_action is not None:
+            self.candidate_actions[candidate_idx] = bridge_action
+            self.candidate_values[candidate_idx] = reference_value + self.bridge_value
+            candidate_idx += 1
 
         assert (
             candidate_idx == n_candidates

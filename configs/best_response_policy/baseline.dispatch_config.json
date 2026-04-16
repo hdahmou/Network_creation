@@ -43,7 +43,7 @@
     }
   },
   "simulation": {
-    "n_agents": 50,
+    "n_agents": [10, 50],
     "actor_scheduler": {
       "n_actors": 1
     },

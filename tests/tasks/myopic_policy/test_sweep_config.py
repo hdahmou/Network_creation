@@ -8,7 +8,10 @@ import numpy as np
 from scipy.stats import qmc
 
 from tasks.policies import MyopicPolicyRun
-from tasks.policies.support import generate_parameter_table, load_simulation_settings
+from tasks.policies.support import (
+    generate_parameter_table,
+    load_simulation_sweep,
+)
 
 
 class MyopicPolicyPreparationTest(unittest.TestCase):
@@ -56,15 +59,37 @@ class MyopicPolicyPreparationTest(unittest.TestCase):
             ],
         }
 
-    def test_load_simulation_settings(self) -> None:
-        settings = load_simulation_settings(self._base_config()["simulation"])
-        self.assertEqual(settings.n_agents, 4)
-        self.assertEqual(settings.n_actors, 4)
-        self.assertEqual(settings.seed, 11)
-        self.assertEqual(settings.max_steps, 3)
-        self.assertEqual(settings.n_episodes, 2)
-        self.assertIsNone(settings.stagnation_patience)
-        self.assertEqual(settings.initial_graph_kind, "empty")
+    def test_load_simulation_sweep_supports_scalar_n_agents(self) -> None:
+        parameter_table = generate_parameter_table(self._base_config()["input_spec"])
+        sweep = load_simulation_sweep(
+            self._base_config()["simulation"],
+            parameter_table,
+        )
+
+        self.assertEqual(sweep.n_agents_values, (4,))
+        self.assertEqual(sweep.configuration_names[0], "n_agents")
+        self.assertEqual(sweep.configuration_values.shape, (1, 1, 5))
+        self.assertEqual(sweep.n_actors, 4)
+        self.assertEqual(sweep.seed, 11)
+        self.assertEqual(sweep.max_steps, 3)
+        self.assertEqual(sweep.n_episodes, 2)
+        self.assertIsNone(sweep.stagnation_patience)
+        self.assertEqual(sweep.initial_graph_kind, "empty")
+
+    def test_load_simulation_sweep_supports_n_agents_lists(self) -> None:
+        simulation = dict(self._base_config()["simulation"])
+        simulation["n_agents"] = [2, 4]
+        parameter_table = generate_parameter_table(self._base_config()["input_spec"])
+
+        sweep = load_simulation_sweep(simulation, parameter_table)
+
+        self.assertEqual(sweep.n_agents_values, (2, 4))
+        self.assertEqual(
+            tuple(sweep.configuration_values[:, 0, 0].astype(np.int64)),
+            (2, 4),
+        )
+        self.assertEqual(sweep.resolve(sweep.configuration_values[0, 0]).n_actors, 2)
+        self.assertEqual(sweep.resolve(sweep.configuration_values[1, 0]).n_actors, 4)
 
     def test_generate_parameter_table_preserves_order_and_repeats_fixed_columns(self) -> None:
         input_spec = {
@@ -192,6 +217,40 @@ class MyopicPolicyPreparationTest(unittest.TestCase):
         np.testing.assert_allclose(
             task.parameter_table.parameter_values,
             np.array([[0.05, 0.5, 0.0, 4.0]], dtype=np.float32),
+        )
+
+    def test_prepare_expands_n_agents_sweeps_cartesian_product(self) -> None:
+        config = self._base_config()
+        config["simulation"]["n_agents"] = [2, 5, 7]
+        config["input_spec"] = {
+            "log2_budget": 1,
+            "sampler_seed": 123,
+            "parameters": {
+                "benefit_to_cost_ratio": {"type": "fixed", "payload": 0.05},
+                "distance_discount": {"type": "fixed", "payload": 0.5},
+                "bridge_probability": {
+                    "type": "continuous",
+                    "payload": {"min": 0.0, "max": 1.0},
+                },
+                "visibility_distance": {"type": "fixed", "payload": 4},
+            },
+        }
+
+        task = MyopicPolicyRun()
+        prepared = task.prepare(config)
+
+        self.assertEqual(prepared.inputs, (0, 1, 2, 3, 4, 5))
+        self.assertEqual(task.simulation_sweep.configuration_values.shape, (3, 2, 5))
+        np.testing.assert_allclose(
+            task.simulation_sweep.configuration_values[:, :, 0],
+            np.array(
+                [
+                    [2.0, 2.0],
+                    [5.0, 5.0],
+                    [7.0, 7.0],
+                ],
+                dtype=np.float32,
+            ),
         )
 
     def test_prepare_rejects_missing_visibility_distance(self) -> None:

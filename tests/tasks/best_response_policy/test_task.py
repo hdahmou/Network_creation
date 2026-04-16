@@ -112,6 +112,39 @@ class BestResponsePolicyTaskTest(unittest.TestCase):
             explicit_output["normalized_welfare.mean"],
         )
 
+    def test_run_uses_sampled_n_agents_from_sweeps(self) -> None:
+        sweep_config = self._base_config()
+        sweep_config["simulation"]["n_agents"] = [2, 4]
+
+        small_config = self._base_config()
+        small_config["simulation"]["n_agents"] = 2
+
+        large_config = self._base_config()
+        large_config["simulation"]["n_agents"] = 4
+
+        sweep_prepared = BestResponsePolicyRun().prepare(sweep_config)
+        small_prepared = BestResponsePolicyRun().prepare(small_config)
+        large_prepared = BestResponsePolicyRun().prepare(large_config)
+
+        expected_outputs = (
+            small_prepared.run(small_prepared.inputs[0]),
+            large_prepared.run(large_prepared.inputs[0]),
+        )
+
+        self.assertEqual(sweep_prepared.inputs, (0, 1))
+        for sample_idx, expected_output in zip(
+            sweep_prepared.inputs,
+            expected_outputs,
+            strict=True,
+        ):
+            observed_output = sweep_prepared.run(sample_idx)
+            self.assertEqual(set(observed_output), set(expected_output))
+            for field_name in observed_output:
+                np.testing.assert_allclose(
+                    observed_output[field_name],
+                    expected_output[field_name],
+                )
+
     def test_prepare_supports_multiple_parameter_samples(self) -> None:
         config = self._base_config()
         config["input_spec"] = {

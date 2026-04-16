@@ -110,3 +110,19 @@ class RandomPolicyPreparationTest(unittest.TestCase):
         prepared = RandomPolicyRun().prepare(config)
 
         self.assertEqual(prepared.inputs, (0, 1))
+
+    def test_prepare_rejects_invalid_n_agents_lists(self) -> None:
+        invalid_values = (
+            [],
+            [0, 4],
+            [2.5, 4],
+            [True, 4],
+        )
+
+        for invalid_n_agents in invalid_values:
+            with self.subTest(n_agents=invalid_n_agents):
+                config = self._base_config()
+                config["simulation"]["n_agents"] = invalid_n_agents
+
+                with self.assertRaisesRegex(ValueError, "simulation.n_agents"):
+                    RandomPolicyRun().prepare(config)

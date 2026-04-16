@@ -57,6 +57,7 @@ def load_result_zarr(path: str | Path) -> dict[str, Any]:
             float(np.mean(durations_ms)) if durations_ms.size else None
         ),
         "input_index": np.asarray(input_index[order], dtype=np.int64),
+        "durations_ms": np.asarray(durations_ms[order], dtype=np.float64),
         "outputs": outputs,
         "failures": failures,
     }

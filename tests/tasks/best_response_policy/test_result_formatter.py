@@ -63,12 +63,20 @@ class BestResponsePolicyResultFormatterTest(unittest.TestCase):
 
         np.testing.assert_array_equal(
             formatted.metadata["input_index"],
-            np.asarray([0, 1, 2], dtype=np.int64),
+            np.asarray([[0, 1, 2, 3]], dtype=np.int64),
         )
         self.assertEqual(formatted.metadata["simulation"], config["simulation"])
         np.testing.assert_allclose(
             formatted.inputs["tensors"]["parameters"],
-            parameter_table.parameter_values[[0, 1, 2]],
+            parameter_table.parameter_values[None, :, :],
+        )
+        np.testing.assert_array_equal(
+            formatted.inputs["labels"]["n_agents"],
+            np.asarray([4], dtype=np.int64),
+        )
+        np.testing.assert_array_equal(
+            formatted.status["tensors"]["success"],
+            np.asarray([[True, True, True, False]], dtype=np.bool_),
         )
         self.assertEqual(
             tuple(formatted.inputs["labels"]["parameter"]),
@@ -85,15 +93,18 @@ class BestResponsePolicyResultFormatterTest(unittest.TestCase):
             tuple(formatted.outputs["labels"]["observable"]),
             ("density.mean", "normalized_welfare.mean"),
         )
-        self.assertEqual(formatted.outputs["tensors"]["timeseries"].shape, (3, 2, 4))
-        self.assertEqual(formatted.outputs["tensors"]["final"].shape, (3, 2))
+        self.assertEqual(formatted.outputs["tensors"]["timeseries"].shape, (1, 4, 2, 4))
+        self.assertEqual(formatted.outputs["tensors"]["final"].shape, (1, 4, 2))
         np.testing.assert_allclose(
             formatted.outputs["tensors"]["final"],
             np.asarray(
                 [
-                    [3.0, 103.0],
-                    [13.0, 113.0],
-                    [23.0, 203.0],
+                    [
+                        [3.0, 103.0],
+                        [13.0, 113.0],
+                        [23.0, 203.0],
+                        [0.0, 0.0],
+                    ],
                 ],
                 dtype=np.float32,
             ),

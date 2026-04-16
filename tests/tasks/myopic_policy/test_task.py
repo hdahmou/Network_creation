@@ -92,6 +92,17 @@ class MyopicPolicyTaskTest(unittest.TestCase):
         for field_name in first:
             np.testing.assert_allclose(first[field_name], second[field_name])
 
+    def test_run_supports_n_agents_sweeps(self) -> None:
+        config = self._base_config()
+        config["simulation"]["n_agents"] = [3, 4]
+
+        prepared = MyopicPolicyRun().prepare(config)
+
+        self.assertEqual(prepared.inputs, (0, 1))
+        for sample_idx in prepared.inputs:
+            output = prepared.run(sample_idx)
+            self.assertEqual(set(output), {"density.mean", "normalized_welfare.mean"})
+
     def test_run_matches_explicit_normalized_welfare_kwargs(self) -> None:
         inferred_prepared = MyopicPolicyRun().prepare(self._base_config())
 

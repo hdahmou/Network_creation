@@ -38,15 +38,23 @@ class RandomPolicyResultFormatterTest(unittest.TestCase):
 
             formatted = load_policy_results(store_path)
 
-        self.assertEqual(formatted.inputs["tensors"]["parameters"].shape, (1, 1))
+        self.assertEqual(formatted.inputs["tensors"]["parameters"].shape, (1, 1, 1))
+        np.testing.assert_array_equal(
+            formatted.inputs["labels"]["n_agents"],
+            np.asarray([4], dtype=np.int64),
+        )
+        np.testing.assert_array_equal(
+            formatted.status["tensors"]["success"],
+            np.asarray([[True]], dtype=np.bool_),
+        )
         self.assertEqual(formatted.metadata["average_completion_duration_ms"], 1.0)
         self.assertEqual(formatted.metadata["simulation"], config["simulation"])
         self.assertEqual(tuple(formatted.inputs["labels"]["parameter"]), ("visibility_distance",))
-        self.assertEqual(formatted.outputs["tensors"]["timeseries"].shape, (1, 2, 3))
-        self.assertEqual(formatted.outputs["tensors"]["final"].shape, (1, 2))
+        self.assertEqual(formatted.outputs["tensors"]["timeseries"].shape, (1, 1, 2, 3))
+        self.assertEqual(formatted.outputs["tensors"]["final"].shape, (1, 1, 2))
         np.testing.assert_allclose(
             formatted.outputs["tensors"]["final"],
-            np.asarray([[2.0, 12.0]], dtype=np.float32),
+            np.asarray([[[2.0, 12.0]]], dtype=np.float32),
         )
 
     def test_from_zarr_supports_scalar_outputs_without_timeseries(self) -> None:
@@ -74,13 +82,21 @@ class RandomPolicyResultFormatterTest(unittest.TestCase):
             formatted = load_policy_results(store_path)
 
         self.assertNotIn("timeseries", formatted.outputs["tensors"])
+        np.testing.assert_array_equal(
+            formatted.inputs["labels"]["n_agents"],
+            np.asarray([4], dtype=np.int64),
+        )
+        np.testing.assert_array_equal(
+            formatted.status["tensors"]["success"],
+            np.asarray([[True]], dtype=np.bool_),
+        )
         self.assertEqual(formatted.metadata["average_completion_duration_ms"], 1.0)
         self.assertEqual(formatted.metadata["simulation"], config["simulation"])
         self.assertEqual(tuple(formatted.inputs["labels"]["parameter"]), ("visibility_distance",))
-        self.assertEqual(formatted.outputs["tensors"]["final"].shape, (1, 2))
+        self.assertEqual(formatted.outputs["tensors"]["final"].shape, (1, 1, 2))
         np.testing.assert_allclose(
             formatted.outputs["tensors"]["final"],
-            np.asarray([[0.25, 12.5]], dtype=np.float32),
+            np.asarray([[[0.25, 12.5]]], dtype=np.float32),
         )
         self.assertEqual(
             tuple(formatted.outputs["labels"]["observable"]),

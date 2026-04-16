@@ -149,6 +149,7 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
         prepared = task.prepare(self._base_config())
 
         self.assertEqual(prepared.inputs, (0,))
+        self.assertEqual(task.simulation_sweep.configuration_values.shape, (1, 1, 7))
         self.assertEqual(
             task.parameter_table.parameter_names,
             (

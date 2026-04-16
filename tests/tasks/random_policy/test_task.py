@@ -82,6 +82,17 @@ class RandomPolicyTaskTest(unittest.TestCase):
         for field_name in first:
             np.testing.assert_allclose(first[field_name], second[field_name])
 
+    def test_run_supports_n_agents_sweeps_and_auto_caps_actor_count(self) -> None:
+        config = self._base_config()
+        config["simulation"]["n_agents"] = [2, 4]
+
+        prepared = RandomPolicyRun().prepare(config)
+
+        self.assertEqual(prepared.inputs, (0, 1))
+        for sample_idx in prepared.inputs:
+            output = prepared.run(sample_idx)
+            self.assertEqual(set(output), {"density.mean", "normalized_welfare.mean"})
+
     def test_run_fails_when_normalized_welfare_runtime_parameters_are_missing(self) -> None:
         config = self._base_config()
         del config["observers"][1]["kwargs"]["benefit_to_cost_ratio"]

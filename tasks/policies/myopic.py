@@ -19,32 +19,33 @@ class MyopicPolicyRun(PolicyRun):
     def build_policy(
         self,
         node_id: int,
-        sample: NDArray[np.float32],
+        configuration: NDArray[np.float32],
+        simulation_settings,
     ) -> MyopicPayoffPolicy:
-        parameter_columns = self.parameter_table.column_index_by_name
+        del simulation_settings
+        parameter_columns = self.simulation_sweep.column_index_by_name
         return MyopicPayoffPolicy(
             seed=node_id,
             benefit_to_cost_ratio=float(
-                sample[parameter_columns["benefit_to_cost_ratio"]]
+                configuration[parameter_columns["benefit_to_cost_ratio"]]
             ),
             distance_discount=float(
-                sample[parameter_columns["distance_discount"]]
+                configuration[parameter_columns["distance_discount"]]
             ),
-            bridge_probability=float(sample[parameter_columns["bridge_probability"]]),
+            bridge_probability=float(configuration[parameter_columns["bridge_probability"]]),
         )
 
     @classmethod
     def build_output_group(
         cls,
         outputs: dict[str, NDArray[np.generic]],
-        input_index: NDArray[np.int64],
     ) -> PolicyTensorGroup:
         observable_names, series_arrays = cls._collect_timeseries_outputs(outputs)
         if not series_arrays:
             raise ValueError("myopic-policy results do not contain any time-series outputs")
 
-        timeseries = np.stack(series_arrays, axis=1).astype(np.float32, copy=False)
-        final = np.asarray(timeseries[:, :, -1], dtype=np.float32)
+        timeseries = np.stack(series_arrays, axis=2).astype(np.float32, copy=False)
+        final = np.asarray(timeseries[:, :, :, -1], dtype=np.float32)
 
         return {
             "tensors": {
@@ -52,13 +53,12 @@ class MyopicPolicyRun(PolicyRun):
                 "final": final,
             },
             "dims": {
-                "timeseries": ("sample", "observable", "step"),
-                "final": ("sample", "observable"),
+                "timeseries": ("n_agents", "parameter_row", "observable", "step"),
+                "final": ("n_agents", "parameter_row", "observable"),
             },
             "labels": {
-                "sample": input_index,
                 "observable": observable_names,
-                "step": np.arange(timeseries.shape[2], dtype=np.int64),
+                "step": np.arange(timeseries.shape[3], dtype=np.int64),
             },
         }
 
@@ -72,11 +72,11 @@ class MyopicPolicyRun(PolicyRun):
 
         for name, values in outputs.items():
             array = np.asarray(values)
-            if array.ndim != 2:
+            if array.ndim != 3:
                 continue
             if expected_steps is None:
-                expected_steps = array.shape[1]
-            elif array.shape[1] != expected_steps:
+                expected_steps = array.shape[2]
+            elif array.shape[2] != expected_steps:
                 raise ValueError(
                     "myopic-policy time-series outputs must share the same step axis length"
                 )

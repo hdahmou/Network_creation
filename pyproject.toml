@@ -31,6 +31,7 @@ dependencies = [
     "bidict>=0.23.1",
     "seaborn[stats]>=0.13.2",
     "pykrige>=1.7.3",
+    "ipympl>=0.10.0",
 ]
 
 [project.scripts]

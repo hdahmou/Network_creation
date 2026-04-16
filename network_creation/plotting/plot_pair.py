@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.colors import Normalize
 from matplotlib.ticker import FormatStrFormatter
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 from scipy.stats import binned_statistic_2d
@@ -14,7 +15,7 @@ def plot_2d_descriptor(
     method: str,
     resolution: int,
     ax: Axes,
-    vlim: tuple[float, float],
+    norm: Normalize,
     bounds=None,
     cmap: str = "Greys",
     point_size: float = 6,
@@ -35,8 +36,7 @@ def plot_2d_descriptor(
             y,
             c=z,
             cmap=cmap,
-            vmin=vlim[0],
-            vmax=vlim[1],
+            norm=norm,
             s=point_size,
             alpha=alpha,
             linewidths=0,
@@ -70,16 +70,13 @@ def plot_2d_descriptor(
     ax.imshow(
         zi.T,
         cmap=cmap,
+        norm=norm,
         origin="lower",
         extent=bounds,
         interpolation="nearest",
-        vmin=vlim[0],
-        vmax=vlim[1],
         aspect="auto",
     )
     return ax
-
-
 def plot_pair(
     X: np.ndarray,
     y: np.ndarray,
@@ -93,6 +90,7 @@ def plot_pair(
     point_size=6,
     alpha=0.5,
     sigma=1.5,
+    norm: Normalize | None = None,
 ):
     d = X.shape[1]
 
@@ -115,7 +113,12 @@ def plot_pair(
         raise ValueError("Need at least two varying X dimensions to build pair plots.")
 
     n = X.shape[1] - 1
-    vlim = (float(np.min(y)), float(np.max(y)))
+    resolved_norm = norm
+    if resolved_norm is None:
+        resolved_norm = Normalize(
+            vmin=float(np.min(y)),
+            vmax=float(np.max(y)),
+        )
 
     fig, axes = plt.subplots(
         n,
@@ -144,7 +147,7 @@ def plot_pair(
                 method=method,
                 resolution=resolution,
                 ax=ax,
-                vlim=vlim,
+                norm=resolved_norm,
                 bounds=bounds,
                 cmap=cmap,
                 point_size=point_size,
@@ -179,11 +182,11 @@ def plot_pair(
 
     mappable = plt.cm.ScalarMappable(
         cmap=cmap,
-        norm=plt.Normalize(vmin=vlim[0], vmax=vlim[1]),
+        norm=resolved_norm,
     )
 
     if n > 1:
-        cax = inset_axes(
+        colorbar_axis = inset_axes(
             axes[0, -1],
             width="4%",
             height="90%",
@@ -191,9 +194,9 @@ def plot_pair(
             borderpad=-2.5,
         )
     else:
-        cax = fig.add_axes([1.02, 0.2, 0.02, 0.7])
+        colorbar_axis = fig.add_axes([1.02, 0.2, 0.02, 0.7])
 
-    cbar = fig.colorbar(mappable, cax=cax)
+    cbar = fig.colorbar(mappable, cax=colorbar_axis)
     cbar.set_label(label_y)
     cbar.ax.yaxis.set_major_formatter(FormatStrFormatter("%.2f"))
 

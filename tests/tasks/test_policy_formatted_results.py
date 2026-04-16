@@ -57,11 +57,21 @@ class PolicyFormattedResultsTest(unittest.TestCase):
                 "average_completion_duration_ms": 12.5,
                 "input_index": sample_labels,
                 "output_schema": [],
+                "simulation": {
+                    "n_agents": 4,
+                    "actor_scheduler": {"n_actors": 1},
+                    "seed": 11,
+                    "max_steps": 3,
+                    "n_episodes": 2,
+                    "stagnation_patience": None,
+                    "initial_graph": {"kind": "empty"},
+                },
             },
             failures={},
         )
         self.assertEqual(result.metadata["task_name"], "myopic-policy")
         self.assertEqual(result.metadata["average_completion_duration_ms"], 12.5)
+        self.assertEqual(result.metadata["simulation"]["n_agents"], 4)
         self.assertEqual(result.inputs["dims"]["parameters"], ("sample", "parameter"))
         self.assertEqual(result.outputs["dims"]["final"], ("sample", "observable"))
         np.testing.assert_allclose(

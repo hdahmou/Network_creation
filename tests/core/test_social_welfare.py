@@ -24,6 +24,7 @@ from network_creation.observers.social_welfare_observer import (
     _compute_normalized_welfare,
 )
 from network_creation.policies.base import Policy
+from network_creation.stats.er_payoff import expected_aggregate_payoff
 from tests.graph_factories import graph_from_adjacency_matrix
 
 
@@ -57,6 +58,79 @@ class ConstantPolicy(Policy):
 
 
 class SocialWelfareTest(unittest.TestCase):
+    def test_reference_values_return_closed_form_star_and_empty_baselines(self) -> None:
+        n = 4
+        distance_discount = 0.5
+        benefit_to_cost_ratio = 0.3
+        reference_values = NormalizedWelfareObserver.reference_values(
+            n=n,
+            distance_discount=distance_discount,
+            benefit_to_cost_ratio=benefit_to_cost_ratio,
+        )
+        expected_star = (
+            benefit_to_cost_ratio
+            * (
+                n
+                + 2 * (n - 1) * distance_discount
+                + (n - 1) * (n - 2) * distance_discount**2
+            )
+            + (n - 1) ** 2
+        ) / (n * (2 * n - 1))
+        expected_empty = (benefit_to_cost_ratio + n - 1) / (2 * n - 1)
+
+        self.assertEqual(set(reference_values), {"star", "empty", "random"})
+        self.assertAlmostEqual(reference_values["star"], expected_star)
+        self.assertAlmostEqual(reference_values["empty"], expected_empty)
+
+    def test_reference_values_random_matches_er_expected_payoff_argmax(self) -> None:
+        expected_random_reference = expected_aggregate_payoff(
+            4,
+            0.3,
+            p=None,
+            delta=0.5,
+        )
+        assert isinstance(expected_random_reference, tuple)
+
+        reference_values = NormalizedWelfareObserver.reference_values(
+            n=4,
+            distance_discount=0.5,
+            benefit_to_cost_ratio=0.3,
+        )
+
+        self.assertAlmostEqual(
+            reference_values["random"], expected_random_reference[0]
+        )
+
+    def test_reference_values_reject_invalid_n(self) -> None:
+        with self.assertRaisesRegex(ValueError, "n must satisfy n >= 1"):
+            NormalizedWelfareObserver.reference_values(
+                n=0,
+                distance_discount=0.5,
+                benefit_to_cost_ratio=0.3,
+            )
+
+    def test_reference_values_reject_invalid_ratio(self) -> None:
+        with self.assertRaisesRegex(
+            ValueError,
+            "benefit_to_cost_ratio must satisfy 0 <= "
+            "benefit_to_cost_ratio <= 1",
+        ):
+            NormalizedWelfareObserver.reference_values(
+                n=4,
+                distance_discount=0.5,
+                benefit_to_cost_ratio=1.1,
+            )
+
+    def test_reference_values_reject_invalid_discount(self) -> None:
+        with self.assertRaisesRegex(
+            ValueError, "distance_discount must satisfy 0 <= distance_discount < 1"
+        ):
+            NormalizedWelfareObserver.reference_values(
+                n=4,
+                distance_discount=1.0,
+                benefit_to_cost_ratio=0.3,
+            )
+
     def test_normalized_welfare_keeps_empty_graph_in_bounded_positive_range(
         self,
     ) -> None:

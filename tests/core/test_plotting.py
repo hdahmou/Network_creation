@@ -9,6 +9,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.colors import TwoSlopeNorm
 
 from network_creation.core.agent import Agent
 from network_creation.core.environment import Environment
@@ -29,6 +30,7 @@ from network_creation.observers.statistics.episode_tensor_series import (
 )
 from network_creation.observers.triad_census_observer import TriadCensusObserver
 from network_creation.plotting.episode_series import plot_episode_series_observer
+from network_creation.plotting.plot_pair import plot_pair
 from network_creation.policies.base import Policy
 from network_creation.policies.random import RandomPolicy
 
@@ -450,6 +452,59 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
                 dimension_name="missing",
             )
 
+        plt.close(figure)
+
+
+class PlotPairTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.X = np.array(
+            [
+                [0.0, 1.0, 2.0],
+                [1.0, 2.0, 3.0],
+                [2.0, 3.0, 4.0],
+                [3.0, 4.0, 5.0],
+            ],
+            dtype=float,
+        )
+        self.y = np.array([10.0, 20.0, 30.0, 40.0], dtype=float)
+
+    def test_plot_pair_uses_data_limits_when_no_overrides_are_provided(self) -> None:
+        figure, axes = plot_pair(self.X, self.y, method="points")
+
+        self.assertEqual(axes[0, 0].collections[0].get_clim(), (10.0, 40.0))
+        np.testing.assert_allclose(figure.axes[-1].get_ybound(), (10.0, 40.0))
+        plt.close(figure)
+
+    def test_plot_pair_uses_caller_provided_norm_for_points(self) -> None:
+        custom_norm = TwoSlopeNorm(vmin=0.0, vcenter=25.0, vmax=50.0)
+        figure, axes = plot_pair(
+            self.X,
+            self.y,
+            method="points",
+            cmap="RdBu_r",
+            norm=custom_norm,
+        )
+
+        collection = axes[0, 0].collections[0]
+        self.assertEqual(collection.get_clim(), (0.0, 50.0))
+        self.assertIs(collection.norm, custom_norm)
+        np.testing.assert_allclose(figure.axes[-1].get_ybound(), (0.0, 50.0))
+        plt.close(figure)
+
+    def test_plot_pair_uses_caller_provided_norm_for_gaussian_mode(self) -> None:
+        custom_norm = TwoSlopeNorm(vmin=0.0, vcenter=25.0, vmax=50.0)
+        figure, axes = plot_pair(
+            self.X,
+            self.y,
+            method="gaussian",
+            cmap="RdBu_r",
+            norm=custom_norm,
+        )
+
+        image = axes[0, 0].images[0]
+        self.assertEqual(image.get_clim(), (0.0, 50.0))
+        self.assertIs(image.norm, custom_norm)
+        np.testing.assert_allclose(figure.axes[-1].get_ybound(), (0.0, 50.0))
         plt.close(figure)
 
 

@@ -79,6 +79,28 @@ def generate_parameter_table(input_spec: Mapping[str, object]) -> ParameterTable
     )
 
 
+def _build_fixed_parameter_table(parameters: ParameterConfig) -> ParameterTable:
+    parameter_names = tuple(parameters)
+    parameter_values = np.empty((1, len(parameter_names)), dtype=np.float32)
+
+    for column_index, (name, spec) in enumerate(parameters.items()):
+        parameter_type = str(spec["type"])
+        if parameter_type != "fixed":
+            raise ValueError(
+                "direct random-policy runner requires fixed parameters only; "
+                f"parameter {name!r} has unsupported type {parameter_type!r}"
+            )
+        parameter_values[0, column_index] = float(cast(int | float, spec["payload"]))
+
+    column_index_by_name = {name: index for index, name in enumerate(parameter_names)}
+
+    return ParameterTable(
+        parameter_names=parameter_names,
+        parameter_values=parameter_values,
+        column_index_by_name=column_index_by_name,
+    )
+
+
 def _load_observation_sampling(raw: Mapping[str, object]) -> ObservationSampling:
     kind = str(raw["kind"])
     if kind == "periodic":

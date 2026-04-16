@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from typing import Any
+from typing import Any, Callable, Union
 
 import igraph as ig
 import matplotlib.pyplot as plt
@@ -31,7 +31,7 @@ def build_circle_layout(n_nodes: int) -> dict[int, tuple[float, float]]:
 def plot_graph_history(
     steps: NDArray[np.int_],
     graphs: Iterable[ig.Graph],
-    layout: dict[int, tuple[float, float]],
+    layout: Union[dict[int, tuple[float, float]], Callable[[nx.Graph], Any]],
     figure_title: str,
     max_cols: int,
 ) -> tuple[Figure, np.ndarray[Any, Any]]:
@@ -57,9 +57,14 @@ def plot_graph_history(
         axis.axis("off")
 
     for axis, step, graph in zip(axes_grid.ravel(), steps, graph_history, strict=False):
+        graph_nx = graph.to_networkx(vertex_attr_hashable="name")
+        if isinstance(layout, Callable):
+            layout_nx = layout(graph_nx)
+        else:
+            layout_nx = layout
         nx.draw_networkx(
-            graph.to_networkx(vertex_attr_hashable="name"),
-            pos=layout,
+            graph_nx,
+            pos=layout_nx,
             ax=axis,
             node_color=_NODE_COLOR,
             edge_color=_EDGE_COLOR,

@@ -65,6 +65,7 @@ class BestResponsePolicyResultFormatterTest(unittest.TestCase):
             formatted.metadata["input_index"],
             np.asarray([0, 1, 2], dtype=np.int64),
         )
+        self.assertEqual(formatted.metadata["simulation"], config["simulation"])
         np.testing.assert_allclose(
             formatted.inputs["tensors"]["parameters"],
             parameter_table.parameter_values[[0, 1, 2]],

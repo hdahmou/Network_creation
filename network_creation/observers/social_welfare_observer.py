@@ -16,7 +16,7 @@ r"""
         \text{Where:} & \quad \mathcal{B}(\bar{g}) = \text{Total Benefit} = \sum_{i \in N} \sum_{j \in N} \delta^{d(i,j, \bar{g})} \\
         & \quad |E(g)| = \text{Total Directed Edges} = \sum_{i \in N} \eta_i(g)
         \\
-        \text{PSS Network:} & \quad \bar{\Pi}_{agg} = \frac{1}{n(2n-1)} \left[ \frac{V}{k} \left( n + 2(n-1)\delta + (n-1)(n-2)\delta^2 \right) + (n-1)^2 \right]
+        \text{Star Network:} & \quad \bar{\Pi}_{agg} = \frac{1}{n(2n-1)} \left[ \frac{V}{k} \left( n + 2(n-1)\delta + (n-1)(n-2)\delta^2 \right) + (n-1)^2 \right]
         \\
         \text{Empty Network:} & \quad \bar{\Pi}_{agg} = \frac{\frac{V}{k} + n - 1}{2n - 1}
    \end{aligned}
@@ -34,6 +34,7 @@ from network_creation.core.observability import (
 from network_creation.observers.statistics.episode_series import (
     EpisodeSeriesStatisticObserver,
 )
+from network_creation.stats.er_payoff import expected_aggregate_payoff
 
 
 def _compute_normalized_welfare(
@@ -82,6 +83,48 @@ class NormalizedWelfareObserver(EpisodeSeriesStatisticObserver):
             observation_sampling=observation_sampling,
             aggregations=aggregations,
         )
+
+    @staticmethod
+    def reference_values(
+        n: int,
+        distance_discount: float,
+        benefit_to_cost_ratio: float,
+    ) -> dict[str, float]:
+        if n < 1:
+            raise ValueError("n must satisfy n >= 1")
+        if not 0.0 <= benefit_to_cost_ratio <= 1.0:
+            raise ValueError(
+                "benefit_to_cost_ratio must satisfy 0 <= " "benefit_to_cost_ratio <= 1"
+            )
+        if not 0.0 <= distance_discount < 1.0:
+            raise ValueError(
+                "distance_discount must satisfy 0 <= distance_discount < 1"
+            )
+
+        normalization = float(n * (2 * n - 1))
+        pair_count = float(n - 1)
+        star = (
+            benefit_to_cost_ratio
+            * (
+                float(n)
+                + 2.0 * pair_count * distance_discount
+                + pair_count * float(n - 2) * distance_discount**2
+            )
+            + pair_count**2
+        ) / normalization
+        empty = (benefit_to_cost_ratio + pair_count) / float(2 * n - 1)
+        random_reference = expected_aggregate_payoff(
+            n,
+            benefit_to_cost_ratio,
+            p=None,
+            delta=distance_discount,
+        )
+        random = (
+            float(random_reference[0])
+            if isinstance(random_reference, tuple)
+            else float(random_reference)
+        )
+        return {"star": star, "empty": empty, "random": random}
 
     def compute_initial_value(self, event: EpisodeStartEvent) -> float:
         return _compute_normalized_welfare(

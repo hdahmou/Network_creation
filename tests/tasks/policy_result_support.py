@@ -12,9 +12,22 @@ from tasks.dispatch.result_store import ResultStore
 from tasks.dispatch.runtime import OutputField, OutputSchema
 
 
+def _simulation_config() -> dict[str, object]:
+    return {
+        "n_agents": 4,
+        "actor_scheduler": {"n_actors": 2},
+        "seed": 11,
+        "max_steps": 3,
+        "n_episodes": 2,
+        "stagnation_patience": None,
+        "initial_graph": {"kind": "empty"},
+    }
+
+
 def build_myopic_config(*, log2_budget: int = 2) -> dict[str, object]:
     return {
         "task": "myopic-policy",
+        "simulation": _simulation_config(),
         "input_spec": {
             "log2_budget": log2_budget,
             "sampler_seed": 123,
@@ -37,6 +50,7 @@ def build_myopic_config(*, log2_budget: int = 2) -> dict[str, object]:
 def build_best_response_config(*, log2_budget: int = 2) -> dict[str, object]:
     return {
         "task": "best-response-policy",
+        "simulation": _simulation_config(),
         "input_spec": {
             "log2_budget": log2_budget,
             "sampler_seed": 123,
@@ -67,6 +81,7 @@ def build_best_response_config(*, log2_budget: int = 2) -> dict[str, object]:
 def build_random_config() -> dict[str, object]:
     return {
         "task": "random-policy",
+        "simulation": _simulation_config(),
         "input_spec": {
             "log2_budget": 0,
             "sampler_seed": 123,

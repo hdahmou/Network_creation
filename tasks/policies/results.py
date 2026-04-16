@@ -35,6 +35,7 @@ class PolicyResultMetadata(TypedDict):
     average_completion_duration_ms: float | None
     input_index: NDArray[np.int64]
     output_schema: list[dict[str, object]]
+    simulation: dict[str, object]
 
 
 @dataclass(frozen=True)
@@ -61,6 +62,12 @@ def load_policy_results(zarr_path: str | Path) -> PolicyFormattedResults:
     task_class = TASKS.get(task_name)
     if task_class is None:
         raise ValueError(f"Unsupported policy task: {task_name}")
+
+    simulation = config.get("simulation")
+    if not isinstance(simulation, dict):
+        raise ValueError(
+            f"Dispatch config at {config_path} must contain a 'simulation' object"
+        )
 
     parameter_table = generate_parameter_table(cast(dict[str, object], config["input_spec"]))
     input_index = np.asarray(result_data["input_index"], dtype=np.int64)
@@ -93,6 +100,7 @@ def load_policy_results(zarr_path: str | Path) -> PolicyFormattedResults:
             ),
             "input_index": input_index,
             "output_schema": list(result_data["output_schema"]),
+            "simulation": cast(dict[str, object], simulation),
         },
         failures=cast(
             dict[str, NDArray[np.int64] | NDArray[np.float64] | NDArray[np.str_]],

@@ -92,13 +92,30 @@ class PolicyRun(ABC):
             seed=node_id,
         )
 
+    def _build_observer(
+        self,
+        spec: ObserverSpec,
+        sample: NDArray[np.float32],
+    ) -> Any:
+        kwargs = dict(spec.kwargs)
+        if spec.name == "normalized_welfare":
+            for parameter_name in ("benefit_to_cost_ratio", "distance_discount"):
+                if parameter_name in kwargs:
+                    continue
+                column_index = self.parameter_table.column_index_by_name[
+                    parameter_name
+                ]
+                kwargs[parameter_name] = float(sample[column_index])
+
+        return spec.observer_class(**kwargs)
+
     def run(self, sample_idx: int) -> dict[str, np.ndarray[Any, Any]]:
         from network_creation.core.runtime import create_simulation_runtime
 
         self.validate_sample_idx(sample_idx)
         sample = self.parameter_table.parameter_values[sample_idx]
         observers = tuple(
-            spec.observer_class(**spec.kwargs) for spec in self.observer_specs
+            self._build_observer(spec, sample) for spec in self.observer_specs
         )
         _, _, simulator = create_simulation_runtime(
             simulation_settings=self.simulation_settings,

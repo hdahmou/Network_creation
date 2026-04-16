@@ -82,6 +82,16 @@ class RandomPolicyTaskTest(unittest.TestCase):
         for field_name in first:
             np.testing.assert_allclose(first[field_name], second[field_name])
 
+    def test_run_fails_when_normalized_welfare_runtime_parameters_are_missing(self) -> None:
+        config = self._base_config()
+        del config["observers"][1]["kwargs"]["benefit_to_cost_ratio"]
+        del config["observers"][1]["kwargs"]["distance_discount"]
+
+        prepared = RandomPolicyRun().prepare(config)
+
+        with self.assertRaisesRegex(KeyError, "benefit_to_cost_ratio"):
+            prepared.run(prepared.inputs[0])
+
     def test_prepare_supports_series_and_tensor_observers_in_one_schema(self) -> None:
         config = self._base_config()
         config["observers"] = [

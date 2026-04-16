@@ -49,8 +49,6 @@ class BestResponsePolicyTaskTest(unittest.TestCase):
                     "kwargs": {
                         "observation_sampling": {"kind": "periodic", "every": 1},
                         "aggregations": ["mean"],
-                        "benefit_to_cost_ratio": 0.1,
-                        "distance_discount": 0.5,
                     },
                 },
             ],
@@ -97,6 +95,22 @@ class BestResponsePolicyTaskTest(unittest.TestCase):
         self.assertEqual(set(first), set(second))
         for field_name in first:
             np.testing.assert_allclose(first[field_name], second[field_name])
+
+    def test_run_matches_explicit_normalized_welfare_kwargs(self) -> None:
+        inferred_prepared = BestResponsePolicyRun().prepare(self._base_config())
+
+        explicit_config = self._base_config()
+        explicit_config["observers"][1]["kwargs"]["benefit_to_cost_ratio"] = 0.1
+        explicit_config["observers"][1]["kwargs"]["distance_discount"] = 0.5
+        explicit_prepared = BestResponsePolicyRun().prepare(explicit_config)
+
+        inferred_output = inferred_prepared.run(inferred_prepared.inputs[0])
+        explicit_output = explicit_prepared.run(explicit_prepared.inputs[0])
+
+        np.testing.assert_allclose(
+            inferred_output["normalized_welfare.mean"],
+            explicit_output["normalized_welfare.mean"],
+        )
 
     def test_prepare_supports_multiple_parameter_samples(self) -> None:
         config = self._base_config()

@@ -58,9 +58,7 @@
       "output": "mean",
       "kwargs": {
         "observation_sampling": { "kind": "periodic", "every": 1 },
-        "aggregations": ["mean"],
-        "benefit_to_cost_ratio": 0.5,
-        "distance_discount": 0.9
+        "aggregations": ["mean"]
       }
     }
   ]

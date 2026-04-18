@@ -81,9 +81,36 @@ class ObserverSpec:
     field: OutputField
 
 
+def _resolve_scaled_inverse_n_agents(
+    configuration_values: NDArray[np.float32],
+    *,
+    configuration_names: Sequence[str],
+    n_agents_values: Sequence[int],
+    parameter_specs: ParameterConfig,
+) -> None:
+    n_agents_array = np.asarray(n_agents_values, dtype=np.float64)
+
+    for parameter_name, spec in parameter_specs.items():
+        if str(spec["type"]) != "scaled_inverse_n_agents":
+            continue
+
+        assert parameter_name == "benefit_to_cost_ratio"
+        payload = cast(Mapping[str, object], spec["payload"])
+        numerator = float(payload["numerator"])
+        factor = float(payload["factor"])
+        resolved_values = numerator / (factor * n_agents_array)
+        column_index = configuration_names.index(parameter_name)
+        configuration_values[:, :, column_index] = np.asarray(
+            resolved_values,
+            dtype=np.float32,
+        )[:, None]
+
+
 def load_simulation_sweep(
     raw: Mapping[str, Any],
     parameter_table: ParameterTable,
+    *,
+    parameter_specs: ParameterConfig,
 ) -> SimulationSweep:
     initial_graph = raw.get("initial_graph") or {}
     stagnation_patience = raw.get("stagnation_patience")
@@ -117,6 +144,12 @@ def load_simulation_sweep(
         dtype=np.float32,
     )[:, None]
     configuration_values[:, :, 1:] = parameter_table.parameter_values[None, :, :]
+    _resolve_scaled_inverse_n_agents(
+        configuration_values,
+        configuration_names=configuration_names,
+        n_agents_values=n_agents_values,
+        parameter_specs=parameter_specs,
+    )
 
     return SimulationSweep(
         parameter_table=parameter_table,

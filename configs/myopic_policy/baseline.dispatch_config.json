@@ -8,8 +8,11 @@
     "sampler_seed": 123,
     "parameters": {
       "benefit_to_cost_ratio": {
-        "type": "fixed",
-        "payload": 0.5
+        "type": "scaled_inverse_n_agents",
+        "payload": {
+          "numerator": 10.0,
+          "factor": 2.0
+        }
       },
       "distance_discount": {
         "type": "continuous",

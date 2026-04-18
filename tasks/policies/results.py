@@ -80,10 +80,13 @@ def load_policy_results(zarr_path: str | Path) -> PolicyFormattedResults:
             f"Dispatch config at {config_path} must contain a 'simulation' object"
         )
 
-    parameter_table = generate_parameter_table(cast(dict[str, object], config["input_spec"]))
+    input_spec = cast(dict[str, object], config["input_spec"])
+    parameter_specs = cast(dict[str, dict[str, object]], input_spec["parameters"])
+    parameter_table = generate_parameter_table(input_spec)
     simulation_sweep = load_simulation_sweep(
         cast(dict[str, object], simulation),
         parameter_table,
+        parameter_specs=parameter_specs,
     )
     n_agents_count = len(simulation_sweep.n_agents_values)
     n_parameter_rows = simulation_sweep.n_parameter_rows
@@ -117,14 +120,10 @@ def load_policy_results(zarr_path: str | Path) -> PolicyFormattedResults:
         **output_group["labels"],
     }
 
-    parameter_values = np.broadcast_to(
-        parameter_table.parameter_values[None, :, :],
-        (
-            n_agents_count,
-            n_parameter_rows,
-            int(parameter_table.parameter_values.shape[1]),
-        ),
-    ).astype(np.float32, copy=False)
+    parameter_values = np.asarray(
+        simulation_sweep.configuration_values[:, :, 1:],
+        dtype=np.float32,
+    )
     success_mask = np.zeros((n_agents_count, n_parameter_rows), dtype=np.bool_)
     duration_ms = np.full((n_agents_count, n_parameter_rows), np.nan, dtype=np.float64)
     for row_index, flat_input_index in enumerate(success_index):

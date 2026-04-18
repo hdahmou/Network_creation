@@ -46,7 +46,11 @@ def _sum_discounted_distances(
     power_buffer: NDArray[np.float32],
 ) -> float:
     np.power(distance_discount, distances, out=power_buffer)
-    return power_buffer.sum()
+    return float(power_buffer.sum())
+
+
+def _sigmoid(x: float) -> float:
+    return float(1.0 / (1.0 + np.exp(-x)))
 
 
 def stable_softmax_boltzmann(
@@ -55,11 +59,12 @@ def stable_softmax_boltzmann(
 ) -> NDArray[np.float64]:
     if tau <= 0.0:
         raise ValueError("tau must be > 0")
-    k = len(values)
-    if k == 1:
+    if len(values) == 0:
+        raise ValueError("values must be non-empty")
+    if len(values) == 1:
         return np.ones(1, dtype=np.float64)
-    scale = np.log(k) / tau
-    z = np.asarray(values, dtype=np.float64) * scale
+
+    z = np.asarray(values, dtype=np.float64) / tau
     z = z - np.max(z)
     probs = np.exp(z)
     return probs / probs.sum()
@@ -75,28 +80,40 @@ def _sample_boltzmann(
 
 
 class BestResponsePolicy(Policy):
-    """Select an action by Boltzmann-weighted sampling over candidate scores.
+    """Select an action using a one-parameter inertia gate + Boltzmann policy.
 
-    For acting node i, visible ADD and DELETE candidates use normalized
-    one-step utility deltas
+    Non-PASS actions are scored by normalized one-step utility deltas in [-1, 1].
 
+    DELETE score:
         ΔU_i =
             λ * (1 / (2*N - 1)) * Σ_j [δ^{d*_j} - δ^{d_j}]
-            - Δoutdeg(i) / (2*N - 1)
+            + 1 / (2*N - 1)
 
-    PASS is scored as ``inertia_term``.
+    ADD score:
+        ΔU_i =
+            λ * (1 / (2*N - 1)) * Σ_j [δ^{d*_j} - δ^{d_j}]
+            - 1 / (2*N - 1)
 
-    BRIDGE is scored from the current normalized payoff
+    BRIDGE score:
+        2 * (bridge_multiplier * (|bridge_actions| / N)) - 1
 
-        clip((1 - 2 * Π_i) + bridge_value, -1, 1)
+    PASS is handled through an inertia parameter gate based on the best
+    available non-PASS option:
 
-    so low-payoff nodes are more likely to bridge and high-payoff nodes are
-    less likely to do so.
+        P(PASS) = sigmoid(inertia - max(0, max_a ΔU_a))
+
+    so PASS becomes less likely when at least one promising action exists.
+
+    Conditional on not passing, an action is sampled from a standard Boltzmann
+    softmax over the non-PASS candidate scores:
+
+        P(a | not PASS) ∝ exp(ΔU_a / tau)
 
     where:
       - λ is the benefit_to_cost_ratio
       - δ is the distance discount
-      - Π_i is the current normalized payoff on the observed graph
+      - N is the total number of nodes
+      - |bridge_actions| is the number of currently available bridge actions
       - add:    Δoutdeg = +1
       - delete: Δoutdeg = -1
     """
@@ -107,22 +124,26 @@ class BestResponsePolicy(Policy):
         seed: int,
         benefit_to_cost_ratio: float,
         distance_discount: float,
-        bridge_value: float,
-        inertia_term: float,
+        bridge_multiplier: float,
+        inertia: float,
         tau: float,
     ) -> None:
         if not 0.0 < benefit_to_cost_ratio <= 1.0:
             raise ValueError("benefit_to_cost_ratio must be in (0,1]")
         if not 0.0 < distance_discount < 1.0:
             raise ValueError("distance_discount must be in (0,1)")
+        if not 0.0 <= bridge_multiplier <= 1.0:
+            raise ValueError("bridge_multiplier must be in [0,1]")
         if n_nodes <= 1:
             raise ValueError("n_nodes must be > 1")
+        if tau <= 0.0:
+            raise ValueError("tau must be > 0")
 
         self.n_nodes = n_nodes
         self.benefit_to_cost_ratio = benefit_to_cost_ratio
         self.distance_discount = distance_discount
-        self.inertia_term = inertia_term
-        self.bridge_value = bridge_value
+        self.bridge_multiplier = bridge_multiplier
+        self.inertia = inertia
         self.tau = tau
         self._rng = np.random.default_rng(seed)
 
@@ -133,6 +154,12 @@ class BestResponsePolicy(Policy):
 
     def reset(self, seed: int) -> None:
         self._rng = np.random.default_rng(seed)
+
+    def _pass_probability(self, non_pass_values: NDArray[np.float32]) -> float:
+        if len(non_pass_values) == 0:
+            return 1.0
+        best_value = max(0.0, float(np.max(non_pass_values)))
+        return _sigmoid(self.inertia - best_value)
 
     def get_decision(
         self, observation: Observation, action_space: ActionSpace
@@ -159,12 +186,12 @@ class BestResponsePolicy(Policy):
             bridge_action = bridge_actions[int(self._rng.integers(len(bridge_actions)))]
         add_targets = [action.target for action in add_actions]
 
-        n_candidates = (
-            1 + len(delete_actions) + len(add_actions) + int(bridge_action is not None)
+        n_non_pass_candidates = (
+            len(delete_actions) + len(add_actions) + int(bridge_action is not None)
         )
         assert (
-            n_candidates <= self.n_nodes
-        ), f"Expected at most {self.n_nodes} candidate actions, got {n_candidates}"
+            n_non_pass_candidates <= self.n_nodes
+        ), f"Expected at most {self.n_nodes} non-pass candidates, got {n_non_pass_candidates}"
 
         candidate_idx = 0
 
@@ -289,30 +316,30 @@ class BestResponsePolicy(Policy):
                 self.candidate_values[candidate_idx] = best_add_value
                 candidate_idx += 1
 
-        # PASS
-        self.candidate_actions[candidate_idx] = pass_action
-        self.candidate_values[candidate_idx] = self.inertia_term
-        candidate_idx += 1
-
         # BRIDGE
-        current_payoff = (
-            self.benefit_to_cost_ratio * base_benefit
-            - graph.outdegree(source_idx)
-            + (self.n_nodes - 1)
-        ) / float(2 * self.n_nodes - 1)
-        bridge_score = (1.0 - 2.0 * current_payoff) + self.bridge_value
-        bridge_score = float(np.clip(bridge_score, -1.0, 1.0))
         if bridge_action is not None:
+            bridge_score = 2.0 * (
+                self.bridge_multiplier * (len(bridge_actions) / self.n_nodes)
+            ) - 1.0
             self.candidate_actions[candidate_idx] = bridge_action
             self.candidate_values[candidate_idx] = bridge_score
             candidate_idx += 1
 
         assert (
-            candidate_idx == n_candidates
-        ), f"Filled {candidate_idx} candidates, expected {n_candidates}"
+            candidate_idx == n_non_pass_candidates
+        ), f"Filled {candidate_idx} non-pass candidates, expected {n_non_pass_candidates}"
+
+        non_pass_values = self.candidate_values[:candidate_idx]
+        p_pass = self._pass_probability(non_pass_values)
+
+        if self._rng.random() < p_pass:
+            return PolicyDecision(
+                actions=(pass_action,),
+                value={"value": p_pass},
+            )
 
         chosen_idx = _sample_boltzmann(
-            self.candidate_values[:candidate_idx],
+            non_pass_values,
             self.tau,
             self._rng,
         )

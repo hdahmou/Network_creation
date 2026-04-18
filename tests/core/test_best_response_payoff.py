@@ -40,43 +40,49 @@ class BestResponsePolicyTest(unittest.TestCase):
 
     @staticmethod
     def _expected_bridge_score(
-        observation,
+        action_space,
         policy: BestResponsePolicy,
     ) -> float:
-        graph = observation.graph
-        source_idx = observation.node_idx
-        distances = np.asarray(
-            graph.distances(source=[source_idx], mode="all")[0],
-            dtype=np.float32,
-        )
-        base_benefit = float(np.power(policy.distance_discount, distances).sum())
-        current_payoff = (
-            policy.benefit_to_cost_ratio * base_benefit
-            - graph.outdegree(source_idx)
-            + (policy.n_nodes - 1)
-        ) / float(2 * policy.n_nodes - 1)
         return float(
-            np.clip(
-                (1.0 - 2.0 * current_payoff) + policy.bridge_value,
-                -1.0,
-                1.0,
+            2.0
+            * (
+                policy.bridge_multiplier
+                * (len(action_space[ActionType.BRIDGE]) / policy.n_nodes)
             )
+            - 1.0
         )
 
-    def test_constructor_accepts_values_outside_previous_parameter_bounds(self) -> None:
+    def test_constructor_accepts_unit_interval_bridge_multiplier(self) -> None:
         policy = BestResponsePolicy(
             n_nodes=3,
             seed=7,
             benefit_to_cost_ratio=0.5,
             distance_discount=0.5,
-            bridge_value=1.25,
-            inertia_term=-1.75,
+            bridge_multiplier=1.0,
+            inertia=-1.75,
             tau=2.0,
         )
 
-        self.assertEqual(policy.bridge_value, 1.25)
-        self.assertEqual(policy.inertia_term, -1.75)
+        self.assertEqual(policy.bridge_multiplier, 1.0)
+        self.assertEqual(policy.inertia, -1.75)
         self.assertEqual(policy.tau, 2.0)
+
+    def test_constructor_rejects_bridge_multiplier_outside_unit_interval(self) -> None:
+        for bridge_multiplier in (-0.1, 1.1):
+            with self.subTest(bridge_multiplier=bridge_multiplier):
+                with self.assertRaisesRegex(
+                    ValueError,
+                    r"bridge_multiplier must be in \[0,1\]",
+                ):
+                    BestResponsePolicy(
+                        n_nodes=3,
+                        seed=7,
+                        benefit_to_cost_ratio=0.5,
+                        distance_discount=0.5,
+                        bridge_multiplier=bridge_multiplier,
+                        inertia=0.0,
+                        tau=self.tau,
+                    )
 
     def test_constructor_rejects_non_positive_benefit_ratio(self) -> None:
         with self.assertRaisesRegex(
@@ -88,8 +94,8 @@ class BestResponsePolicyTest(unittest.TestCase):
                 seed=7,
                 benefit_to_cost_ratio=0.0,
                 distance_discount=0.5,
-                bridge_value=0.0,
-                inertia_term=0.0,
+                bridge_multiplier=0.0,
+                inertia=0.0,
                 tau=self.tau,
             )
 
@@ -103,8 +109,8 @@ class BestResponsePolicyTest(unittest.TestCase):
                 seed=7,
                 benefit_to_cost_ratio=0.5,
                 distance_discount=0.0,
-                bridge_value=0.0,
-                inertia_term=0.0,
+                bridge_multiplier=0.0,
+                inertia=0.0,
                 tau=self.tau,
             )
 
@@ -112,9 +118,7 @@ class BestResponsePolicyTest(unittest.TestCase):
         values = np.array([0.0, 1.0, 1.0], dtype=np.float32)
         probabilities = stable_softmax_boltzmann(values, tau=1.0)
 
-        expected = np.exp(
-            np.array([-np.log(len(values)), 0.0, 0.0], dtype=np.float64)
-        )
+        expected = np.exp(np.array([-1.0, 0.0, 0.0], dtype=np.float64))
         expected /= expected.sum()
         np.testing.assert_allclose(probabilities, expected)
         self.assertAlmostEqual(float(probabilities.sum()), 1.0)
@@ -137,20 +141,20 @@ class BestResponsePolicyTest(unittest.TestCase):
             seed=11,
             benefit_to_cost_ratio=0.5,
             distance_discount=0.5,
-            bridge_value=1.25,
-            inertia_term=0.0,
+            bridge_multiplier=1.0,
+            inertia=0.0,
             tau=self.tau,
         )
 
         decision = policy.get_decision(observation, action_space)
-        expected_bridge_score = self._expected_bridge_score(observation, policy)
+        expected_bridge_score = self._expected_bridge_score(action_space, policy)
 
         self.assertEqual(decision.actions[0].type, ActionType.BRIDGE)
         self.assertIn(decision.actions[0], action_space[ActionType.BRIDGE])
         assert decision.value is not None
         self.assertAlmostEqual(float(decision.value["value"]), expected_bridge_score)
 
-    def test_bridge_score_offsets_current_normalized_payoff_and_clips(self) -> None:
+    def test_bridge_score_uses_bridge_multiplier_and_available_ratio(self) -> None:
         observation, action_space = self._build_observation_and_action_space(
             adjacency=np.array(
                 [
@@ -169,52 +173,50 @@ class BestResponsePolicyTest(unittest.TestCase):
             seed=13,
             benefit_to_cost_ratio=0.5,
             distance_discount=0.5,
-            bridge_value=1.25,
-            inertia_term=0.0,
+            bridge_multiplier=1.0,
+            inertia=-0.1,
             tau=self.tau,
         )
 
         decision = policy.get_decision(observation, action_space)
-        expected_bridge_score = self._expected_bridge_score(observation, policy)
+        expected_bridge_score = self._expected_bridge_score(action_space, policy)
 
         self.assertEqual(decision.actions[0].type, ActionType.BRIDGE)
         assert decision.value is not None
         self.assertAlmostEqual(float(decision.value["value"]), expected_bridge_score)
-        self.assertEqual(expected_bridge_score, 1.0)
+        self.assertEqual(expected_bridge_score, 0.0)
 
-    def test_inertia_term_biases_selection_toward_pass(self) -> None:
-        observation, action_space = self._build_observation_and_action_space(
-            adjacency=np.array(
-                [
-                    [0, 1, 0],
-                    [1, 0, 0],
-                    [0, 0, 0],
-                ],
-                dtype=np.int8,
-            ),
-            node_id=0,
-            radius=1,
-        )
-        policy = BestResponsePolicy(
+    def test_inertia_biases_selection_toward_pass(self) -> None:
+        non_pass_values = np.array([0.2, -0.1], dtype=np.float32)
+        low_inertia_policy = BestResponsePolicy(
             n_nodes=3,
             seed=17,
             benefit_to_cost_ratio=0.5,
             distance_discount=0.5,
-            bridge_value=0.0,
-            inertia_term=1.25,
+            bridge_multiplier=0.0,
+            inertia=0.0,
+            tau=self.tau,
+        )
+        high_inertia_policy = BestResponsePolicy(
+            n_nodes=3,
+            seed=17,
+            benefit_to_cost_ratio=0.5,
+            distance_discount=0.5,
+            bridge_multiplier=0.0,
+            inertia=1.25,
             tau=self.tau,
         )
 
-        decision = policy.get_decision(observation, action_space)
-
-        self.assertEqual(
-            decision.actions,
-            (Action(ActionType.PASS, source=0),),
+        low_pass_probability = low_inertia_policy._pass_probability(non_pass_values)
+        high_pass_probability = high_inertia_policy._pass_probability(non_pass_values)
+        expected_high_pass_probability = float(
+            1.0 / (1.0 + np.exp(-(high_inertia_policy.inertia - 0.2)))
         )
-        self.assertIsNotNone(decision.value)
-        self.assertAlmostEqual(float(decision.value["value"]), 1.25)
 
-    def test_bridge_value_below_inertia_returns_pass(self) -> None:
+        self.assertLess(low_pass_probability, high_pass_probability)
+        self.assertAlmostEqual(high_pass_probability, expected_high_pass_probability)
+
+    def test_pass_gate_can_force_pass_action(self) -> None:
         observation, action_space = self._build_observation_and_action_space(
             adjacency=np.zeros((3, 3), dtype=np.int8),
             node_id=0,
@@ -225,21 +227,20 @@ class BestResponsePolicyTest(unittest.TestCase):
             seed=19,
             benefit_to_cost_ratio=0.5,
             distance_discount=0.5,
-            bridge_value=0.75,
-            inertia_term=1.25,
+            bridge_multiplier=0.75,
+            inertia=1.25,
             tau=self.tau,
         )
 
-        decision = policy.get_decision(observation, action_space)
-        expected_bridge_score = self._expected_bridge_score(observation, policy)
+        with patch.object(policy, "_pass_probability", return_value=1.0):
+            decision = policy.get_decision(observation, action_space)
 
         self.assertEqual(
             decision.actions,
             (Action(ActionType.PASS, source=0),),
         )
         self.assertIsNotNone(decision.value)
-        self.assertAlmostEqual(float(decision.value["value"]), 1.25)
-        self.assertLess(expected_bridge_score, policy.inertia_term)
+        self.assertAlmostEqual(float(decision.value["value"]), 1.0)
 
     def test_equal_value_bridge_ties_with_pass_and_can_be_selected(self) -> None:
         observation, action_space = self._build_observation_and_action_space(
@@ -252,15 +253,23 @@ class BestResponsePolicyTest(unittest.TestCase):
             seed=1,
             benefit_to_cost_ratio=0.5,
             distance_discount=0.5,
-            bridge_value=0.0,
-            inertia_term=0.0,
+            bridge_multiplier=0.75,
+            inertia=0.0,
             tau=self.tau,
         )
-        with patch(
-            "network_creation.policies.best_response._sample_boltzmann",
-            return_value=1,
-        ) as sample_boltzmann:
-            decision = policy.get_decision(observation, action_space)
+        bridge_score = self._expected_bridge_score(action_space, policy)
+        self.assertAlmostEqual(bridge_score, 0.0)
+        self.assertAlmostEqual(
+            policy._pass_probability(np.array([bridge_score], dtype=np.float32)),
+            0.5,
+        )
+
+        with patch.object(policy, "_pass_probability", return_value=0.0):
+            with patch(
+                "network_creation.policies.best_response._sample_boltzmann",
+                return_value=0,
+            ) as sample_boltzmann:
+                decision = policy.get_decision(observation, action_space)
 
         sample_boltzmann.assert_called_once()
         self.assertEqual(decision.actions[0].type, ActionType.BRIDGE)
@@ -287,8 +296,8 @@ class BestResponsePolicyTest(unittest.TestCase):
             seed=23,
             benefit_to_cost_ratio=0.5,
             distance_discount=0.5,
-            bridge_value=0.0,
-            inertia_term=0.0,
+            bridge_multiplier=0.0,
+            inertia=0.0,
             tau=self.tau,
         )
 
@@ -331,13 +340,13 @@ class BestResponsePolicyTest(unittest.TestCase):
             seed=29,
             benefit_to_cost_ratio=0.5,
             distance_discount=0.5,
-            bridge_value=1.25,
-            inertia_term=0.0,
+            bridge_multiplier=1.0,
+            inertia=0.0,
             tau=self.tau,
         )
 
         decision = policy.get_decision(observation, action_space)
-        expected_bridge_score = self._expected_bridge_score(observation, policy)
+        expected_bridge_score = self._expected_bridge_score(action_space, policy)
 
         self.assertEqual(decision.actions[0].type, ActionType.BRIDGE)
         self.assertEqual(decision.actions[0].source, 0)
@@ -356,11 +365,11 @@ class BestResponsePolicyTest(unittest.TestCase):
             seed=37,
             benefit_to_cost_ratio=0.5,
             distance_discount=0.5,
-            bridge_value=1.25,
-            inertia_term=0.0,
+            bridge_multiplier=1.0,
+            inertia=0.0,
             tau=1.0,
         )
-        expected_bridge_score = self._expected_bridge_score(observation, policy)
+        expected_bridge_score = self._expected_bridge_score(action_space, policy)
 
         def capture(
             values: np.ndarray,
@@ -368,15 +377,16 @@ class BestResponsePolicyTest(unittest.TestCase):
             _rng: np.random.Generator,
         ) -> int:
             self.assertIsInstance(values, np.ndarray)
-            np.testing.assert_allclose(values, np.array([0.0, expected_bridge_score]))
+            np.testing.assert_allclose(values, np.array([expected_bridge_score]))
             self.assertEqual(tau, 1.0)
-            return 1
+            return 0
 
-        with patch(
-            "network_creation.policies.best_response._sample_boltzmann",
-            side_effect=capture,
-        ) as sample_boltzmann:
-            decision = policy.get_decision(observation, action_space)
+        with patch.object(policy, "_pass_probability", return_value=0.0):
+            with patch(
+                "network_creation.policies.best_response._sample_boltzmann",
+                side_effect=capture,
+            ) as sample_boltzmann:
+                decision = policy.get_decision(observation, action_space)
 
         sample_boltzmann.assert_called_once()
         self.assertEqual(
@@ -397,11 +407,11 @@ class BestResponsePolicyTest(unittest.TestCase):
             seed=41,
             benefit_to_cost_ratio=0.5,
             distance_discount=0.5,
-            bridge_value=1.25,
-            inertia_term=0.0,
+            bridge_multiplier=1.0,
+            inertia=0.0,
             tau=1.0,
         )
-        expected_bridge_score = self._expected_bridge_score(observation, policy)
+        expected_bridge_score = self._expected_bridge_score(action_space, policy)
 
         def capture(
             values: np.ndarray,
@@ -409,15 +419,16 @@ class BestResponsePolicyTest(unittest.TestCase):
             _rng: np.random.Generator,
         ) -> int:
             self.assertIsInstance(values, np.ndarray)
-            np.testing.assert_allclose(values, np.array([0.0, expected_bridge_score]))
+            np.testing.assert_allclose(values, np.array([expected_bridge_score]))
             self.assertEqual(tau, 1.0)
-            return 1
+            return 0
 
-        with patch(
-            "network_creation.policies.best_response._sample_boltzmann",
-            side_effect=capture,
-        ) as sample_boltzmann:
-            decision = policy.get_decision(observation, action_space)
+        with patch.object(policy, "_pass_probability", return_value=0.0):
+            with patch(
+                "network_creation.policies.best_response._sample_boltzmann",
+                side_effect=capture,
+            ) as sample_boltzmann:
+                decision = policy.get_decision(observation, action_space)
 
         sample_boltzmann.assert_called_once()
         self.assertEqual(
@@ -460,8 +471,8 @@ class BestResponsePolicyTest(unittest.TestCase):
             seed=31,
             benefit_to_cost_ratio=1.0,
             distance_discount=0.5,
-            bridge_value=0.0,
-            inertia_term=0.0,
+            bridge_multiplier=0.0,
+            inertia=0.0,
             tau=self.tau,
         )
 

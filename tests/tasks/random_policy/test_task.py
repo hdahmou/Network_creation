@@ -93,6 +93,63 @@ class RandomPolicyTaskTest(unittest.TestCase):
             output = prepared.run(sample_idx)
             self.assertEqual(set(output), {"density.mean", "normalized_welfare.mean"})
 
+    def test_run_uses_scaled_inverse_benefit_to_cost_ratio_from_n_agents(self) -> None:
+        sweep_config = self._base_config()
+        sweep_config["simulation"]["n_agents"] = [5, 10]
+        sweep_config["input_spec"]["parameters"]["benefit_to_cost_ratio"] = {
+            "type": "scaled_inverse_n_agents",
+            "payload": {
+                "numerator": 10.0,
+                "factor": 2.0,
+            },
+        }
+        del sweep_config["observers"][1]["kwargs"]["benefit_to_cost_ratio"]
+
+        small_config = self._base_config()
+        small_config["simulation"]["n_agents"] = 5
+        small_config["input_spec"]["parameters"]["benefit_to_cost_ratio"] = {
+            "type": "scaled_inverse_n_agents",
+            "payload": {
+                "numerator": 10.0,
+                "factor": 2.0,
+            },
+        }
+        del small_config["observers"][1]["kwargs"]["benefit_to_cost_ratio"]
+
+        large_config = self._base_config()
+        large_config["simulation"]["n_agents"] = 10
+        large_config["input_spec"]["parameters"]["benefit_to_cost_ratio"] = {
+            "type": "scaled_inverse_n_agents",
+            "payload": {
+                "numerator": 10.0,
+                "factor": 2.0,
+            },
+        }
+        del large_config["observers"][1]["kwargs"]["benefit_to_cost_ratio"]
+
+        sweep_prepared = RandomPolicyRun().prepare(sweep_config)
+        small_prepared = RandomPolicyRun().prepare(small_config)
+        large_prepared = RandomPolicyRun().prepare(large_config)
+
+        expected_outputs = (
+            small_prepared.run(small_prepared.inputs[0]),
+            large_prepared.run(large_prepared.inputs[0]),
+        )
+
+        self.assertEqual(sweep_prepared.inputs, (0, 1))
+        for sample_idx, expected_output in zip(
+            sweep_prepared.inputs,
+            expected_outputs,
+            strict=True,
+        ):
+            observed_output = sweep_prepared.run(sample_idx)
+            self.assertEqual(set(observed_output), set(expected_output))
+            for field_name in observed_output:
+                np.testing.assert_allclose(
+                    observed_output[field_name],
+                    expected_output[field_name],
+                )
+
     def test_run_fails_when_normalized_welfare_runtime_parameters_are_missing(self) -> None:
         config = self._base_config()
         del config["observers"][1]["kwargs"]["benefit_to_cost_ratio"]

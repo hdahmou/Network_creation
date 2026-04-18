@@ -7,6 +7,13 @@
     "log2_budget": 0,
     "sampler_seed": 123,
     "parameters": {
+      "benefit_to_cost_ratio": {
+        "type": "scaled_inverse_n_agents",
+        "payload": {
+          "numerator": 10.0,
+          "factor": 2.0
+        }
+      },
       "visibility_distance": {
         "type": "fixed",
         "payload": 4
@@ -14,7 +21,7 @@
     }
   },
   "simulation": {
-    "n_agents": 4,
+    "n_agents": 5,
     "actor_scheduler": {
       "n_actors": 4
     },
@@ -45,7 +52,6 @@
         "aggregations": [
           "mean"
         ],
-        "benefit_to_cost_ratio": 0.1,
         "distance_discount": 0.5
       }
     }

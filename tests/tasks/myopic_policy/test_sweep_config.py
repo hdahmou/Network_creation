@@ -60,10 +60,12 @@ class MyopicPolicyPreparationTest(unittest.TestCase):
         }
 
     def test_load_simulation_sweep_supports_scalar_n_agents(self) -> None:
-        parameter_table = generate_parameter_table(self._base_config()["input_spec"])
+        config = self._base_config()
+        parameter_table = generate_parameter_table(config["input_spec"])
         sweep = load_simulation_sweep(
-            self._base_config()["simulation"],
+            config["simulation"],
             parameter_table,
+            parameter_specs=config["input_spec"]["parameters"],
         )
 
         self.assertEqual(sweep.n_agents_values, (4,))
@@ -77,11 +79,16 @@ class MyopicPolicyPreparationTest(unittest.TestCase):
         self.assertEqual(sweep.initial_graph_kind, "empty")
 
     def test_load_simulation_sweep_supports_n_agents_lists(self) -> None:
+        config = self._base_config()
         simulation = dict(self._base_config()["simulation"])
         simulation["n_agents"] = [2, 4]
-        parameter_table = generate_parameter_table(self._base_config()["input_spec"])
+        parameter_table = generate_parameter_table(config["input_spec"])
 
-        sweep = load_simulation_sweep(simulation, parameter_table)
+        sweep = load_simulation_sweep(
+            simulation,
+            parameter_table,
+            parameter_specs=config["input_spec"]["parameters"],
+        )
 
         self.assertEqual(sweep.n_agents_values, (2, 4))
         self.assertEqual(
@@ -90,6 +97,39 @@ class MyopicPolicyPreparationTest(unittest.TestCase):
         )
         self.assertEqual(sweep.resolve(sweep.configuration_values[0, 0]).n_actors, 2)
         self.assertEqual(sweep.resolve(sweep.configuration_values[1, 0]).n_actors, 4)
+
+    def test_prepare_resolves_scaled_inverse_benefit_to_cost_ratio_from_n_agents(
+        self,
+    ) -> None:
+        config = self._base_config()
+        config["simulation"]["n_agents"] = [5, 10]
+        config["input_spec"] = {
+            "log2_budget": 0,
+            "sampler_seed": 123,
+            "parameters": {
+                "benefit_to_cost_ratio": {
+                    "type": "scaled_inverse_n_agents",
+                    "payload": {
+                        "numerator": 10.0,
+                        "factor": 2.0,
+                    },
+                },
+                "distance_discount": {"type": "fixed", "payload": 0.5},
+                "bridge_probability": {"type": "fixed", "payload": 0.0},
+                "visibility_distance": {"type": "fixed", "payload": 4},
+            },
+        }
+
+        task = MyopicPolicyRun()
+        task.prepare(config)
+
+        benefit_to_cost_ratio_index = task.simulation_sweep.column_index_by_name[
+            "benefit_to_cost_ratio"
+        ]
+        np.testing.assert_allclose(
+            task.simulation_sweep.configuration_values[:, :, benefit_to_cost_ratio_index],
+            np.asarray([[1.0], [0.5]], dtype=np.float32),
+        )
 
     def test_generate_parameter_table_preserves_order_and_repeats_fixed_columns(self) -> None:
         input_spec = {

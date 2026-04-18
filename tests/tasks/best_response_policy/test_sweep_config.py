@@ -21,8 +21,8 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
                 "parameters": {
                     "benefit_to_cost_ratio": {"type": "fixed", "payload": 0.05},
                     "distance_discount": {"type": "fixed", "payload": 0.5},
-                    "bridge_value": {"type": "fixed", "payload": 0.75},
-                    "inertia_term": {"type": "fixed", "payload": -1.25},
+                    "bridge_multiplier": {"type": "fixed", "payload": 0.75},
+                    "inertia": {"type": "fixed", "payload": -1.25},
                     "tau": {"type": "fixed", "payload": 2.0},
                     "visibility_distance": {"type": "fixed", "payload": 4},
                 },
@@ -58,11 +58,11 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
                     "type": "continuous",
                     "payload": {"min": 0.2, "max": 0.8},
                 },
-                "bridge_value": {
+                "bridge_multiplier": {
                     "type": "continuous",
-                    "payload": {"min": -1.5, "max": 1.5},
+                    "payload": {"min": 0.0, "max": 1.0},
                 },
-                "inertia_term": {
+                "inertia": {
                     "type": "continuous",
                     "payload": {"min": -2.0, "max": 1.0},
                 },
@@ -78,8 +78,8 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
             (
                 "benefit_to_cost_ratio",
                 "distance_discount",
-                "bridge_value",
-                "inertia_term",
+                "bridge_multiplier",
+                "inertia",
                 "tau",
                 "visibility_distance",
             ),
@@ -98,11 +98,11 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
                     "type": "continuous",
                     "payload": {"min": 0.2, "max": 0.8},
                 },
-                "bridge_value": {
+                "bridge_multiplier": {
                     "type": "continuous",
-                    "payload": {"min": -1.5, "max": 1.5},
+                    "payload": {"min": 0.0, "max": 1.0},
                 },
-                "inertia_term": {
+                "inertia": {
                     "type": "continuous",
                     "payload": {"min": -2.0, "max": 1.0},
                 },
@@ -125,7 +125,7 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
         expected = np.column_stack(
             (
                 0.2 + (unit_samples[:, 0] * 0.6),
-                -1.5 + (unit_samples[:, 1] * 3.0),
+                unit_samples[:, 1],
                 -2.0 + (unit_samples[:, 2] * 3.0),
                 0.25 + (unit_samples[:, 3] * 2.0),
                 np.full(4, 4.0, dtype=np.float32),
@@ -136,8 +136,8 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
             parameter_table.parameter_names,
             (
                 "distance_discount",
-                "bridge_value",
-                "inertia_term",
+                "bridge_multiplier",
+                "inertia",
                 "tau",
                 "visibility_distance",
             ),
@@ -155,8 +155,8 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
             (
                 "benefit_to_cost_ratio",
                 "distance_discount",
-                "bridge_value",
-                "inertia_term",
+                "bridge_multiplier",
+                "inertia",
                 "tau",
                 "visibility_distance",
             ),
@@ -178,3 +178,32 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "visibility_distance is required"):
             BestResponsePolicyRun().prepare(config)
+
+    def test_run_rejects_scaled_inverse_benefit_to_cost_ratio_below_threshold(
+        self,
+    ) -> None:
+        config = self._base_config()
+        config["simulation"]["n_agents"] = 4
+        config["input_spec"] = {
+            "log2_budget": 0,
+            "sampler_seed": 123,
+            "parameters": {
+                "benefit_to_cost_ratio": {
+                    "type": "scaled_inverse_n_agents",
+                    "payload": {
+                        "numerator": 10.0,
+                        "factor": 2.0,
+                    },
+                },
+                "distance_discount": {"type": "fixed", "payload": 0.5},
+                "bridge_multiplier": {"type": "fixed", "payload": 0.75},
+                "inertia": {"type": "fixed", "payload": -1.25},
+                "tau": {"type": "fixed", "payload": 2.0},
+                "visibility_distance": {"type": "fixed", "payload": 4},
+            },
+        }
+
+        prepared = BestResponsePolicyRun().prepare(config)
+
+        with self.assertRaisesRegex(ValueError, "benefit_to_cost_ratio"):
+            prepared.run(prepared.inputs[0])

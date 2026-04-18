@@ -30,8 +30,10 @@ class BestResponsePolicyRun(PolicyRun):
                 configuration[parameter_columns["benefit_to_cost_ratio"]]
             ),
             distance_discount=float(configuration[parameter_columns["distance_discount"]]),
-            bridge_value=float(configuration[parameter_columns["bridge_value"]]),
-            inertia_term=float(configuration[parameter_columns["inertia_term"]]),
+            bridge_multiplier=float(
+                configuration[parameter_columns["bridge_multiplier"]]
+            ),
+            inertia=float(configuration[parameter_columns["inertia"]]),
             tau=float(configuration[parameter_columns["tau"]]),
         )
 

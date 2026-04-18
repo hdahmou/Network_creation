@@ -37,12 +37,14 @@ class PolicyRun(ABC):
 
     def prepare(self, config: Mapping[str, Any]) -> PreparedTask[int]:
         input_spec = config["input_spec"]
+        parameter_specs = cast(Mapping[str, Mapping[str, object]], input_spec["parameters"])
         self.validate_input_spec(input_spec)
         self.parameter_table = generate_parameter_table(input_spec)
         self.validate_parameter_table()
         self.simulation_sweep = load_simulation_sweep(
             config["simulation"],
             self.parameter_table,
+            parameter_specs=parameter_specs,
         )
         self.observer_specs = load_observers(
             raw_observers=config["observers"],

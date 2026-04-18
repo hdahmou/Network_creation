@@ -60,11 +60,11 @@ def build_best_response_config(*, log2_budget: int = 2) -> dict[str, object]:
                     "type": "continuous",
                     "payload": {"min": 0.1, "max": 0.9},
                 },
-                "bridge_value": {
+                "bridge_multiplier": {
                     "type": "continuous",
-                    "payload": {"min": -1.5, "max": 1.5},
+                    "payload": {"min": 0.0, "max": 1.0},
                 },
-                "inertia_term": {
+                "inertia": {
                     "type": "continuous",
                     "payload": {"min": -2.0, "max": 1.0},
                 },

@@ -27,6 +27,9 @@ def build_parameter_values(
             dtype=np.float32,
         )
 
+    if parameter_type == "scaled_inverse_n_agents":
+        return np.full(sample_budget, np.nan, dtype=np.float32)
+
     if parameter_type == "discrete":
         values = cast(Sequence[int | float], payload)
         rng = np.random.default_rng(sampler_seed)
@@ -101,7 +104,10 @@ def generate_parameter_space(
     non_continuous_parameter_columns: list[NDArray[np.float32]] = []
     effective_sample_budget = (
         sample_budget
-        if any(str(spec["type"]) != "fixed" for spec in parameters.values())
+        if any(
+            str(spec["type"]) not in {"fixed", "scaled_inverse_n_agents"}
+            for spec in parameters.values()
+        )
         else 1
     )
 

@@ -188,3 +188,55 @@ class MyopicPolicyResultFormatterTest(unittest.TestCase):
             np.asarray([[True, False], [True, True]], dtype=np.bool_),
         )
         self.assertEqual(formatted.metadata["simulation"], config["simulation"])
+
+    def test_from_zarr_uses_resolved_scaled_inverse_benefit_to_cost_ratio(self) -> None:
+        config = build_myopic_config(log2_budget=0)
+        config["simulation"]["n_agents"] = [5, 10]
+        config["input_spec"]["parameters"]["benefit_to_cost_ratio"] = {
+            "type": "scaled_inverse_n_agents",
+            "payload": {
+                "numerator": 10.0,
+                "factor": 2.0,
+            },
+        }
+
+        outputs_by_index = [
+            (
+                1,
+                {
+                    "density.mean": np.asarray([10.0, 11.0, 12.0, 13.0], dtype=np.float32),
+                    "normalized_welfare.mean": np.asarray(
+                        [110.0, 111.0, 112.0, 113.0], dtype=np.float32
+                    ),
+                },
+            ),
+            (
+                0,
+                {
+                    "density.mean": np.asarray([0.0, 1.0, 2.0, 3.0], dtype=np.float32),
+                    "normalized_welfare.mean": np.asarray(
+                        [100.0, 101.0, 102.0, 103.0], dtype=np.float32
+                    ),
+                },
+            ),
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store_path = write_result_store(
+                Path(tmpdir),
+                task_name="myopic-policy",
+                task_class="tasks.policies.myopic:MyopicPolicyRun",
+                config=config,
+                outputs_by_index=outputs_by_index,
+                total_inputs=2,
+            )
+
+            formatted = load_policy_results(store_path)
+
+        benefit_to_cost_ratio_index = tuple(formatted.inputs["labels"]["parameter"]).index(
+            "benefit_to_cost_ratio"
+        )
+        np.testing.assert_allclose(
+            formatted.inputs["tensors"]["parameters"][:, :, benefit_to_cost_ratio_index],
+            np.asarray([[1.0], [0.5]], dtype=np.float32),
+        )

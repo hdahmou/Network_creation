@@ -19,8 +19,8 @@ class BestResponsePolicyTaskTest(unittest.TestCase):
                 "parameters": {
                     "benefit_to_cost_ratio": {"type": "fixed", "payload": 0.1},
                     "distance_discount": {"type": "fixed", "payload": 0.5},
-                    "bridge_value": {"type": "fixed", "payload": 0.75},
-                    "inertia_term": {"type": "fixed", "payload": -1.25},
+                    "bridge_multiplier": {"type": "fixed", "payload": 0.75},
+                    "inertia": {"type": "fixed", "payload": -1.25},
                     "tau": {"type": "fixed", "payload": 2.0},
                     "visibility_distance": {"type": "fixed", "payload": 4},
                 },
@@ -71,8 +71,8 @@ class BestResponsePolicyTaskTest(unittest.TestCase):
             (
                 "benefit_to_cost_ratio",
                 "distance_discount",
-                "bridge_value",
-                "inertia_term",
+                "bridge_multiplier",
+                "inertia",
                 "tau",
                 "visibility_distance",
             ),
@@ -145,6 +145,60 @@ class BestResponsePolicyTaskTest(unittest.TestCase):
                     expected_output[field_name],
                 )
 
+    def test_run_uses_scaled_inverse_benefit_to_cost_ratio_from_n_agents(self) -> None:
+        sweep_config = self._base_config()
+        sweep_config["simulation"]["n_agents"] = [5, 10]
+        sweep_config["input_spec"]["parameters"]["benefit_to_cost_ratio"] = {
+            "type": "scaled_inverse_n_agents",
+            "payload": {
+                "numerator": 10.0,
+                "factor": 2.0,
+            },
+        }
+
+        small_config = self._base_config()
+        small_config["simulation"]["n_agents"] = 5
+        small_config["input_spec"]["parameters"]["benefit_to_cost_ratio"] = {
+            "type": "scaled_inverse_n_agents",
+            "payload": {
+                "numerator": 10.0,
+                "factor": 2.0,
+            },
+        }
+
+        large_config = self._base_config()
+        large_config["simulation"]["n_agents"] = 10
+        large_config["input_spec"]["parameters"]["benefit_to_cost_ratio"] = {
+            "type": "scaled_inverse_n_agents",
+            "payload": {
+                "numerator": 10.0,
+                "factor": 2.0,
+            },
+        }
+
+        sweep_prepared = BestResponsePolicyRun().prepare(sweep_config)
+        small_prepared = BestResponsePolicyRun().prepare(small_config)
+        large_prepared = BestResponsePolicyRun().prepare(large_config)
+
+        expected_outputs = (
+            small_prepared.run(small_prepared.inputs[0]),
+            large_prepared.run(large_prepared.inputs[0]),
+        )
+
+        self.assertEqual(sweep_prepared.inputs, (0, 1))
+        for sample_idx, expected_output in zip(
+            sweep_prepared.inputs,
+            expected_outputs,
+            strict=True,
+        ):
+            observed_output = sweep_prepared.run(sample_idx)
+            self.assertEqual(set(observed_output), set(expected_output))
+            for field_name in observed_output:
+                np.testing.assert_allclose(
+                    observed_output[field_name],
+                    expected_output[field_name],
+                )
+
     def test_prepare_supports_multiple_parameter_samples(self) -> None:
         config = self._base_config()
         config["input_spec"] = {
@@ -153,11 +207,11 @@ class BestResponsePolicyTaskTest(unittest.TestCase):
             "parameters": {
                 "benefit_to_cost_ratio": {"type": "fixed", "payload": 0.1},
                 "distance_discount": {"type": "fixed", "payload": 0.5},
-                "bridge_value": {
+                "bridge_multiplier": {
                     "type": "continuous",
-                    "payload": {"min": -1.5, "max": 1.5},
+                    "payload": {"min": 0.0, "max": 1.0},
                 },
-                "inertia_term": {
+                "inertia": {
                     "type": "continuous",
                     "payload": {"min": -2.0, "max": 1.0},
                 },

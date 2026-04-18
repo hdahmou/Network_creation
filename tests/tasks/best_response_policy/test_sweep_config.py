@@ -21,9 +21,10 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
                 "parameters": {
                     "benefit_to_cost_ratio": {"type": "fixed", "payload": 0.05},
                     "distance_discount": {"type": "fixed", "payload": 0.5},
-                    "bridge_multiplier": {"type": "fixed", "payload": 0.75},
-                    "inertia": {"type": "fixed", "payload": -1.25},
-                    "tau": {"type": "fixed", "payload": 2.0},
+                    "bridge_weight": {"type": "fixed", "payload": 0.75},
+                    "pass_bias": {"type": "fixed", "payload": 0.25},
+                    "exploration": {"type": "fixed", "payload": 0.5},
+                    "opportunity_sensitivity": {"type": "fixed", "payload": 0.5},
                     "visibility_distance": {"type": "fixed", "payload": 4},
                 },
             },
@@ -58,15 +59,16 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
                     "type": "continuous",
                     "payload": {"min": 0.2, "max": 0.8},
                 },
-                "bridge_multiplier": {
+                "bridge_weight": {
                     "type": "continuous",
                     "payload": {"min": 0.0, "max": 1.0},
                 },
-                "inertia": {
+                "pass_bias": {
                     "type": "continuous",
-                    "payload": {"min": -2.0, "max": 1.0},
+                    "payload": {"min": 0.0, "max": 1.0},
                 },
-                "tau": {"type": "fixed", "payload": 2.0},
+                "exploration": {"type": "fixed", "payload": 0.5},
+                "opportunity_sensitivity": {"type": "fixed", "payload": 0.5},
                 "visibility_distance": {"type": "fixed", "payload": 4},
             },
         }
@@ -78,16 +80,18 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
             (
                 "benefit_to_cost_ratio",
                 "distance_discount",
-                "bridge_multiplier",
-                "inertia",
-                "tau",
+                "bridge_weight",
+                "pass_bias",
+                "exploration",
+                "opportunity_sensitivity",
                 "visibility_distance",
             ),
         )
-        self.assertEqual(parameter_table.parameter_values.shape, (4, 6))
+        self.assertEqual(parameter_table.parameter_values.shape, (4, 7))
         np.testing.assert_allclose(parameter_table.parameter_values[:, 0], 0.05)
-        np.testing.assert_allclose(parameter_table.parameter_values[:, 4], 2.0)
-        np.testing.assert_allclose(parameter_table.parameter_values[:, 5], 4.0)
+        np.testing.assert_allclose(parameter_table.parameter_values[:, 4], 0.5)
+        np.testing.assert_allclose(parameter_table.parameter_values[:, 5], 0.5)
+        np.testing.assert_allclose(parameter_table.parameter_values[:, 6], 4.0)
 
     def test_generate_parameter_table_samples_continuous_parameters_jointly(self) -> None:
         input_spec = {
@@ -98,17 +102,21 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
                     "type": "continuous",
                     "payload": {"min": 0.2, "max": 0.8},
                 },
-                "bridge_multiplier": {
+                "bridge_weight": {
                     "type": "continuous",
                     "payload": {"min": 0.0, "max": 1.0},
                 },
-                "inertia": {
+                "pass_bias": {
                     "type": "continuous",
-                    "payload": {"min": -2.0, "max": 1.0},
+                    "payload": {"min": 0.0, "max": 1.0},
                 },
-                "tau": {
+                "exploration": {
                     "type": "continuous",
-                    "payload": {"min": 0.25, "max": 2.25},
+                    "payload": {"min": 0.0, "max": 1.0},
+                },
+                "opportunity_sensitivity": {
+                    "type": "continuous",
+                    "payload": {"min": 0.0, "max": 1.0},
                 },
                 "visibility_distance": {"type": "fixed", "payload": 4},
             },
@@ -116,7 +124,7 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
 
         parameter_table = generate_parameter_table(input_spec)
         sampler = qmc.Sobol(
-            d=4,
+            d=5,
             scramble=True,
             optimization="random-cd",
             rng=123,
@@ -126,8 +134,9 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
             (
                 0.2 + (unit_samples[:, 0] * 0.6),
                 unit_samples[:, 1],
-                -2.0 + (unit_samples[:, 2] * 3.0),
-                0.25 + (unit_samples[:, 3] * 2.0),
+                unit_samples[:, 2],
+                unit_samples[:, 3],
+                unit_samples[:, 4],
                 np.full(4, 4.0, dtype=np.float32),
             )
         ).astype(np.float32, copy=False)
@@ -136,9 +145,10 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
             parameter_table.parameter_names,
             (
                 "distance_discount",
-                "bridge_multiplier",
-                "inertia",
-                "tau",
+                "bridge_weight",
+                "pass_bias",
+                "exploration",
+                "opportunity_sensitivity",
                 "visibility_distance",
             ),
         )
@@ -149,21 +159,25 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
         prepared = task.prepare(self._base_config())
 
         self.assertEqual(prepared.inputs, (0,))
-        self.assertEqual(task.simulation_sweep.configuration_values.shape, (1, 1, 7))
+        self.assertEqual(task.simulation_sweep.configuration_values.shape, (1, 1, 8))
         self.assertEqual(
             task.parameter_table.parameter_names,
             (
                 "benefit_to_cost_ratio",
                 "distance_discount",
-                "bridge_multiplier",
-                "inertia",
-                "tau",
+                "bridge_weight",
+                "pass_bias",
+                "exploration",
+                "opportunity_sensitivity",
                 "visibility_distance",
             ),
         )
         np.testing.assert_allclose(
             task.parameter_table.parameter_values,
-            np.array([[0.05, 0.5, 0.75, -1.25, 2.0, 4.0]], dtype=np.float32),
+            np.array(
+                [[0.05, 0.5, 0.75, 0.25, 0.5, 0.5, 4.0]],
+                dtype=np.float32,
+            ),
         )
 
     def test_prepare_rejects_missing_visibility_distance(self) -> None:
@@ -196,9 +210,10 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
                     },
                 },
                 "distance_discount": {"type": "fixed", "payload": 0.5},
-                "bridge_multiplier": {"type": "fixed", "payload": 0.75},
-                "inertia": {"type": "fixed", "payload": -1.25},
-                "tau": {"type": "fixed", "payload": 2.0},
+                "bridge_weight": {"type": "fixed", "payload": 0.75},
+                "pass_bias": {"type": "fixed", "payload": 0.25},
+                "exploration": {"type": "fixed", "payload": 0.5},
+                "opportunity_sensitivity": {"type": "fixed", "payload": 0.5},
                 "visibility_distance": {"type": "fixed", "payload": 4},
             },
         }

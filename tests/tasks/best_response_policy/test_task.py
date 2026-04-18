@@ -19,9 +19,10 @@ class BestResponsePolicyTaskTest(unittest.TestCase):
                 "parameters": {
                     "benefit_to_cost_ratio": {"type": "fixed", "payload": 0.1},
                     "distance_discount": {"type": "fixed", "payload": 0.5},
-                    "bridge_multiplier": {"type": "fixed", "payload": 0.75},
-                    "inertia": {"type": "fixed", "payload": -1.25},
-                    "tau": {"type": "fixed", "payload": 2.0},
+                    "bridge_weight": {"type": "fixed", "payload": 0.75},
+                    "pass_bias": {"type": "fixed", "payload": 0.25},
+                    "exploration": {"type": "fixed", "payload": 0.5},
+                    "opportunity_sensitivity": {"type": "fixed", "payload": 0.5},
                     "visibility_distance": {"type": "fixed", "payload": 4},
                 },
             },
@@ -71,9 +72,10 @@ class BestResponsePolicyTaskTest(unittest.TestCase):
             (
                 "benefit_to_cost_ratio",
                 "distance_discount",
-                "bridge_multiplier",
-                "inertia",
-                "tau",
+                "bridge_weight",
+                "pass_bias",
+                "exploration",
+                "opportunity_sensitivity",
                 "visibility_distance",
             ),
         )
@@ -207,17 +209,21 @@ class BestResponsePolicyTaskTest(unittest.TestCase):
             "parameters": {
                 "benefit_to_cost_ratio": {"type": "fixed", "payload": 0.1},
                 "distance_discount": {"type": "fixed", "payload": 0.5},
-                "bridge_multiplier": {
+                "bridge_weight": {
                     "type": "continuous",
                     "payload": {"min": 0.0, "max": 1.0},
                 },
-                "inertia": {
+                "pass_bias": {
                     "type": "continuous",
-                    "payload": {"min": -2.0, "max": 1.0},
+                    "payload": {"min": 0.0, "max": 1.0},
                 },
-                "tau": {
+                "exploration": {
                     "type": "continuous",
-                    "payload": {"min": 0.25, "max": 2.25},
+                    "payload": {"min": 0.0, "max": 1.0},
+                },
+                "opportunity_sensitivity": {
+                    "type": "continuous",
+                    "payload": {"min": 0.0, "max": 1.0},
                 },
                 "visibility_distance": {"type": "fixed", "payload": 4},
             },

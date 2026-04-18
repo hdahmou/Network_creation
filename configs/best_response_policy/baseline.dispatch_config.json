@@ -4,7 +4,7 @@
   "output_dir": "../../artifacts/best_response_policy",
   "write_batch_size": 64,
   "input_spec": {
-    "log2_budget": 3,
+    "log2_budget": 16,
     "sampler_seed": 123,
     "parameters": {
       "benefit_to_cost_ratio": {
@@ -18,24 +18,31 @@
         "type": "fixed",
         "payload": 0.9
       },
-      "bridge_multiplier": {
+      "bridge_weight": {
         "type": "continuous",
         "payload": {
           "min": 0.0,
           "max": 1.0
         }
       },
-      "inertia": {
+      "pass_bias": {
         "type": "continuous",
         "payload": {
-          "min": -1.0,
+          "min": 0.0,
           "max": 1.0
         }
       },
-      "tau": {
+      "exploration": {
         "type": "continuous",
         "payload": {
-          "min": 0.001,
+          "min": 0.0,
+          "max": 1.0
+        }
+      },
+      "opportunity_sensitivity": {
+        "type": "continuous",
+        "payload": {
+          "min": 0.0,
           "max": 1.0
         }
       },
@@ -46,14 +53,14 @@
     }
   },
   "simulation": {
-    "n_agents": [10, 20],
+    "n_agents": [10, 25, 50],
     "actor_scheduler": {
       "n_actors": 1
     },
     "seed": 11,
-    "max_steps": 361,
+    "max_steps": 500,
     "n_episodes": 32,
-    "stagnation_patience": null,
+    "stagnation_patience": 100,
     "initial_graph": {
       "kind": "empty"
     }

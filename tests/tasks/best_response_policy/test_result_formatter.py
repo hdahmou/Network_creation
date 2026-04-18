@@ -83,9 +83,10 @@ class BestResponsePolicyResultFormatterTest(unittest.TestCase):
             (
                 "benefit_to_cost_ratio",
                 "distance_discount",
-                "bridge_multiplier",
-                "inertia",
-                "tau",
+                "bridge_weight",
+                "pass_bias",
+                "exploration",
+                "opportunity_sensitivity",
                 "visibility_distance",
             ),
         )

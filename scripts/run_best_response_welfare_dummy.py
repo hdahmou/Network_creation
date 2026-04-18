@@ -30,16 +30,18 @@ PARAMETER_SETS = (
     {
         "benefit_to_cost_ratio": 0.5,
         "distance_discount": 0.9,
-        "bridge_multiplier": 0.0,
-        "inertia": 0.0,
-        "tau": 0.001,
+        "bridge_weight": 0.0,
+        "pass_bias": 0.5,
+        "exploration": 0.0,
+        "opportunity_sensitivity": 0.5,
     },
     {
         "benefit_to_cost_ratio": 0.5,
         "distance_discount": 0.7,
-        "bridge_multiplier": 0.5,
-        "inertia": 0.1,
-        "tau": 0.001,
+        "bridge_weight": 0.5,
+        "pass_bias": 0.525,
+        "exploration": 0.0,
+        "opportunity_sensitivity": 0.5,
     },
 )
 
@@ -55,9 +57,10 @@ def run_case(case_index: int, policy_kwargs: dict[str, float]) -> None:
                 seed=policy_seed,
                 benefit_to_cost_ratio=policy_kwargs["benefit_to_cost_ratio"],
                 distance_discount=policy_kwargs["distance_discount"],
-                bridge_multiplier=policy_kwargs["bridge_multiplier"],
-                inertia=policy_kwargs["inertia"],
-                tau=policy_kwargs["tau"],
+                bridge_weight=policy_kwargs["bridge_weight"],
+                pass_bias=policy_kwargs["pass_bias"],
+                exploration=policy_kwargs["exploration"],
+                opportunity_sensitivity=policy_kwargs["opportunity_sensitivity"],
             ),
             seed=policy_seed,
         )

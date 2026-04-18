@@ -16,15 +16,17 @@ r"""
         \\
         \text{Payoff Change:} & \quad \Delta \hat{\Pi}_i = \frac{1}{2n-1} \left[ \frac{V}{k} \Delta \sum_{j \in N} \delta^{d(i, j, \bar{g})} - \Delta \eta_i(g) \right] \\
         \\
-        \text{where} & \quad \Delta \eta_i = 
-            \begin{cases} 
-                1 &: \text{link addition} \\ 
-                0 &: \text{no change} \\ 
-                -1 &: \text{link deletion} 
+        \text{where} & \quad \Delta \eta_i =
+            \begin{cases}
+                1 &: \text{link addition} \\
+                0 &: \text{no change} \\
+                -1 &: \text{link deletion}
             \end{cases}
     \end{aligned}
 """
 
+
+import math
 
 import numpy as np
 from numpy.typing import NDArray
@@ -51,6 +53,21 @@ def _sum_discounted_distances(
 
 def _sigmoid(x: float) -> float:
     return float(1.0 / (1.0 + np.exp(-x)))
+
+
+def _logit(p: float, eps: float = 1e-6) -> float:
+    p = min(max(p, eps), 1.0 - eps)
+    return float(np.log(p / (1.0 - p)))
+
+
+def _tau_from_exploration(
+    exploration: float,
+    tau_min: float = 0.03,
+    tau_max: float = 1.0,
+) -> float:
+    if not 0.0 <= exploration <= 1.0:
+        raise ValueError("exploration must be in [0,1]")
+    return float(tau_min * (tau_max / tau_min) ** exploration)
 
 
 def stable_softmax_boltzmann(
@@ -80,42 +97,69 @@ def _sample_boltzmann(
 
 
 class BestResponsePolicy(Policy):
-    """Select an action using a one-parameter inertia gate + Boltzmann policy.
+    """Select an action using a normalized one-step score + size-aware gate.
 
-    Non-PASS actions are scored by normalized one-step utility deltas in [-1, 1].
+    Non-PASS actions are scored from normalized one-step utility deltas and
+    mapped to a common range in [-1, 1].
 
-    DELETE score:
-        ΔU_i =
-            λ * (1 / (2*N - 1)) * Σ_j [δ^{d*_j} - δ^{d_j}]
-            + 1 / (2*N - 1)
+    The underlying one-step payoff change is still:
 
-    ADD score:
-        ΔU_i =
-            λ * (1 / (2*N - 1)) * Σ_j [δ^{d*_j} - δ^{d_j}]
-            - 1 / (2*N - 1)
-
-    BRIDGE score:
-        2 * (bridge_multiplier * (|bridge_actions| / N)) - 1
-
-    PASS is handled through an inertia parameter gate based on the best
-    available non-PASS option:
-
-        P(PASS) = sigmoid(inertia - max(0, max_a ΔU_a))
-
-    so PASS becomes less likely when at least one promising action exists.
-
-    Conditional on not passing, an action is sampled from a standard Boltzmann
-    softmax over the non-PASS candidate scores:
-
-        P(a | not PASS) ∝ exp(ΔU_a / tau)
+        ΔΠ̂_i = (1 / (2*N - 1)) * [ λ * ΔB - Δη ]
 
     where:
       - λ is the benefit_to_cost_ratio
-      - δ is the distance discount
-      - N is the total number of nodes
-      - |bridge_actions| is the number of currently available bridge actions
-      - add:    Δoutdeg = +1
-      - delete: Δoutdeg = -1
+      - ΔB is the change in discounted reachability
+      - Δη is the outdegree change (+1 add, -1 delete, 0 swap/bridge)
+
+    Instead of feeding these O(1/N)-scale values directly into the policy, we
+    rescale the *policy score* to make action comparison stable across N:
+
+        raw(a) = λ * ΔB - Δη
+        score(a) = raw(a) / (λ * (N - 1) + 1)
+
+    so ADD / DELETE / SWAP scores live in [-1, 1].
+
+    BRIDGE is also placed on the same score scale:
+
+        BRIDGE score:
+            2 * (bridge_weight * (|bridge_actions| / N)) - 1
+
+    PASS is handled through a baseline pass-bias gate plus a correction for:
+      - the best available non-PASS score
+      - the current non-PASS action-space size
+
+        P(PASS) = sigmoid(
+            logit(pass_bias)
+            - max(0, max_a score(a))
+            - opportunity_sensitivity * availability_bonus
+        )
+
+    where:
+
+        availability_bonus = log(1 + |A_nonpass|) / log(1 + N)
+
+    so PASS becomes less likely when:
+      - at least one promising action exists
+      - the agent has many feasible non-PASS opportunities
+
+    Conditional on not passing, an action is sampled from a Boltzmann softmax
+    over the non-PASS candidate scores:
+
+        P(a | not PASS) ∝ exp(score(a) / tau_eff)
+
+    with a size-aware temperature:
+
+        tau_eff = tau_base / (1 + availability_bonus)
+
+    so larger action spaces do not become artificially diffuse.
+
+    Exposed parameters:
+      - λ  : benefit_to_cost_ratio in (0, 1]
+      - δ  : distance_discount in (0, 1)
+      - bridge_weight in [0, 1]
+      - pass_bias in [0, 1]
+      - exploration in [0, 1]
+      - opportunity_sensitivity in [0, 1]
     """
 
     def __init__(
@@ -124,42 +168,76 @@ class BestResponsePolicy(Policy):
         seed: int,
         benefit_to_cost_ratio: float,
         distance_discount: float,
-        bridge_multiplier: float,
-        inertia: float,
-        tau: float,
+        bridge_weight: float,
+        pass_bias: float,
+        exploration: float,
+        opportunity_sensitivity: float = 0.5,
     ) -> None:
         if not 0.0 < benefit_to_cost_ratio <= 1.0:
             raise ValueError("benefit_to_cost_ratio must be in (0,1]")
         if not 0.0 < distance_discount < 1.0:
             raise ValueError("distance_discount must be in (0,1)")
-        if not 0.0 <= bridge_multiplier <= 1.0:
-            raise ValueError("bridge_multiplier must be in [0,1]")
+        if not 0.0 <= bridge_weight <= 1.0:
+            raise ValueError("bridge_weight must be in [0,1]")
+        if not 0.0 <= pass_bias <= 1.0:
+            raise ValueError("pass_bias must be in [0,1]")
+        if not 0.0 <= exploration <= 1.0:
+            raise ValueError("exploration must be in [0,1]")
+        if not 0.0 <= opportunity_sensitivity <= 1.0:
+            raise ValueError("opportunity_sensitivity must be in [0,1]")
         if n_nodes <= 1:
             raise ValueError("n_nodes must be > 1")
-        if tau <= 0.0:
-            raise ValueError("tau must be > 0")
 
         self.n_nodes = n_nodes
         self.benefit_to_cost_ratio = benefit_to_cost_ratio
         self.distance_discount = distance_discount
-        self.bridge_multiplier = bridge_multiplier
-        self.inertia = inertia
-        self.tau = tau
-        self._rng = np.random.default_rng(seed)
+        self.bridge_weight = bridge_weight
+        self.pass_bias = pass_bias
+        self.exploration = exploration
+        self.opportunity_sensitivity = opportunity_sensitivity
 
-        self.lambda_over_norm = benefit_to_cost_ratio / float(2 * n_nodes - 1)
-        self.one_over_norm = 1.0 / float(2 * n_nodes - 1)
+        self._pass_logit = _logit(pass_bias)
+        self._base_tau = _tau_from_exploration(exploration)
+
+        self._rng = np.random.default_rng(seed)
+        self._score_denom = float(benefit_to_cost_ratio * (n_nodes - 1) + 1.0)
         self.candidate_actions: list[Action | None] = [None] * n_nodes
         self.candidate_values = np.empty(n_nodes, dtype=np.float32)
 
     def reset(self, seed: int) -> None:
         self._rng = np.random.default_rng(seed)
 
+    def _normalize_structural_delta(self, raw_delta: float) -> float:
+        score = raw_delta / self._score_denom
+        return float(np.clip(score, -1.0, 1.0))
+
+    def _availability_bonus(self, n_non_pass_candidates: int) -> float:
+        if n_non_pass_candidates <= 0:
+            return 0.0
+        return float(
+            math.log1p(n_non_pass_candidates) / math.log1p(self.n_nodes)
+        )
+
+    def _effective_tau(self, n_non_pass_candidates: int) -> float:
+        if n_non_pass_candidates <= 1:
+            return self._base_tau
+
+        availability_bonus = self._availability_bonus(n_non_pass_candidates)
+        tau = self._base_tau / (1.0 + availability_bonus)
+        return max(0.01, float(tau))
+
     def _pass_probability(self, non_pass_values: NDArray[np.float32]) -> float:
         if len(non_pass_values) == 0:
             return 1.0
+
         best_value = max(0.0, float(np.max(non_pass_values)))
-        return _sigmoid(self.inertia - best_value)
+        availability_bonus = self._availability_bonus(len(non_pass_values))
+
+        return _sigmoid(
+            self._pass_logit
+            - best_value
+            - self.opportunity_sensitivity * availability_bonus
+        )
 
     def get_decision(
         self, observation: Observation, action_space: ActionSpace
@@ -171,6 +249,7 @@ class BestResponsePolicy(Policy):
 
         baseline_dist = np.empty(node_count, dtype=np.float32)
         power_buffer = np.empty(node_count, dtype=np.float32)
+
         baseline_dist[:] = graph.distances(source=[source_idx], mode="all")[0]
         base_benefit = _sum_discounted_distances(
             self.distance_discount,
@@ -181,9 +260,11 @@ class BestResponsePolicy(Policy):
         add_actions = action_space[ActionType.ADD]
         delete_actions = action_space[ActionType.DELETE]
         bridge_actions = action_space[ActionType.BRIDGE]
+
         bridge_action = None
         if bridge_actions:
             bridge_action = bridge_actions[int(self._rng.integers(len(bridge_actions)))]
+
         add_targets = [action.target for action in add_actions]
 
         n_non_pass_candidates = (
@@ -234,10 +315,12 @@ class BestResponsePolicy(Policy):
                     deleted_dist,
                     power_buffer,
                 )
-                delete_value = (
-                    self.lambda_over_norm * (deleted_benefit - base_benefit)
-                    + self.one_over_norm
+
+                raw_delete = (
+                    self.benefit_to_cost_ratio * (deleted_benefit - base_benefit)
+                    + 1.0
                 )
+                delete_value = self._normalize_structural_delta(raw_delete)
 
                 self.candidate_actions[candidate_idx] = action
                 self.candidate_values[candidate_idx] = delete_value
@@ -295,15 +378,25 @@ class BestResponsePolicy(Policy):
             add_only_benefit = np.sum(combo_power_buffer, axis=1)
             add_benefit_matrix[:, -1] = add_only_benefit
 
-            add_only_values = (
-                self.lambda_over_norm * (add_only_benefit - base_benefit)
-                - self.one_over_norm
+            add_only_raw = (
+                self.benefit_to_cost_ratio * (add_only_benefit - base_benefit) - 1.0
             )
+            add_only_values = np.clip(
+                add_only_raw / self._score_denom,
+                -1.0,
+                1.0,
+            ).astype(np.float32)
 
             if delete_actions:
-                swap_values = self.lambda_over_norm * (
+                swap_raw_values = self.benefit_to_cost_ratio * (
                     add_benefit_matrix[:, :-1] - base_benefit
                 )
+                swap_values = np.clip(
+                    swap_raw_values / self._score_denom,
+                    -1.0,
+                    1.0,
+                ).astype(np.float32)
+
                 best_add_values = np.maximum(
                     np.max(swap_values, axis=1),
                     add_only_values,
@@ -319,10 +412,12 @@ class BestResponsePolicy(Policy):
         # BRIDGE
         if bridge_action is not None:
             bridge_score = 2.0 * (
-                self.bridge_multiplier * (len(bridge_actions) / self.n_nodes)
+                self.bridge_weight * (len(bridge_actions) / self.n_nodes)
             ) - 1.0
             self.candidate_actions[candidate_idx] = bridge_action
-            self.candidate_values[candidate_idx] = bridge_score
+            self.candidate_values[candidate_idx] = float(
+                np.clip(bridge_score, -1.0, 1.0)
+            )
             candidate_idx += 1
 
         assert (
@@ -340,7 +435,7 @@ class BestResponsePolicy(Policy):
 
         chosen_idx = _sample_boltzmann(
             non_pass_values,
-            self.tau,
+            self._effective_tau(len(non_pass_values)),
             self._rng,
         )
         return PolicyDecision(

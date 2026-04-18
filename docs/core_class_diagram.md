@@ -121,9 +121,10 @@ namespace Policies {
         +n_nodes: int
         +benefit_to_cost_ratio: float
         +distance_discount: float
-        +bridge_value: float
-        +inertia_term: float
-        +tau: float
+        +bridge_weight: float
+        +pass_bias: float
+        +exploration: float
+        +opportunity_sensitivity: float
     }
 }
 

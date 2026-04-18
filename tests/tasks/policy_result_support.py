@@ -60,17 +60,21 @@ def build_best_response_config(*, log2_budget: int = 2) -> dict[str, object]:
                     "type": "continuous",
                     "payload": {"min": 0.1, "max": 0.9},
                 },
-                "bridge_multiplier": {
+                "bridge_weight": {
                     "type": "continuous",
                     "payload": {"min": 0.0, "max": 1.0},
                 },
-                "inertia": {
+                "pass_bias": {
                     "type": "continuous",
-                    "payload": {"min": -2.0, "max": 1.0},
+                    "payload": {"min": 0.0, "max": 1.0},
                 },
-                "tau": {
+                "exploration": {
                     "type": "continuous",
-                    "payload": {"min": 0.25, "max": 2.25},
+                    "payload": {"min": 0.0, "max": 1.0},
+                },
+                "opportunity_sensitivity": {
+                    "type": "continuous",
+                    "payload": {"min": 0.0, "max": 1.0},
                 },
                 "visibility_distance": {"type": "fixed", "payload": 4.0},
             },

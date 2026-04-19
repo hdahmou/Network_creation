@@ -21,10 +21,8 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
                 "parameters": {
                     "benefit_to_cost_ratio": {"type": "fixed", "payload": 0.05},
                     "distance_discount": {"type": "fixed", "payload": 0.5},
-                    "bridge_weight": {"type": "fixed", "payload": 0.75},
-                    "pass_bias": {"type": "fixed", "payload": 0.25},
+                    "outside_optimism": {"type": "fixed", "payload": 0.25},
                     "exploration": {"type": "fixed", "payload": 0.5},
-                    "opportunity_sensitivity": {"type": "fixed", "payload": 0.5},
                     "visibility_distance": {"type": "fixed", "payload": 4},
                 },
             },
@@ -59,16 +57,11 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
                     "type": "continuous",
                     "payload": {"min": 0.2, "max": 0.8},
                 },
-                "bridge_weight": {
-                    "type": "continuous",
-                    "payload": {"min": 0.0, "max": 1.0},
-                },
-                "pass_bias": {
+                "outside_optimism": {
                     "type": "continuous",
                     "payload": {"min": 0.0, "max": 1.0},
                 },
                 "exploration": {"type": "fixed", "payload": 0.5},
-                "opportunity_sensitivity": {"type": "fixed", "payload": 0.5},
                 "visibility_distance": {"type": "fixed", "payload": 4},
             },
         }
@@ -80,18 +73,15 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
             (
                 "benefit_to_cost_ratio",
                 "distance_discount",
-                "bridge_weight",
-                "pass_bias",
+                "outside_optimism",
                 "exploration",
-                "opportunity_sensitivity",
                 "visibility_distance",
             ),
         )
-        self.assertEqual(parameter_table.parameter_values.shape, (4, 7))
+        self.assertEqual(parameter_table.parameter_values.shape, (4, 5))
         np.testing.assert_allclose(parameter_table.parameter_values[:, 0], 0.05)
-        np.testing.assert_allclose(parameter_table.parameter_values[:, 4], 0.5)
-        np.testing.assert_allclose(parameter_table.parameter_values[:, 5], 0.5)
-        np.testing.assert_allclose(parameter_table.parameter_values[:, 6], 4.0)
+        np.testing.assert_allclose(parameter_table.parameter_values[:, 3], 0.5)
+        np.testing.assert_allclose(parameter_table.parameter_values[:, 4], 4.0)
 
     def test_generate_parameter_table_samples_continuous_parameters_jointly(self) -> None:
         input_spec = {
@@ -102,19 +92,11 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
                     "type": "continuous",
                     "payload": {"min": 0.2, "max": 0.8},
                 },
-                "bridge_weight": {
-                    "type": "continuous",
-                    "payload": {"min": 0.0, "max": 1.0},
-                },
-                "pass_bias": {
+                "outside_optimism": {
                     "type": "continuous",
                     "payload": {"min": 0.0, "max": 1.0},
                 },
                 "exploration": {
-                    "type": "continuous",
-                    "payload": {"min": 0.0, "max": 1.0},
-                },
-                "opportunity_sensitivity": {
                     "type": "continuous",
                     "payload": {"min": 0.0, "max": 1.0},
                 },
@@ -124,7 +106,7 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
 
         parameter_table = generate_parameter_table(input_spec)
         sampler = qmc.Sobol(
-            d=5,
+            d=3,
             scramble=True,
             optimization="random-cd",
             rng=123,
@@ -135,8 +117,6 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
                 0.2 + (unit_samples[:, 0] * 0.6),
                 unit_samples[:, 1],
                 unit_samples[:, 2],
-                unit_samples[:, 3],
-                unit_samples[:, 4],
                 np.full(4, 4.0, dtype=np.float32),
             )
         ).astype(np.float32, copy=False)
@@ -145,10 +125,8 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
             parameter_table.parameter_names,
             (
                 "distance_discount",
-                "bridge_weight",
-                "pass_bias",
+                "outside_optimism",
                 "exploration",
-                "opportunity_sensitivity",
                 "visibility_distance",
             ),
         )
@@ -159,23 +137,21 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
         prepared = task.prepare(self._base_config())
 
         self.assertEqual(prepared.inputs, (0,))
-        self.assertEqual(task.simulation_sweep.configuration_values.shape, (1, 1, 8))
+        self.assertEqual(task.simulation_sweep.configuration_values.shape, (1, 1, 6))
         self.assertEqual(
             task.parameter_table.parameter_names,
             (
                 "benefit_to_cost_ratio",
                 "distance_discount",
-                "bridge_weight",
-                "pass_bias",
+                "outside_optimism",
                 "exploration",
-                "opportunity_sensitivity",
                 "visibility_distance",
             ),
         )
         np.testing.assert_allclose(
             task.parameter_table.parameter_values,
             np.array(
-                [[0.05, 0.5, 0.75, 0.25, 0.5, 0.5, 4.0]],
+                [[0.05, 0.5, 0.25, 0.5, 4.0]],
                 dtype=np.float32,
             ),
         )
@@ -210,10 +186,8 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
                     },
                 },
                 "distance_discount": {"type": "fixed", "payload": 0.5},
-                "bridge_weight": {"type": "fixed", "payload": 0.75},
-                "pass_bias": {"type": "fixed", "payload": 0.25},
+                "outside_optimism": {"type": "fixed", "payload": 0.25},
                 "exploration": {"type": "fixed", "payload": 0.5},
-                "opportunity_sensitivity": {"type": "fixed", "payload": 0.5},
                 "visibility_distance": {"type": "fixed", "payload": 4},
             },
         }

@@ -19,10 +19,8 @@ class BestResponsePolicyTaskTest(unittest.TestCase):
                 "parameters": {
                     "benefit_to_cost_ratio": {"type": "fixed", "payload": 0.1},
                     "distance_discount": {"type": "fixed", "payload": 0.5},
-                    "bridge_weight": {"type": "fixed", "payload": 0.75},
-                    "pass_bias": {"type": "fixed", "payload": 0.25},
+                    "outside_optimism": {"type": "fixed", "payload": 0.25},
                     "exploration": {"type": "fixed", "payload": 0.5},
-                    "opportunity_sensitivity": {"type": "fixed", "payload": 0.5},
                     "visibility_distance": {"type": "fixed", "payload": 4},
                 },
             },
@@ -72,10 +70,8 @@ class BestResponsePolicyTaskTest(unittest.TestCase):
             (
                 "benefit_to_cost_ratio",
                 "distance_discount",
-                "bridge_weight",
-                "pass_bias",
+                "outside_optimism",
                 "exploration",
-                "opportunity_sensitivity",
                 "visibility_distance",
             ),
         )
@@ -209,19 +205,11 @@ class BestResponsePolicyTaskTest(unittest.TestCase):
             "parameters": {
                 "benefit_to_cost_ratio": {"type": "fixed", "payload": 0.1},
                 "distance_discount": {"type": "fixed", "payload": 0.5},
-                "bridge_weight": {
-                    "type": "continuous",
-                    "payload": {"min": 0.0, "max": 1.0},
-                },
-                "pass_bias": {
+                "outside_optimism": {
                     "type": "continuous",
                     "payload": {"min": 0.0, "max": 1.0},
                 },
                 "exploration": {
-                    "type": "continuous",
-                    "payload": {"min": 0.0, "max": 1.0},
-                },
-                "opportunity_sensitivity": {
                     "type": "continuous",
                     "payload": {"min": 0.0, "max": 1.0},
                 },

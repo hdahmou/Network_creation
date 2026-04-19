@@ -55,7 +55,12 @@ def build_observation_from_state(
 
 
 def get_action_space(observation: Observation) -> ActionSpace:
-    """Build a structured action space from one node observation."""
+    """Build a structured action space from one node observation.
+
+    Hidden nodes outside the visible region are collapsed into one generic
+    BRIDGE action. The simulator later resolves the actual unseen target when
+    that bridge is executed.
+    """
 
     graph = observation.graph
     source_idx = observation.node_idx
@@ -66,10 +71,9 @@ def get_action_space(observation: Observation) -> ActionSpace:
         for target_idx in range(graph.vcount())
         if target_idx != source_idx and target_idx not in out_neighbor_indices
     ]
-    bridge_actions = [
-        Action(ActionType.BRIDGE, source_idx, int(target_idx))
-        for target_idx in observation.outside_node_idxs
-    ]
+    bridge_actions = []
+    if len(observation.outside_node_idxs) > 0:
+        bridge_actions.append(Action(ActionType.BRIDGE, source_idx))
     delete_actions = [
         Action(
             ActionType.DELETE,
@@ -102,6 +106,10 @@ def apply_actions(
 
     for action in actions:
         if action.type in {ActionType.ADD, ActionType.BRIDGE}:
+            if action.target is None:
+                raise ValueError(
+                    f"{action.type.value} actions must define a target before execution"
+                )
             updated_graph.add_edge(action.source, action.target)
 
     for action in actions:

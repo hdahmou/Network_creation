@@ -99,7 +99,7 @@ class EnvironmentTest(unittest.TestCase):
         )
         self.assertEqual(
             action_space[ActionType.BRIDGE],
-            [Action(ActionType.BRIDGE, source=0, target=3)],
+            [Action(ActionType.BRIDGE, source=0)],
         )
         self.assertEqual(
             action_space[ActionType.DELETE],

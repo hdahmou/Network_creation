@@ -129,7 +129,7 @@ class MyopicPayoffPolicyTest(unittest.TestCase):
         self.assertTrue(all(action.type is ActionType.BRIDGE for action in samples))
         self.assertTrue(all(action in available_bridge_actions for action in samples))
 
-    def test_bridge_branch_returns_local_outside_target(self) -> None:
+    def test_bridge_branch_returns_generic_local_bridge_action(self) -> None:
         observation, action_space = self._build_observation_and_action_space(
             adjacency=np.zeros((6, 6), dtype=np.int8),
             node_id=4,
@@ -137,13 +137,7 @@ class MyopicPayoffPolicyTest(unittest.TestCase):
         )
         self.assertEqual(
             action_space[ActionType.BRIDGE],
-            [
-                Action(ActionType.BRIDGE, source=0, target=1),
-                Action(ActionType.BRIDGE, source=0, target=2),
-                Action(ActionType.BRIDGE, source=0, target=3),
-                Action(ActionType.BRIDGE, source=0, target=4),
-                Action(ActionType.BRIDGE, source=0, target=5),
-            ],
+            [Action(ActionType.BRIDGE, source=0)],
         )
         policy = MyopicPayoffPolicy(
             seed=31,
@@ -159,7 +153,7 @@ class MyopicPayoffPolicyTest(unittest.TestCase):
 
         self.assertTrue(all(action.type is ActionType.BRIDGE for action in samples))
         self.assertTrue(all(action.source == 0 for action in samples))
-        self.assertTrue(all(action.target in {1, 2, 3, 4, 5} for action in samples))
+        self.assertTrue(all(action.target is None for action in samples))
 
     def test_bridge_branch_returns_pass_when_no_bridge_action_exists(self) -> None:
         observation, action_space = self._build_observation_and_action_space(

@@ -150,24 +150,67 @@ class Simulator:
             and stagnation_steps >= self.stagnation_patience
         )
 
-    @staticmethod
     def _decision_to_global(
+        self,
         observation: Observation,
         decision: PolicyDecision,
     ) -> PolicyDecision:
+        chosen_bridge_targets: set[int] = {
+            int(action.target)
+            for action in decision.actions
+            if action.type is ActionType.BRIDGE and action.target is not None
+        }
+
         return PolicyDecision(
             actions=tuple(
-                Action(
-                    action.type,
-                    observation.global_from_local(action.source),
-                    None
-                    if action.target is None
-                    else observation.global_from_local(action.target),
+                self._action_to_global(
+                    observation,
+                    action,
+                    chosen_bridge_targets,
                 )
                 for action in decision.actions
             ),
             value=decision.value,
         )
+
+    def _action_to_global(
+        self,
+        observation: Observation,
+        action: Action,
+        chosen_bridge_targets: set[int],
+    ) -> Action:
+        global_source = observation.global_from_local(action.source)
+
+        if action.type is ActionType.BRIDGE and action.target is None:
+            if len(observation.outside_node_idxs) == 0:
+                raise ValueError(
+                    "generic BRIDGE action requires at least one unseen node"
+                )
+
+            available_targets = [
+                int(target_idx)
+                for target_idx in observation.outside_node_idxs
+                if int(target_idx) not in chosen_bridge_targets
+            ]
+            if not available_targets:
+                available_targets = [
+                    int(target_idx) for target_idx in observation.outside_node_idxs
+                ]
+
+            chosen_target = int(self.rng.choice(available_targets))
+            chosen_bridge_targets.add(chosen_target)
+            return Action(
+                action.type,
+                global_source,
+                observation.global_from_local(chosen_target),
+            )
+
+        global_target = (
+            None
+            if action.target is None
+            else observation.global_from_local(action.target)
+        )
+        return Action(action.type, global_source, global_target)
 
     def _reset_for_episode(self) -> int:
         episode_seed = self._next_seed()

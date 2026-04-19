@@ -1,31 +1,6 @@
 from __future__ import annotations
 
 
-r"""
-.. math::
-    \begin{aligned}
-        \text{Component Domains:} & \quad \delta \in [0, 1], \quad \frac{V}{k} \in [0, 1], \quad \eta_i(g) \in [0, n-1] \\
-        \\
-        \text{Summation Range:} & \quad 1 \leq \sum_{j \in N} \delta^{d(i,j,\bar{g})} \leq n \\
-        \\
-        \text{Raw Ratio Bounds:} & \quad -(n-1) \leq \underbrace{\frac{V}{k} \sum_{j \in N} \delta^{d(i,j,\bar{g})} - \eta_i(g)}_{x} \leq n \\
-        \\
-        \text{Normalization Step:} & \quad \hat{\Pi}_i = \frac{x - x_{min}}{x_{max} - x_{min}} = \frac{x + (n-1)}{2n-1} \\
-        \\
-        \text{Final Payoff Function:} & \quad \hat{\Pi}_i = \frac{1}{2n-1} \left[ \frac{V}{k} \sum_{j \in N} \delta^{d(i, j, \bar{g})} - \eta_i(g) + (n-1) \right] \\
-        \\
-        \text{Payoff Change:} & \quad \Delta \hat{\Pi}_i = \frac{1}{2n-1} \left[ \frac{V}{k} \Delta \sum_{j \in N} \delta^{d(i, j, \bar{g})} - \Delta \eta_i(g) \right] \\
-        \\
-        \text{where} & \quad \Delta \eta_i =
-            \begin{cases}
-                1 &: \text{link addition} \\
-                0 &: \text{no change} \\
-                -1 &: \text{link deletion}
-            \end{cases}
-    \end{aligned}
-"""
-
-
 import math
 
 import numpy as np
@@ -40,38 +15,23 @@ from network_creation.core.model import (
 )
 
 from .base import Policy
+from .utils import _sample_argmax
+
+
+ArrayF32 = NDArray[np.float32]
 
 
 def _sum_discounted_distances(
     distance_discount: float,
-    distances: NDArray[np.float32],
-    power_buffer: NDArray[np.float32],
+    distances: ArrayF32,
+    power_buffer: ArrayF32,
 ) -> float:
     np.power(distance_discount, distances, out=power_buffer)
     return float(power_buffer.sum())
 
 
-def _sigmoid(x: float) -> float:
-    return float(1.0 / (1.0 + np.exp(-x)))
-
-
-def _logit(p: float, eps: float = 1e-6) -> float:
-    p = min(max(p, eps), 1.0 - eps)
-    return float(np.log(p / (1.0 - p)))
-
-
-def _tau_from_exploration(
-    exploration: float,
-    tau_min: float = 0.03,
-    tau_max: float = 1.0,
-) -> float:
-    if not 0.0 <= exploration <= 1.0:
-        raise ValueError("exploration must be in [0,1]")
-    return float(tau_min * (tau_max / tau_min) ** exploration)
-
-
 def stable_softmax_boltzmann(
-    values: NDArray[np.float32],
+    values: ArrayF32,
     tau: float,
 ) -> NDArray[np.float64]:
     if tau <= 0.0:
@@ -83,12 +43,34 @@ def stable_softmax_boltzmann(
 
     z = np.asarray(values, dtype=np.float64) / tau
     z = z - np.max(z)
-    probs = np.exp(z)
-    return probs / probs.sum()
+    probabilities = np.exp(z)
+    return probabilities / probabilities.sum()
+
+
+def stable_log_mean_exp(values: ArrayF32, tau: float) -> float:
+    """Return log-mean-exp(values / tau) rescaled back by tau.
+
+    For ``tau == 0`` this reduces to ``max(values)`` so the helper matches the
+    deterministic nested-best-response limit.
+    """
+
+    if len(values) == 0:
+        raise ValueError("values must be non-empty")
+    if tau < 0.0:
+        raise ValueError("tau must be >= 0")
+    if len(values) == 1:
+        return float(values[0])
+    if tau == 0.0:
+        return float(np.max(values))
+
+    scaled = np.asarray(values, dtype=np.float64) / tau
+    scaled_max = float(np.max(scaled))
+    centered = np.exp(scaled - scaled_max)
+    return float(tau * (scaled_max + math.log(float(centered.mean()))))
 
 
 def _sample_boltzmann(
-    values: NDArray[np.float32],
+    values: ArrayF32,
     tau: float,
     rng: np.random.Generator,
 ) -> int:
@@ -96,70 +78,39 @@ def _sample_boltzmann(
     return int(rng.choice(len(values), p=probabilities))
 
 
+def _sample_from_values(
+    values: ArrayF32,
+    tau: float,
+    rng: np.random.Generator,
+) -> int:
+    if len(values) == 0:
+        raise ValueError("values must be non-empty")
+    if tau < 0.0:
+        raise ValueError("tau must be >= 0")
+    if tau == 0.0:
+        return _sample_argmax(values, rng)
+    return _sample_boltzmann(values, tau, rng)
+
+
 class BestResponsePolicy(Policy):
-    """Select an action using a normalized one-step score + size-aware gate.
+    r"""Nested-logit local best response with one optional bridge belief term.
 
-    Non-PASS actions are scored from normalized one-step utility deltas and
-    mapped to a common range in [-1, 1].
-
-    The underlying one-step payoff change is still:
-
-        ΔΠ̂_i = (1 / (2*N - 1)) * [ λ * ΔB - Δη ]
-
-    where:
-      - λ is the benefit_to_cost_ratio
-      - ΔB is the change in discounted reachability
-      - Δη is the outdegree change (+1 add, -1 delete, 0 swap/bridge)
-
-    Instead of feeding these O(1/N)-scale values directly into the policy, we
-    rescale the *policy score* to make action comparison stable across N:
-
-        raw(a) = λ * ΔB - Δη
-        score(a) = raw(a) / (λ * (N - 1) + 1)
-
-    so ADD / DELETE / SWAP scores live in [-1, 1].
-
-    BRIDGE is also placed on the same score scale:
-
-        BRIDGE score:
-            2 * (bridge_weight * (|bridge_actions| / N)) - 1
-
-    PASS is handled through a baseline pass-bias gate plus a correction for:
-      - the best available non-PASS score
-      - the current non-PASS action-space size
-
-        P(PASS) = sigmoid(
-            logit(pass_bias)
-            - max(0, max_a score(a))
-            - opportunity_sensitivity * availability_bonus
-        )
-
-    where:
-
-        availability_bonus = log(1 + |A_nonpass|) / log(1 + N)
-
-    so PASS becomes less likely when:
-      - at least one promising action exists
-      - the agent has many feasible non-PASS opportunities
-
-    Conditional on not passing, an action is sampled from a Boltzmann softmax
-    over the non-PASS candidate scores:
-
-        P(a | not PASS) ∝ exp(score(a) / tau_eff)
-
-    with a size-aware temperature:
-
-        tau_eff = tau_base / (1 + availability_bonus)
-
-    so larger action spaces do not become artificially diffuse.
-
-    Exposed parameters:
-      - λ  : benefit_to_cost_ratio in (0, 1]
-      - δ  : distance_discount in (0, 1)
-      - bridge_weight in [0, 1]
-      - pass_bias in [0, 1]
-      - exploration in [0, 1]
-      - opportunity_sensitivity in [0, 1]
+    Parameters
+    ----------
+    n_nodes:
+        Total number of nodes in the full network.
+    seed:
+        Random seed for tie-breaking and noisy response.
+    benefit_to_cost_ratio:
+        The game parameter :math:`\lambda = V/k`, restricted to ``(0, 1]`` to
+        remain compatible with the project's bounded-payoff observers.
+    distance_discount:
+        Distance discount :math:`\delta \in (0, 1)`.
+    exploration:
+        Temperature :math:`\tau \in [0, 1]`. ``0`` gives deterministic nested
+        best response.
+    outside_optimism:
+        Bridge spillover optimism :math:`\omega \in [0, 1]`.
     """
 
     def __init__(
@@ -168,41 +119,30 @@ class BestResponsePolicy(Policy):
         seed: int,
         benefit_to_cost_ratio: float,
         distance_discount: float,
-        bridge_weight: float,
-        pass_bias: float,
         exploration: float,
-        opportunity_sensitivity: float = 0.5,
+        outside_optimism: float = 0.0,
     ) -> None:
+        if n_nodes <= 1:
+            raise ValueError("n_nodes must be > 1")
         if not 0.0 < benefit_to_cost_ratio <= 1.0:
             raise ValueError("benefit_to_cost_ratio must be in (0,1]")
         if not 0.0 < distance_discount < 1.0:
             raise ValueError("distance_discount must be in (0,1)")
-        if not 0.0 <= bridge_weight <= 1.0:
-            raise ValueError("bridge_weight must be in [0,1]")
-        if not 0.0 <= pass_bias <= 1.0:
-            raise ValueError("pass_bias must be in [0,1]")
         if not 0.0 <= exploration <= 1.0:
             raise ValueError("exploration must be in [0,1]")
-        if not 0.0 <= opportunity_sensitivity <= 1.0:
-            raise ValueError("opportunity_sensitivity must be in [0,1]")
-        if n_nodes <= 1:
-            raise ValueError("n_nodes must be > 1")
+        if not 0.0 <= outside_optimism <= 1.0:
+            raise ValueError("outside_optimism must be in [0,1]")
 
         self.n_nodes = n_nodes
         self.benefit_to_cost_ratio = benefit_to_cost_ratio
         self.distance_discount = distance_discount
-        self.bridge_weight = bridge_weight
-        self.pass_bias = pass_bias
         self.exploration = exploration
-        self.opportunity_sensitivity = opportunity_sensitivity
-
-        self._pass_logit = _logit(pass_bias)
-        self._base_tau = _tau_from_exploration(exploration)
+        self.outside_optimism = outside_optimism
 
         self._rng = np.random.default_rng(seed)
         self._score_denom = float(benefit_to_cost_ratio * (n_nodes - 1) + 1.0)
-        self.candidate_actions: list[Action | None] = [None] * n_nodes
-        self.candidate_values = np.empty(n_nodes, dtype=np.float32)
+        self._direct_bridge_gain = float(distance_discount)
+        self._spillover_bridge_gain = float(distance_discount**2)
 
     def reset(self, seed: int) -> None:
         self._rng = np.random.default_rng(seed)
@@ -211,234 +151,192 @@ class BestResponsePolicy(Policy):
         score = raw_delta / self._score_denom
         return float(np.clip(score, -1.0, 1.0))
 
-    def _availability_bonus(self, n_non_pass_candidates: int) -> float:
-        if n_non_pass_candidates <= 0:
-            return 0.0
-        return float(
-            math.log1p(n_non_pass_candidates) / math.log1p(self.n_nodes)
+    def _family_value(self, action_values: ArrayF32) -> float:
+        return stable_log_mean_exp(action_values, tau=self.exploration)
+
+    def _bridge_score(self, n_outside_nodes: int) -> float:
+        if n_outside_nodes <= 0:
+            raise ValueError("n_outside_nodes must be positive")
+
+        spillover_targets = max(n_outside_nodes - 1, 0)
+        expected_bridge_gain = self._direct_bridge_gain + (
+            self.outside_optimism
+            * spillover_targets
+            * self._spillover_bridge_gain
         )
+        raw_bridge = self.benefit_to_cost_ratio * expected_bridge_gain - 1.0
+        return self._normalize_structural_delta(raw_bridge)
 
-    def _effective_tau(self, n_non_pass_candidates: int) -> float:
-        if n_non_pass_candidates <= 1:
-            return self._base_tau
+    def _score_add_actions(
+        self,
+        graph,
+        baseline_benefit: float,
+        baseline_powers: ArrayF32,
+        add_actions: list[Action],
+    ) -> ArrayF32:
+        if not add_actions:
+            return np.empty(0, dtype=np.float32)
 
-        availability_bonus = self._availability_bonus(n_non_pass_candidates)
-        tau = self._base_tau / (1.0 + availability_bonus)
-        return max(0.01, float(tau))
-
-    def _pass_probability(self, non_pass_values: NDArray[np.float32]) -> float:
-        if len(non_pass_values) == 0:
-            return 1.0
-
-        best_value = max(0.0, float(np.max(non_pass_values)))
-        availability_bonus = self._availability_bonus(len(non_pass_values))
-
-        return _sigmoid(
-            self._pass_logit
-            - best_value
-            - self.opportunity_sensitivity * availability_bonus
+        add_targets = [int(action.target) for action in add_actions]
+        target_distances = np.asarray(
+            graph.distances(source=add_targets, mode="all"),
+            dtype=np.float32,
         )
+        target_powers = np.empty_like(target_distances, dtype=np.float32)
+        np.power(self.distance_discount, target_distances, out=target_powers)
+        np.multiply(target_powers, self.distance_discount, out=target_powers)
+        np.maximum(target_powers, baseline_powers[None, :], out=target_powers)
+
+        add_benefits = np.sum(target_powers, axis=1, dtype=np.float32)
+        raw_add_values = (
+            self.benefit_to_cost_ratio * (add_benefits - baseline_benefit) - 1.0
+        )
+        return np.clip(
+            raw_add_values / self._score_denom,
+            -1.0,
+            1.0,
+        ).astype(np.float32, copy=False)
+
+    def _score_delete_actions(
+        self,
+        graph,
+        source_idx: int,
+        baseline_benefit: float,
+        delete_actions: list[Action],
+    ) -> ArrayF32:
+        if not delete_actions:
+            return np.empty(0, dtype=np.float32)
+
+        temporary_graph = graph.copy()
+        delete_distances = np.empty(graph.vcount(), dtype=np.float32)
+        power_buffer = np.empty(graph.vcount(), dtype=np.float32)
+        delete_values = np.empty(len(delete_actions), dtype=np.float32)
+
+        for delete_idx, action in enumerate(delete_actions):
+            if action.target is None:
+                raise ValueError("DELETE actions must define a target")
+            edge_id = temporary_graph.get_eid(
+                source_idx,
+                action.target,
+                directed=True,
+                error=True,
+            )
+            temporary_graph.delete_edges([edge_id])
+            delete_distances[:] = temporary_graph.distances(
+                source=[source_idx],
+                mode="all",
+            )[0]
+            deleted_benefit = _sum_discounted_distances(
+                self.distance_discount,
+                delete_distances,
+                power_buffer,
+            )
+            raw_delete = (
+                self.benefit_to_cost_ratio * (deleted_benefit - baseline_benefit)
+                + 1.0
+            )
+            delete_values[delete_idx] = self._normalize_structural_delta(raw_delete)
+            temporary_graph.add_edge(source_idx, action.target)
+
+        return delete_values
 
     def get_decision(
-        self, observation: Observation, action_space: ActionSpace
+        self,
+        observation: Observation,
+        action_space: ActionSpace,
     ) -> PolicyDecision:
         graph = observation.graph
-        node_count = graph.vcount()
+        source_idx = observation.node_idx
         pass_action = action_space[ActionType.PASS][0]
-        source_idx = pass_action.source
 
-        baseline_dist = np.empty(node_count, dtype=np.float32)
-        power_buffer = np.empty(node_count, dtype=np.float32)
-
-        baseline_dist[:] = graph.distances(source=[source_idx], mode="all")[0]
-        base_benefit = _sum_discounted_distances(
-            self.distance_discount,
-            baseline_dist,
-            power_buffer,
+        baseline_distances = np.asarray(
+            graph.distances(source=[source_idx], mode="all")[0],
+            dtype=np.float32,
         )
+        baseline_powers = np.empty(graph.vcount(), dtype=np.float32)
+        np.power(self.distance_discount, baseline_distances, out=baseline_powers)
+        baseline_benefit = float(baseline_powers.sum())
 
         add_actions = action_space[ActionType.ADD]
         delete_actions = action_space[ActionType.DELETE]
         bridge_actions = action_space[ActionType.BRIDGE]
+        n_outside_nodes = len(observation.outside_node_idxs)
 
-        bridge_action = None
-        if bridge_actions:
-            bridge_action = bridge_actions[int(self._rng.integers(len(bridge_actions)))]
-
-        add_targets = [action.target for action in add_actions]
-
-        n_non_pass_candidates = (
-            len(delete_actions) + len(add_actions) + int(bridge_action is not None)
+        add_values = self._score_add_actions(
+            graph,
+            baseline_benefit,
+            baseline_powers,
+            add_actions,
         )
-        assert (
-            n_non_pass_candidates <= self.n_nodes
-        ), f"Expected at most {self.n_nodes} non-pass candidates, got {n_non_pass_candidates}"
-
-        candidate_idx = 0
-
-        add_benefit_matrix: np.ndarray | None = None
-        add_target_distance_buffer: NDArray[np.float32] | None = None
-        combo_distance_buffer: NDArray[np.float32] | None = None
-        combo_power_buffer: NDArray[np.float32] | None = None
-
-        if add_actions:
-            add_benefit_matrix = np.empty(
-                (len(add_actions), len(delete_actions) + 1),
+        delete_values = self._score_delete_actions(
+            graph,
+            source_idx,
+            baseline_benefit,
+            delete_actions,
+        )
+        if bridge_actions:
+            bridge_score = self._bridge_score(n_outside_nodes)
+            bridge_values = np.full(
+                len(bridge_actions),
+                bridge_score,
                 dtype=np.float32,
             )
-            add_target_distance_buffer = np.empty(
-                (len(add_actions), node_count),
-                dtype=np.float32,
-            )
-            combo_distance_buffer = np.empty(
-                (len(add_actions), node_count),
-                dtype=np.float32,
-            )
-            combo_power_buffer = np.empty(
-                (len(add_actions), node_count),
-                dtype=np.float32,
-            )
+        else:
+            bridge_values = np.empty(0, dtype=np.float32)
 
-        # DELETE actions
-        if delete_actions:
-            g_delete = graph.copy()
-            deleted_dist = np.empty(node_count, dtype=np.float32)
-            for delete_idx, action in enumerate(delete_actions):
-                eid = g_delete.get_eid(
-                    source_idx, action.target, directed=True, error=True
-                )
-                g_delete.delete_edges([eid])
+        family_names: list[ActionType] = [ActionType.PASS]
+        family_values: list[float] = [0.0]
+        family_actions: dict[ActionType, list[Action]] = {
+            ActionType.ADD: add_actions,
+            ActionType.DELETE: delete_actions,
+            ActionType.BRIDGE: bridge_actions,
+        }
+        family_action_values: dict[ActionType, ArrayF32] = {
+            ActionType.ADD: add_values,
+            ActionType.DELETE: delete_values,
+            ActionType.BRIDGE: bridge_values,
+        }
 
-                deleted_dist[:] = g_delete.distances(source=[source_idx], mode="all")[0]
-                deleted_benefit = _sum_discounted_distances(
-                    self.distance_discount,
-                    deleted_dist,
-                    power_buffer,
-                )
+        for action_type in (ActionType.ADD, ActionType.DELETE, ActionType.BRIDGE):
+            action_values = family_action_values[action_type]
+            if len(action_values) == 0:
+                continue
+            family_names.append(action_type)
+            family_values.append(self._family_value(action_values))
 
-                raw_delete = (
-                    self.benefit_to_cost_ratio * (deleted_benefit - base_benefit)
-                    + 1.0
-                )
-                delete_value = self._normalize_structural_delta(raw_delete)
+        family_values_array = np.asarray(family_values, dtype=np.float32)
+        selected_family_index = _sample_from_values(
+            family_values_array,
+            tau=self.exploration,
+            rng=self._rng,
+        )
+        selected_family = family_names[selected_family_index]
+        selected_family_value = float(family_values_array[selected_family_index])
 
-                self.candidate_actions[candidate_idx] = action
-                self.candidate_values[candidate_idx] = delete_value
-                candidate_idx += 1
-
-                if (
-                    add_benefit_matrix is not None
-                    and add_target_distance_buffer is not None
-                    and combo_distance_buffer is not None
-                    and combo_power_buffer is not None
-                ):
-                    add_target_distance_buffer[:] = g_delete.distances(
-                        source=add_targets, mode="all"
-                    )
-                    np.add(add_target_distance_buffer, 1.0, out=combo_distance_buffer)
-                    np.minimum(
-                        combo_distance_buffer,
-                        deleted_dist[None, :],
-                        out=combo_distance_buffer,
-                    )
-                    np.power(
-                        self.distance_discount,
-                        combo_distance_buffer,
-                        out=combo_power_buffer,
-                    )
-                    add_benefit_matrix[:, delete_idx] = np.sum(
-                        combo_power_buffer,
-                        axis=1,
-                    )
-
-                g_delete.add_edge(source_idx, action.target)
-
-        # ADD / SWAP actions
-        if (
-            add_benefit_matrix is not None
-            and add_target_distance_buffer is not None
-            and combo_distance_buffer is not None
-            and combo_power_buffer is not None
-        ):
-            add_target_distance_buffer[:] = graph.distances(
-                source=add_targets, mode="all"
-            )
-            np.add(add_target_distance_buffer, 1.0, out=combo_distance_buffer)
-            np.minimum(
-                combo_distance_buffer,
-                baseline_dist[None, :],
-                out=combo_distance_buffer,
-            )
-            np.power(
-                self.distance_discount,
-                combo_distance_buffer,
-                out=combo_power_buffer,
-            )
-
-            add_only_benefit = np.sum(combo_power_buffer, axis=1)
-            add_benefit_matrix[:, -1] = add_only_benefit
-
-            add_only_raw = (
-                self.benefit_to_cost_ratio * (add_only_benefit - base_benefit) - 1.0
-            )
-            add_only_values = np.clip(
-                add_only_raw / self._score_denom,
-                -1.0,
-                1.0,
-            ).astype(np.float32)
-
-            if delete_actions:
-                swap_raw_values = self.benefit_to_cost_ratio * (
-                    add_benefit_matrix[:, :-1] - base_benefit
-                )
-                swap_values = np.clip(
-                    swap_raw_values / self._score_denom,
-                    -1.0,
-                    1.0,
-                ).astype(np.float32)
-
-                best_add_values = np.maximum(
-                    np.max(swap_values, axis=1),
-                    add_only_values,
-                )
-            else:
-                best_add_values = add_only_values
-
-            for action, best_add_value in zip(add_actions, best_add_values):
-                self.candidate_actions[candidate_idx] = action
-                self.candidate_values[candidate_idx] = best_add_value
-                candidate_idx += 1
-
-        # BRIDGE
-        if bridge_action is not None:
-            bridge_score = 2.0 * (
-                self.bridge_weight * (len(bridge_actions) / self.n_nodes)
-            ) - 1.0
-            self.candidate_actions[candidate_idx] = bridge_action
-            self.candidate_values[candidate_idx] = float(
-                np.clip(bridge_score, -1.0, 1.0)
-            )
-            candidate_idx += 1
-
-        assert (
-            candidate_idx == n_non_pass_candidates
-        ), f"Filled {candidate_idx} non-pass candidates, expected {n_non_pass_candidates}"
-
-        non_pass_values = self.candidate_values[:candidate_idx]
-        p_pass = self._pass_probability(non_pass_values)
-
-        if self._rng.random() < p_pass:
+        if selected_family is ActionType.PASS:
             return PolicyDecision(
                 actions=(pass_action,),
-                value={"value": p_pass},
+                value={
+                    "value": 0.0,
+                    "family": ActionType.PASS.value,
+                    "family_value": selected_family_value,
+                },
             )
 
-        chosen_idx = _sample_boltzmann(
-            non_pass_values,
-            self._effective_tau(len(non_pass_values)),
-            self._rng,
+        selected_action_values = family_action_values[selected_family]
+        selected_action_index = _sample_from_values(
+            selected_action_values,
+            tau=self.exploration,
+            rng=self._rng,
         )
+        selected_action = family_actions[selected_family][selected_action_index]
+        selected_value = float(selected_action_values[selected_action_index])
+
         return PolicyDecision(
-            actions=(self.candidate_actions[chosen_idx],),
-            value={"value": float(self.candidate_values[chosen_idx])},
+            actions=(selected_action,),
+            value={
+                "value": selected_value,
+                "family": selected_family.value,
+                "family_value": selected_family_value,
+            },
         )

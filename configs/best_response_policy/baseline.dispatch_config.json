@@ -18,14 +18,7 @@
         "type": "fixed",
         "payload": 0.9
       },
-      "bridge_weight": {
-        "type": "continuous",
-        "payload": {
-          "min": 0.0,
-          "max": 1.0
-        }
-      },
-      "pass_bias": {
+      "outside_optimism": {
         "type": "continuous",
         "payload": {
           "min": 0.0,
@@ -39,13 +32,6 @@
           "max": 1.0
         }
       },
-      "opportunity_sensitivity": {
-        "type": "continuous",
-        "payload": {
-          "min": 0.0,
-          "max": 1.0
-        }
-      },
       "visibility_distance": {
         "type": "fixed",
         "payload": 3
@@ -53,7 +39,11 @@
     }
   },
   "simulation": {
-    "n_agents": [10, 25, 50],
+    "n_agents": [
+      10,
+      25,
+      50
+    ],
     "actor_scheduler": {
       "n_actors": 1
     },
@@ -70,32 +60,56 @@
       "name": "central_point_of_dominance",
       "output": "mean",
       "kwargs": {
-        "observation_sampling": { "kind": "periodic", "every": 5 },
-        "aggregations": ["mean", "std"]
+        "observation_sampling": {
+          "kind": "periodic",
+          "every": 5
+        },
+        "aggregations": [
+          "mean",
+          "std"
+        ]
       }
     },
     {
       "name": "indegree",
       "output": "mean",
       "kwargs": {
-        "observation_sampling": { "kind": "periodic", "every": 5 },
-        "aggregations": ["mean", "std"]
+        "observation_sampling": {
+          "kind": "periodic",
+          "every": 5
+        },
+        "aggregations": [
+          "mean",
+          "std"
+        ]
       }
     },
     {
       "name": "distance",
       "output": "mean",
       "kwargs": {
-        "observation_sampling": { "kind": "periodic", "every": 5 },
-        "aggregations": ["mean", "std"]
+        "observation_sampling": {
+          "kind": "periodic",
+          "every": 5
+        },
+        "aggregations": [
+          "mean",
+          "std"
+        ]
       }
     },
     {
       "name": "normalized_welfare",
       "output": "mean",
       "kwargs": {
-        "observation_sampling": { "kind": "periodic", "every": 5 },
-        "aggregations": ["mean", "std"]
+        "observation_sampling": {
+          "kind": "periodic",
+          "every": 5
+        },
+        "aggregations": [
+          "mean",
+          "std"
+        ]
       }
     }
   ]

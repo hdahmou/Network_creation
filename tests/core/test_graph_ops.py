@@ -112,7 +112,7 @@ class GraphOpsTest(unittest.TestCase):
         )
         self.assertEqual(
             action_space[ActionType.BRIDGE],
-            [Action(ActionType.BRIDGE, source=0, target=3)],
+            [Action(ActionType.BRIDGE, source=0)],
         )
         self.assertEqual(
             action_space[ActionType.DELETE],
@@ -132,11 +132,7 @@ class GraphOpsTest(unittest.TestCase):
                     Action(ActionType.ADD, source=1, target=0),
                     Action(ActionType.ADD, source=1, target=2),
                 ],
-                ActionType.BRIDGE: [
-                    Action(ActionType.BRIDGE, source=1, target=3),
-                    Action(ActionType.BRIDGE, source=1, target=4),
-                    Action(ActionType.BRIDGE, source=1, target=5),
-                ],
+                ActionType.BRIDGE: [Action(ActionType.BRIDGE, source=1)],
                 ActionType.DELETE: [],
                 ActionType.PASS: [Action(ActionType.PASS, source=1)],
             },
@@ -147,7 +143,7 @@ class GraphOpsTest(unittest.TestCase):
                     Action(ActionType.ADD, source=1, target=3),
                     Action(ActionType.ADD, source=1, target=4),
                 ],
-                ActionType.BRIDGE: [Action(ActionType.BRIDGE, source=1, target=5)],
+                ActionType.BRIDGE: [Action(ActionType.BRIDGE, source=1)],
                 ActionType.DELETE: [],
                 ActionType.PASS: [Action(ActionType.PASS, source=1)],
             },
@@ -213,11 +209,7 @@ class GraphOpsTest(unittest.TestCase):
         )
         self.assertEqual(
             action_space[ActionType.BRIDGE],
-            [
-                Action(ActionType.BRIDGE, source=2, target=3),
-                Action(ActionType.BRIDGE, source=2, target=4),
-                Action(ActionType.BRIDGE, source=2, target=5),
-            ],
+            [Action(ActionType.BRIDGE, source=2)],
         )
         self.assertEqual(action_space[ActionType.DELETE], [])
         self.assertEqual(
@@ -278,6 +270,20 @@ class GraphOpsTest(unittest.TestCase):
 
         self.assertEqual(updated.graph.get_edgelist(), [])
         self.assertEqual(updated.graph.ecount(), 0)
+
+    def test_apply_actions_rejects_generic_bridge_without_resolved_target(self) -> None:
+        state = build_state_from_graph(
+            graph_from_adjacency_matrix(np.zeros((2, 2), dtype=np.int8))
+        )
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "BRIDGE actions must define a target before execution",
+        ):
+            apply_actions(
+                state,
+                actions=[Action(ActionType.BRIDGE, source=0)],
+            )
 
 
 if __name__ == "__main__":

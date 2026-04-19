@@ -30,11 +30,9 @@ class BestResponsePolicyRun(PolicyRun):
                 configuration[parameter_columns["benefit_to_cost_ratio"]]
             ),
             distance_discount=float(configuration[parameter_columns["distance_discount"]]),
-            bridge_weight=float(configuration[parameter_columns["bridge_weight"]]),
-            pass_bias=float(configuration[parameter_columns["pass_bias"]]),
             exploration=float(configuration[parameter_columns["exploration"]]),
-            opportunity_sensitivity=float(
-                configuration[parameter_columns["opportunity_sensitivity"]]
+            outside_optimism=float(
+                configuration[parameter_columns["outside_optimism"]]
             ),
         )
 

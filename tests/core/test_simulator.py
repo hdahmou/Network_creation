@@ -188,6 +188,44 @@ class ScriptedPolicy(Policy):
 
 
 class SimulatorTest(unittest.TestCase):
+    def test_run_resolves_generic_bridge_to_one_unseen_global_target(self) -> None:
+        observer = RecordingObserver()
+        env = Environment(create_empty_graph(3), seed=29)
+        simulator = Simulator(
+            env=env,
+            agents=(
+                Agent(
+                    id=0,
+                    visibility_distance=1,
+                    policy=ConstantPolicy(Action(ActionType.BRIDGE, source=0)),
+                    seed=31,
+                ),
+            ),
+            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, seed=21),
+            max_steps=1,
+            rng=np.random.default_rng(37),
+            observers=(observer,),
+        )
+
+        expected_rng = np.random.default_rng(37)
+        expected_rng.bit_generator.random_raw()
+        expected_rng.bit_generator.random_raw()
+        expected_target = int(expected_rng.choice([1, 2]))
+
+        simulator.run(n_episodes=1, reset_observers=False)
+
+        step_event = observer.step_events[0]
+        self.assertEqual(
+            step_event.decisions,
+            (
+                PolicyDecision(
+                    actions=(Action(ActionType.BRIDGE, source=0, target=expected_target),),
+                    value=None,
+                ),
+            ),
+        )
+        self.assertEqual(simulator.env.state.graph.get_edgelist(), [(0, expected_target)])
+
     def test_run_sequential_tracks_final_state(self) -> None:
         env = Environment(create_empty_graph(2), seed=37)
         observer = RecordingObserver()

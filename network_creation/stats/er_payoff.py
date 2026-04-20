@@ -1,4 +1,9 @@
+"""Approximate centered mean welfare for Erdős-Rényi reference graphs."""
+
+from __future__ import annotations
+
 import numpy as np
+
 
 _ARGMAX_P_GRID = np.linspace(0.0, 1.0, 1000, dtype=float)
 
@@ -10,16 +15,17 @@ def _expected_aggregate_payoff_for_p(
     delta: float,
     epsilon: float = 1e-6,
 ) -> float:
-    normalization = N * (2 * N - 1)
+    """Approximate mean centered welfare for a random graph with edge rate ``p``."""
+
     pair_count = N * (N - 1)
 
     if p == 0.0:
-        return (v_k + N - 1) / (2 * N - 1)
+        return 0.0
 
     if p == 1.0:
-        expected_benefit = N + pair_count * delta
+        expected_decay_sum = delta
         expected_edges = pair_count
-        return (v_k * expected_benefit - expected_edges + pair_count) / normalization
+        return (v_k * pair_count * expected_decay_sum - expected_edges) / float(N)
 
     q = 1.0 - p
     expected_edges = p * pair_count
@@ -38,8 +44,7 @@ def _expected_aggregate_payoff_for_p(
             shell_tail_curr * np.power(q, (N - 1) * shell_probability),
         )
 
-    expected_benefit = N + pair_count * expected_decay_sum
-    return (v_k * expected_benefit - expected_edges + pair_count) / normalization
+    return (v_k * pair_count * expected_decay_sum - expected_edges) / float(N)
 
 
 def expected_aggregate_payoff(

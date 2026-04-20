@@ -95,9 +95,14 @@ class BestResponsePolicyTest(unittest.TestCase):
     def test_constructor_rejects_non_positive_benefit_ratio(self) -> None:
         with self.assertRaisesRegex(
             ValueError,
-            r"benefit_to_cost_ratio must be in \(0,1\]",
+            r"benefit_to_cost_ratio must be > 0",
         ):
             self._build_policy(benefit_to_cost_ratio=0.0)
+
+    def test_constructor_accepts_benefit_ratio_above_one(self) -> None:
+        policy = self._build_policy(benefit_to_cost_ratio=1.5)
+
+        self.assertAlmostEqual(policy.benefit_to_cost_ratio, 1.5)
 
     def test_constructor_rejects_non_positive_distance_discount(self) -> None:
         with self.assertRaisesRegex(

@@ -255,6 +255,12 @@ def _build_contract_test_observer(name: str):
             "aggregations": (),
         },
         "indegree": {"observation_sampling": periodic, "aggregations": ()},
+        "centered_mean_welfare": {
+            "observation_sampling": periodic,
+            "benefit_to_cost_ratio": 0.1,
+            "distance_discount": 0.5,
+            "aggregations": (),
+        },
         "normalized_welfare": {
             "observation_sampling": periodic,
             "benefit_to_cost_ratio": 0.1,

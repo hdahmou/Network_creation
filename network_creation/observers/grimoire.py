@@ -7,12 +7,10 @@ from .action_print_observer import ActionPrintObserver
 from .central_point_of_dominance_observer import CentralPointOfDominanceObserver
 from .density_observer import DensityObserver
 from .distance_observer import DistanceObserver
-from .global_closeness_centrality_observer import (
-    GlobalClosenessCentralityObserver,
-)
+from .global_closeness_centrality_observer import GlobalClosenessCentralityObserver
 from .hub_persistence_observer import HubPersistenceObserver
 from .indegree_observer import IndegreeObserver
-from .social_welfare_observer import NormalizedWelfareObserver
+from .social_welfare_observer import CenteredMeanWelfareObserver
 from .state_history_observer import StateHistoryObserver
 from .triad_census_observer import TriadCensusObserver
 
@@ -26,7 +24,7 @@ OBSERVER_GRIMOIRE = {
     "global_closeness_centrality": GlobalClosenessCentralityObserver,
     "hub_persistence": HubPersistenceObserver,
     "indegree": IndegreeObserver,
-    "normalized_welfare": NormalizedWelfareObserver,
+    "centered_mean_welfare": CenteredMeanWelfareObserver,
     "state_history": StateHistoryObserver,
     "triad_census": TriadCensusObserver,
 }

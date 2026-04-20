@@ -241,7 +241,7 @@ namespace Observers {
     class GlobalClosenessCentralityObserver
     class CentralPointOfDominanceObserver
 
-    class NormalizedWelfareObserver {
+    class CenteredMeanWelfareObserver {
         +benefit_to_cost_ratio: float
         +distance_discount: float
     }
@@ -323,7 +323,7 @@ DistanceObserver --|> EpisodeSeriesStatisticObserver : extends
 IndegreeObserver --|> EpisodeSeriesStatisticObserver : extends
 GlobalClosenessCentralityObserver --|> EpisodeSeriesStatisticObserver : extends
 CentralPointOfDominanceObserver --|> EpisodeSeriesStatisticObserver : extends
-NormalizedWelfareObserver --|> EpisodeSeriesStatisticObserver : extends
+CenteredMeanWelfareObserver --|> EpisodeSeriesStatisticObserver : extends
 HubPersistenceObserver --|> EpisodeSeriesStatisticObserver : extends
 TriadCensusObserver --|> EpisodeSeriesTensorStatisticObserver : extends
 StateHistoryObserver ..|> SimulationObserver : implements

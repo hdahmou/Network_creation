@@ -34,14 +34,12 @@ class MyopicPayoffPolicyTest(unittest.TestCase):
     def test_constructor_rejects_invalid_ratio_discount_and_bridge_probability(self) -> None:
         invalid_cases = (
             (
-                "benefit_to_cost_ratio must satisfy 0 <= "
-                "benefit_to_cost_ratio <= 1",
+                "benefit_to_cost_ratio must satisfy benefit_to_cost_ratio > 0",
                 {"benefit_to_cost_ratio": -0.1},
             ),
             (
-                "benefit_to_cost_ratio must satisfy 0 <= "
-                "benefit_to_cost_ratio <= 1",
-                {"benefit_to_cost_ratio": 1.1},
+                "benefit_to_cost_ratio must satisfy benefit_to_cost_ratio > 0",
+                {"benefit_to_cost_ratio": 0.0},
             ),
             (
                 "distance_discount must satisfy 0 <= distance_discount < 1",
@@ -73,6 +71,16 @@ class MyopicPayoffPolicyTest(unittest.TestCase):
 
                 with self.assertRaisesRegex(ValueError, expected_message):
                     MyopicPayoffPolicy(**kwargs)
+
+    def test_constructor_accepts_benefit_ratio_above_one(self) -> None:
+        policy = MyopicPayoffPolicy(
+            seed=7,
+            benefit_to_cost_ratio=1.1,
+            distance_discount=0.5,
+            bridge_probability=0.5,
+        )
+
+        self.assertAlmostEqual(policy.benefit_to_cost_ratio, 1.1)
 
     def test_reset_is_deterministic_from_seed(self) -> None:
         observation, action_space = self._build_observation_and_action_space(

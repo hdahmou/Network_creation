@@ -31,9 +31,9 @@ class MyopicPayoffPolicy(Policy):
             raise ValueError(
                 "distance_discount must satisfy 0 <= distance_discount < 1"
             )
-        if not 0.0 <= benefit_to_cost_ratio <= 1.0:
+        if benefit_to_cost_ratio <= 0.0:
             raise ValueError(
-                "benefit_to_cost_ratio must satisfy 0 <= benefit_to_cost_ratio <= 1"
+                "benefit_to_cost_ratio must satisfy benefit_to_cost_ratio > 0"
             )
         if not 0.0 <= bridge_probability <= 1.0:
             raise ValueError(
@@ -105,8 +105,8 @@ class MyopicPayoffPolicy(Policy):
                 f"unsupported non-bridge action type: {candidate.type.value}"
             )
 
-        baseline_benefit = np.power(self.distance_discount, baseline_distances).sum()
-        candidate_benefit = np.power(self.distance_discount, candidate_distances).sum()
+        baseline_benefit = np.power(self.distance_discount, baseline_distances).sum() - 1.0
+        candidate_benefit = np.power(self.distance_discount, candidate_distances).sum() - 1.0
         benefit_delta = candidate_benefit - baseline_benefit
         return self.benefit_to_cost_ratio * benefit_delta + link_delta
 

@@ -1,4 +1,4 @@
-"""Tests for normalized welfare statistics and observer integration."""
+"""Tests for centered social welfare statistics and observer integration."""
 
 from __future__ import annotations
 
@@ -20,12 +20,13 @@ from network_creation.core.model import (
 from network_creation.core.observability import ObservationSampling
 from network_creation.core.simulator import Simulator
 from network_creation.observers.social_welfare_observer import (
-    NormalizedWelfareObserver,
-    _compute_normalized_welfare,
+    CenteredMeanWelfareObserver,
+    _compute_centered_mean_welfare,
 )
 from network_creation.policies.base import Policy
 from network_creation.stats.er_payoff import expected_aggregate_payoff
 from tests.graph_factories import graph_from_adjacency_matrix
+
 
 
 def _local_action(observation: Observation, action: Action) -> Action:
@@ -58,11 +59,11 @@ class ConstantPolicy(Policy):
 
 
 class SocialWelfareTest(unittest.TestCase):
-    def test_reference_values_return_closed_form_star_and_empty_baselines(self) -> None:
+    def test_reference_values_return_centered_star_and_empty_baselines(self) -> None:
         n = 4
         distance_discount = 0.5
         benefit_to_cost_ratio = 0.3
-        reference_values = NormalizedWelfareObserver.reference_values(
+        reference_values = CenteredMeanWelfareObserver.reference_values(
             n=n,
             distance_discount=distance_discount,
             benefit_to_cost_ratio=benefit_to_cost_ratio,
@@ -70,13 +71,12 @@ class SocialWelfareTest(unittest.TestCase):
         expected_star = (
             benefit_to_cost_ratio
             * (
-                n
-                + 2 * (n - 1) * distance_discount
+                2 * (n - 1) * distance_discount
                 + (n - 1) * (n - 2) * distance_discount**2
             )
-            + (n - 1) ** 2
-        ) / (n * (2 * n - 1))
-        expected_empty = (benefit_to_cost_ratio + n - 1) / (2 * n - 1)
+            - (n - 1)
+        ) / n
+        expected_empty = 0.0
 
         self.assertEqual(set(reference_values), {"star", "empty", "random"})
         self.assertAlmostEqual(reference_values["star"], expected_star)
@@ -91,7 +91,7 @@ class SocialWelfareTest(unittest.TestCase):
         )
         assert isinstance(expected_random_reference, tuple)
 
-        reference_values = NormalizedWelfareObserver.reference_values(
+        reference_values = CenteredMeanWelfareObserver.reference_values(
             n=4,
             distance_discount=0.5,
             benefit_to_cost_ratio=0.3,
@@ -103,48 +103,45 @@ class SocialWelfareTest(unittest.TestCase):
 
     def test_reference_values_reject_invalid_n(self) -> None:
         with self.assertRaisesRegex(ValueError, "n must satisfy n >= 1"):
-            NormalizedWelfareObserver.reference_values(
+            CenteredMeanWelfareObserver.reference_values(
                 n=0,
                 distance_discount=0.5,
                 benefit_to_cost_ratio=0.3,
             )
 
-    def test_reference_values_reject_invalid_ratio(self) -> None:
+    def test_reference_values_reject_non_positive_ratio(self) -> None:
         with self.assertRaisesRegex(
             ValueError,
-            "benefit_to_cost_ratio must satisfy 0 <= "
-            "benefit_to_cost_ratio <= 1",
+            "benefit_to_cost_ratio must satisfy benefit_to_cost_ratio > 0",
         ):
-            NormalizedWelfareObserver.reference_values(
+            CenteredMeanWelfareObserver.reference_values(
                 n=4,
                 distance_discount=0.5,
-                benefit_to_cost_ratio=1.1,
+                benefit_to_cost_ratio=0.0,
             )
 
     def test_reference_values_reject_invalid_discount(self) -> None:
         with self.assertRaisesRegex(
             ValueError, "distance_discount must satisfy 0 <= distance_discount < 1"
         ):
-            NormalizedWelfareObserver.reference_values(
+            CenteredMeanWelfareObserver.reference_values(
                 n=4,
                 distance_discount=1.0,
                 benefit_to_cost_ratio=0.3,
             )
 
-    def test_normalized_welfare_keeps_empty_graph_in_bounded_positive_range(
-        self,
-    ) -> None:
+    def test_centered_mean_welfare_is_zero_on_empty_graph(self) -> None:
         graph = create_empty_graph(2)
 
-        welfare = _compute_normalized_welfare(
+        welfare = _compute_centered_mean_welfare(
             graph,
             benefit_to_cost_ratio=0.3,
             distance_discount=0.5,
         )
 
-        self.assertAlmostEqual(welfare, 13.0 / 30.0)
+        self.assertAlmostEqual(welfare, 0.0)
 
-    def test_normalized_welfare_counts_bilateral_links_on_zero_to_one_scale(self) -> None:
+    def test_centered_mean_welfare_counts_bilateral_links_in_raw_units(self) -> None:
         graph = graph_from_adjacency_matrix(
             np.array(
                 [
@@ -155,42 +152,41 @@ class SocialWelfareTest(unittest.TestCase):
             )
         )
 
-        welfare = _compute_normalized_welfare(
+        welfare = _compute_centered_mean_welfare(
             graph,
             benefit_to_cost_ratio=0.3,
             distance_discount=0.5,
         )
 
-        self.assertAlmostEqual(welfare, 0.15)
+        self.assertAlmostEqual(welfare, -0.85)
 
-    def test_normalized_welfare_observer_rejects_decay_outside_zero_to_one_interval(
+    def test_centered_mean_welfare_observer_rejects_decay_outside_interval(
         self,
     ) -> None:
         with self.assertRaisesRegex(
             ValueError, "0 <= distance_discount < 1"
         ):
-            NormalizedWelfareObserver(
+            CenteredMeanWelfareObserver(
                 observation_sampling=ObservationSampling.periodic(1),
                 benefit_to_cost_ratio=0.3,
                 distance_discount=1.0,
                 aggregations=(),
             )
 
-    def test_normalized_welfare_observer_rejects_invalid_ratio(self) -> None:
+    def test_centered_mean_welfare_observer_rejects_non_positive_ratio(self) -> None:
         with self.assertRaisesRegex(
             ValueError,
-            "benefit_to_cost_ratio must satisfy 0 <= "
-            "benefit_to_cost_ratio <= 1",
+            "benefit_to_cost_ratio must satisfy benefit_to_cost_ratio > 0",
         ):
-            NormalizedWelfareObserver(
+            CenteredMeanWelfareObserver(
                 observation_sampling=ObservationSampling.periodic(1),
-                benefit_to_cost_ratio=1.1,
+                benefit_to_cost_ratio=0.0,
                 distance_discount=0.5,
                 aggregations=(),
             )
 
-    def test_normalized_welfare_observer_tracks_step_series(self) -> None:
-        observer = NormalizedWelfareObserver(
+    def test_centered_mean_welfare_observer_tracks_step_series(self) -> None:
+        observer = CenteredMeanWelfareObserver(
             observation_sampling=ObservationSampling.periodic(1),
             benefit_to_cost_ratio=0.3,
             distance_discount=0.5,
@@ -225,7 +221,7 @@ class SocialWelfareTest(unittest.TestCase):
         np.testing.assert_array_equal(observer.steps, np.array([0, 1, 2]))
         np.testing.assert_allclose(
             observer.values,
-            np.array([13.0 / 30.0, 19.0 / 60.0, 19.0 / 60.0], dtype=np.float32),
+            np.array([0.0, -0.35, -0.35], dtype=np.float32),
         )
 
 

@@ -1,30 +1,43 @@
-"""Observer that tracks normalized welfare across simulator steps."""
+"""Observers for centered social welfare in the linking game."""
 
 from __future__ import annotations
 
 r"""
+The standard welfare object in the Bala-Goyal style linking game is the sum of
+agents' payoffs. For reporting across network sizes, the project uses the mean
+centered payoff per agent
+
 .. math::
-    \begin{aligned}
-        \text{Network Structure:} & \quad g = (V, E) \text{ is directed; } \bar{g} \text{ is the undirected skeleton.} \\
-        \\
-        \text{Individual Payoff:} & \quad \hat{\Pi}_i = \frac{1}{2n-1} \left[ \frac{V}{k} \sum_{j \in N} \delta^{d(i, j, \bar{g})} - \eta_i(g) + (n-1) \right] \in [0, 1] \\
-        \\
-        \text{Network Value (Sum):} & \quad \mathcal{V}(g) = \sum_{i \in N} \hat{\Pi}_i = \frac{1}{2n-1} \left[ \frac{V}{k} \mathcal{B}(\bar{g}) - |E(g)| + n(n-1) \right] \in [0, n] \\
-        \\
-        \text{Bounded Aggregate:} & \quad \bar{\Pi}_{agg} = \frac{\mathcal{V}(g)}{n} = \frac{1}{n(2n-1)} \left[ \frac{V}{k} \mathcal{B}(\bar{g}) - |E(g)| + n(n-1) \right] \in [0, 1] \\
-        \\
-        \text{Where:} & \quad \mathcal{B}(\bar{g}) = \text{Total Benefit} = \sum_{i \in N} \sum_{j \in N} \delta^{d(i,j, \bar{g})} \\
-        & \quad |E(g)| = \text{Total Directed Edges} = \sum_{i \in N} \eta_i(g)
-        \\
-        \text{Star Network:} & \quad \bar{\Pi}_{agg} = \frac{1}{n(2n-1)} \left[ \frac{V}{k} \left( n + 2(n-1)\delta + (n-1)(n-2)\delta^2 \right) + (n-1)^2 \right]
-        \\
-        \text{Empty Network:} & \quad \bar{\Pi}_{agg} = \frac{\frac{V}{k} + n - 1}{2n - 1}
-   \end{aligned}
+    u_i(g)
+    = \lambda \sum_{j \ne i} \delta^{d(i,j;\bar g)} - \eta_i(g),
+
+and therefore
+
+.. math::
+    \bar W(g)
+    = \frac{1}{n} \sum_{i=1}^n u_i(g)
+    = \frac{1}{n}
+      \left[
+        \lambda \sum_{i \ne j} \delta^{d(i,j;\bar g)} - |E(g)|
+      \right].
+
+This convention removes the network-invariant self term, so the empty network
+has welfare exactly zero.
+
+For an :math:`n`-node star,
+
+.. math::
+    \bar W(\text{star})
+    = \frac{1}{n}
+      \left[
+        \lambda \left(2(n-1)\delta + (n-1)(n-2)\delta^2\right) - (n-1)
+      \right],
+
+while for the empty network,
+
+.. math::
+    \bar W(\emptyset) = 0.
 """
-
-
-import igraph as ig
-import numpy as np
 
 from network_creation.core.observability import (
     EpisodeStartEvent,
@@ -35,29 +48,27 @@ from network_creation.observers.statistics.episode_series import (
     EpisodeSeriesStatisticObserver,
 )
 from network_creation.stats.er_payoff import expected_aggregate_payoff
+from network_creation.stats.payoff import centered_mean_welfare, centered_mean_welfare_star
 
 
-def _compute_normalized_welfare(
-    graph: ig.Graph,
+def _compute_centered_mean_welfare(
+    graph,
     benefit_to_cost_ratio: float,
     distance_discount: float,
 ) -> float:
-    n = graph.vcount()
-    total_benefit = float(
-        np.power(distance_discount, graph.distances(mode="all")).sum()
+    return centered_mean_welfare(
+        graph,
+        benefit_to_cost_ratio=benefit_to_cost_ratio,
+        distance_discount=distance_discount,
     )
-    return (
-        benefit_to_cost_ratio * total_benefit
-        - float(graph.ecount())
-        + float(n * (n - 1))
-    ) / float(n * (2 * n - 1))
 
 
-class NormalizedWelfareObserver(EpisodeSeriesStatisticObserver):
+class CenteredMeanWelfareObserver(EpisodeSeriesStatisticObserver):
+    """Track mean centered welfare per agent over simulator steps."""
 
-    label = "Normalized Welfare"
+    label = "Centered Mean Welfare"
     x_label = "step"
-    y_label = "normalized welfare (no units)"
+    y_label = "mean centered welfare (payoff units)"
     y_min = None
     y_max = None
 
@@ -68,9 +79,9 @@ class NormalizedWelfareObserver(EpisodeSeriesStatisticObserver):
         distance_discount: float,
         aggregations: tuple[str, ...],
     ) -> None:
-        if not 0.0 <= benefit_to_cost_ratio <= 1.0:
+        if benefit_to_cost_ratio <= 0.0:
             raise ValueError(
-                "benefit_to_cost_ratio must satisfy 0 <= " "benefit_to_cost_ratio <= 1"
+                "benefit_to_cost_ratio must satisfy benefit_to_cost_ratio > 0"
             )
         if not 0.0 <= distance_discount < 1.0:
             raise ValueError(
@@ -92,27 +103,21 @@ class NormalizedWelfareObserver(EpisodeSeriesStatisticObserver):
     ) -> dict[str, float]:
         if n < 1:
             raise ValueError("n must satisfy n >= 1")
-        if not 0.0 <= benefit_to_cost_ratio <= 1.0:
+        if benefit_to_cost_ratio <= 0.0:
             raise ValueError(
-                "benefit_to_cost_ratio must satisfy 0 <= " "benefit_to_cost_ratio <= 1"
+                "benefit_to_cost_ratio must satisfy benefit_to_cost_ratio > 0"
             )
         if not 0.0 <= distance_discount < 1.0:
             raise ValueError(
                 "distance_discount must satisfy 0 <= distance_discount < 1"
             )
 
-        normalization = float(n * (2 * n - 1))
-        pair_count = float(n - 1)
-        star = (
-            benefit_to_cost_ratio
-            * (
-                float(n)
-                + 2.0 * pair_count * distance_discount
-                + pair_count * float(n - 2) * distance_discount**2
-            )
-            + pair_count**2
-        ) / normalization
-        empty = (benefit_to_cost_ratio + pair_count) / float(2 * n - 1)
+        star = centered_mean_welfare_star(
+            n,
+            benefit_to_cost_ratio=benefit_to_cost_ratio,
+            distance_discount=distance_discount,
+        )
+        empty = 0.0
         random_reference = expected_aggregate_payoff(
             n,
             benefit_to_cost_ratio,
@@ -127,14 +132,14 @@ class NormalizedWelfareObserver(EpisodeSeriesStatisticObserver):
         return {"star": star, "empty": empty, "random": random}
 
     def compute_initial_value(self, event: EpisodeStartEvent) -> float:
-        return _compute_normalized_welfare(
+        return _compute_centered_mean_welfare(
             event.initial_state.graph,
             benefit_to_cost_ratio=self.benefit_to_cost_ratio,
             distance_discount=self.distance_discount,
         )
 
     def compute_step_value(self, event: StepEvent) -> float:
-        return _compute_normalized_welfare(
+        return _compute_centered_mean_welfare(
             event.post_state.graph,
             benefit_to_cost_ratio=self.benefit_to_cost_ratio,
             distance_discount=self.distance_discount,

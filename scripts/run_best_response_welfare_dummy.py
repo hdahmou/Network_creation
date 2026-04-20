@@ -18,7 +18,7 @@ from network_creation.core.runtime import (
     create_simulation_runtime,
 )
 from network_creation.observers.social_welfare_observer import (
-    NormalizedWelfareObserver,
+    CenteredMeanWelfareObserver,
 )
 from network_creation.policies.best_response import BestResponsePolicy
 
@@ -26,22 +26,19 @@ from network_creation.policies.best_response import BestResponsePolicy
 N_AGENTS = 50
 MAX_STEPS = 360
 N_EPISODES = 32
+VISIBILITY_DISTANCE = 3
 PARAMETER_SETS = (
     {
         "benefit_to_cost_ratio": 0.5,
         "distance_discount": 0.9,
-        "bridge_weight": 0.0,
-        "pass_bias": 0.5,
+        "outside_optimism": 0.0,
         "exploration": 0.0,
-        "opportunity_sensitivity": 0.5,
     },
     {
         "benefit_to_cost_ratio": 0.5,
         "distance_discount": 0.7,
-        "bridge_weight": 0.5,
-        "pass_bias": 0.525,
-        "exploration": 0.0,
-        "opportunity_sensitivity": 0.5,
+        "outside_optimism": 0.5,
+        "exploration": 0.3,
     },
 )
 
@@ -51,16 +48,14 @@ def run_case(case_index: int, policy_kwargs: dict[str, float]) -> None:
         policy_seed = 1_000 * (case_index + 1) + node_id
         return Agent(
             id=node_id,
-            visibility_distance=N_AGENTS,
+            visibility_distance=VISIBILITY_DISTANCE,
             policy=BestResponsePolicy(
                 n_nodes=N_AGENTS,
                 seed=policy_seed,
                 benefit_to_cost_ratio=policy_kwargs["benefit_to_cost_ratio"],
                 distance_discount=policy_kwargs["distance_discount"],
-                bridge_weight=policy_kwargs["bridge_weight"],
-                pass_bias=policy_kwargs["pass_bias"],
                 exploration=policy_kwargs["exploration"],
-                opportunity_sensitivity=policy_kwargs["opportunity_sensitivity"],
+                outside_optimism=policy_kwargs["outside_optimism"],
             ),
             seed=policy_seed,
         )
@@ -73,7 +68,7 @@ def run_case(case_index: int, policy_kwargs: dict[str, float]) -> None:
         n_episodes=N_EPISODES,
         stagnation_patience=None,
     )
-    welfare_observer = NormalizedWelfareObserver(
+    welfare_observer = CenteredMeanWelfareObserver(
         observation_sampling=ObservationSampling.periodic(1),
         benefit_to_cost_ratio=policy_kwargs["benefit_to_cost_ratio"],
         distance_discount=policy_kwargs["distance_discount"],
@@ -92,6 +87,7 @@ def run_case(case_index: int, policy_kwargs: dict[str, float]) -> None:
 def main() -> None:
     print("Running best-response welfare dummy script...")
     print(f"Number of agents: {N_AGENTS}")
+    print(f"Visibility distance: {VISIBILITY_DISTANCE}")
     print(f"Max steps: {MAX_STEPS}")
     print(f"Number of episodes: {N_EPISODES}")
     for case_index, policy_kwargs in enumerate(PARAMETER_SETS):

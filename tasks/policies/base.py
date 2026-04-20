@@ -109,7 +109,7 @@ class PolicyRun(ABC):
         configuration: NDArray[np.float32],
     ) -> Any:
         kwargs = dict(spec.kwargs)
-        if spec.name == "normalized_welfare":
+        if spec.name in {"centered_mean_welfare"}:
             for parameter_name in ("benefit_to_cost_ratio", "distance_discount"):
                 if parameter_name in kwargs:
                     continue

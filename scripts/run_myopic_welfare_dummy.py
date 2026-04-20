@@ -18,7 +18,7 @@ from network_creation.core.runtime import (
     create_simulation_runtime,
 )
 from network_creation.observers.social_welfare_observer import (
-    NormalizedWelfareObserver,
+    CenteredMeanWelfareObserver,
 )
 from network_creation.policies.myopic_payoff import MyopicPayoffPolicy
 
@@ -63,7 +63,7 @@ def run_case(case_index: int, policy_kwargs: dict[str, float]) -> None:
         n_episodes=N_EPISODES,
         stagnation_patience=None,
     )
-    welfare_observer = NormalizedWelfareObserver(
+    welfare_observer = CenteredMeanWelfareObserver(
         observation_sampling=ObservationSampling.periodic(1),
         benefit_to_cost_ratio=policy_kwargs["benefit_to_cost_ratio"],
         distance_discount=policy_kwargs["distance_discount"],

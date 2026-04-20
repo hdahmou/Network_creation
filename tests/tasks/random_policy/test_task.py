@@ -37,7 +37,7 @@ class RandomPolicyTaskTest(unittest.TestCase):
                     },
                 },
                 {
-                    "name": "normalized_welfare",
+                    "name": "centered_mean_welfare",
                     "output": "mean",
                     "kwargs": {
                         "observation_sampling": {"kind": "periodic", "every": 1},
@@ -57,7 +57,7 @@ class RandomPolicyTaskTest(unittest.TestCase):
             prepared.output_schema.metadata(),
             [
                 {"name": "density.mean", "shape": [4], "dtype": "float32"},
-                {"name": "normalized_welfare.mean", "shape": [4], "dtype": "float32"},
+                {"name": "centered_mean_welfare.mean", "shape": [4], "dtype": "float32"},
             ],
         )
         self.assertEqual(prepared.inputs, (0,))
@@ -66,11 +66,11 @@ class RandomPolicyTaskTest(unittest.TestCase):
 
         output = prepared.run(prepared.inputs[0])
 
-        self.assertEqual(set(output), {"density.mean", "normalized_welfare.mean"})
+        self.assertEqual(set(output), {"density.mean", "centered_mean_welfare.mean"})
         self.assertEqual(output["density.mean"].shape, (4,))
-        self.assertEqual(output["normalized_welfare.mean"].shape, (4,))
+        self.assertEqual(output["centered_mean_welfare.mean"].shape, (4,))
         self.assertEqual(output["density.mean"].dtype, np.float32)
-        self.assertEqual(output["normalized_welfare.mean"].dtype, np.float32)
+        self.assertEqual(output["centered_mean_welfare.mean"].dtype, np.float32)
 
     def test_prepared_run_is_deterministic_for_fixed_seed(self) -> None:
         prepared = RandomPolicyRun().prepare(self._base_config())
@@ -91,7 +91,7 @@ class RandomPolicyTaskTest(unittest.TestCase):
         self.assertEqual(prepared.inputs, (0, 1))
         for sample_idx in prepared.inputs:
             output = prepared.run(sample_idx)
-            self.assertEqual(set(output), {"density.mean", "normalized_welfare.mean"})
+            self.assertEqual(set(output), {"density.mean", "centered_mean_welfare.mean"})
 
     def test_run_uses_scaled_inverse_benefit_to_cost_ratio_from_n_agents(self) -> None:
         sweep_config = self._base_config()
@@ -150,7 +150,7 @@ class RandomPolicyTaskTest(unittest.TestCase):
                     expected_output[field_name],
                 )
 
-    def test_run_fails_when_normalized_welfare_runtime_parameters_are_missing(self) -> None:
+    def test_run_fails_when_centered_mean_welfare_runtime_parameters_are_missing(self) -> None:
         config = self._base_config()
         del config["observers"][1]["kwargs"]["benefit_to_cost_ratio"]
         del config["observers"][1]["kwargs"]["distance_discount"]
@@ -233,4 +233,4 @@ class RandomPolicyTaskTest(unittest.TestCase):
         self.assertEqual(prepared.inputs, (0, 1))
         for sample_idx in prepared.inputs:
             output = prepared.run(sample_idx)
-            self.assertEqual(set(output), {"density.mean", "normalized_welfare.mean"})
+            self.assertEqual(set(output), {"density.mean", "centered_mean_welfare.mean"})

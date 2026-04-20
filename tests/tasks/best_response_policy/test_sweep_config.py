@@ -169,7 +169,7 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "visibility_distance is required"):
             BestResponsePolicyRun().prepare(config)
 
-    def test_run_rejects_scaled_inverse_benefit_to_cost_ratio_below_threshold(
+    def test_run_accepts_scaled_inverse_benefit_to_cost_ratio_above_one(
         self,
     ) -> None:
         config = self._base_config()
@@ -193,6 +193,6 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
         }
 
         prepared = BestResponsePolicyRun().prepare(config)
+        output = prepared.run(prepared.inputs[0])
 
-        with self.assertRaisesRegex(ValueError, "benefit_to_cost_ratio"):
-            prepared.run(prepared.inputs[0])
+        self.assertIn("density.mean", output)

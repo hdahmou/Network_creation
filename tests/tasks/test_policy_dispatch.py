@@ -89,7 +89,7 @@ class PolicyDispatchTest(unittest.TestCase):
                 },
             },
             {
-                "name": "normalized_welfare",
+                "name": "centered_mean_welfare",
                 "output": "mean",
                 "kwargs": {
                     "observation_sampling": {"kind": "periodic", "every": 1},

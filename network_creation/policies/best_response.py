@@ -1,22 +1,15 @@
 from __future__ import annotations
 
-
 import math
 
 import numpy as np
 from numpy.typing import NDArray
 
-from network_creation.core.model import (
-    Action,
-    ActionSpace,
-    ActionType,
-    Observation,
-    PolicyDecision,
-)
+from network_creation.core.model import (Action, ActionSpace, ActionType,
+                                         Observation, PolicyDecision)
 
 from .base import Policy
 from .utils import _sample_argmax
-
 
 ArrayF32 = NDArray[np.float32]
 
@@ -102,8 +95,7 @@ class BestResponsePolicy(Policy):
     seed:
         Random seed for tie-breaking and noisy response.
     benefit_to_cost_ratio:
-        The game parameter :math:`\lambda = V/k`, restricted to ``(0, 1]`` to
-        remain compatible with the project's bounded-payoff observers.
+        The game parameter :math:`\lambda = V/k`, restricted only to be strictly positive.
     distance_discount:
         Distance discount :math:`\delta \in (0, 1)`.
     exploration:
@@ -124,8 +116,8 @@ class BestResponsePolicy(Policy):
     ) -> None:
         if n_nodes <= 1:
             raise ValueError("n_nodes must be > 1")
-        if not 0.0 < benefit_to_cost_ratio <= 1.0:
-            raise ValueError("benefit_to_cost_ratio must be in (0,1]")
+        if benefit_to_cost_ratio <= 0.0:
+            raise ValueError("benefit_to_cost_ratio must be > 0")
         if not 0.0 < distance_discount < 1.0:
             raise ValueError("distance_discount must be in (0,1)")
         if not 0.0 <= exploration <= 1.0:
@@ -187,7 +179,7 @@ class BestResponsePolicy(Policy):
         np.multiply(target_powers, self.distance_discount, out=target_powers)
         np.maximum(target_powers, baseline_powers[None, :], out=target_powers)
 
-        add_benefits = np.sum(target_powers, axis=1, dtype=np.float32)
+        add_benefits = np.sum(target_powers, axis=1, dtype=np.float32) - 1.0
         raw_add_values = (
             self.benefit_to_cost_ratio * (add_benefits - baseline_benefit) - 1.0
         )
@@ -226,10 +218,13 @@ class BestResponsePolicy(Policy):
                 source=[source_idx],
                 mode="all",
             )[0]
-            deleted_benefit = _sum_discounted_distances(
-                self.distance_discount,
-                delete_distances,
-                power_buffer,
+            deleted_benefit = (
+                _sum_discounted_distances(
+                    self.distance_discount,
+                    delete_distances,
+                    power_buffer,
+                )
+                - 1.0
             )
             raw_delete = (
                 self.benefit_to_cost_ratio * (deleted_benefit - baseline_benefit)
@@ -255,7 +250,7 @@ class BestResponsePolicy(Policy):
         )
         baseline_powers = np.empty(graph.vcount(), dtype=np.float32)
         np.power(self.distance_discount, baseline_distances, out=baseline_powers)
-        baseline_benefit = float(baseline_powers.sum())
+        baseline_benefit = float(baseline_powers.sum() - 1.0)
 
         add_actions = action_space[ActionType.ADD]
         delete_actions = action_space[ActionType.DELETE]

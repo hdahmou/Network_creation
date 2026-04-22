@@ -149,7 +149,7 @@ class BestResponsePolicy(Policy):
                     power_buffer,
                 )
                 delete_value = (
-                    self.benefit_to_cost_ratio * (deleted_benefit - base_benefit) - 1.0
+                    self.benefit_to_cost_ratio * (deleted_benefit - base_benefit) + 1.0
                 )
 
                 self.candidate_actions[candidate_idx] = action
@@ -208,7 +208,7 @@ class BestResponsePolicy(Policy):
             add_only_benefit = np.sum(combo_power_buffer, axis=1)
             add_benefit_matrix[:, -1] = add_only_benefit
             add_only_value = (
-                self.benefit_to_cost_ratio * (add_only_benefit - base_benefit) + 1.0
+                self.benefit_to_cost_ratio * (add_only_benefit - base_benefit) - 1.0
             )
 
             if delete_actions:
@@ -235,7 +235,11 @@ class BestResponsePolicy(Policy):
                 + self.outside_optimism * spillover_targets * self.distance_discount**2
             )
             bridge_value = (
-                self.benefit_to_cost_ratio * (expected_bridge_gain - base_benefit) - 1.0
+                self.benefit_to_cost_ratio
+                * (
+                    expected_bridge_gain - (base_benefit - 1.0)
+                )  # subtract 1 for the self-distance
+                + 1.0
             )
             self.candidate_actions[candidate_idx] = bridge_action
             self.candidate_values[candidate_idx] = bridge_value
@@ -262,5 +266,13 @@ class BestResponsePolicy(Policy):
 
         return PolicyDecision(
             actions=(chosen_action,),
-            value={"value": float(self.candidate_values[chosen_idx])},
+            value={
+                "value": float(self.candidate_values[chosen_idx]),
+                "other_actions_values": list(
+                    zip(
+                        self.candidate_actions[: candidate_idx + 1],
+                        self.candidate_values[: candidate_idx + 1],
+                    )
+                ),
+            },
         )

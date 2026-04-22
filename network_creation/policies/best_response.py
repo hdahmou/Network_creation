@@ -239,7 +239,7 @@ class BestResponsePolicy(Policy):
                 * (
                     expected_bridge_gain - (base_benefit - 1.0)
                 )  # subtract 1 for the self-distance
-                + 1.0
+                - 1.0
             )
             self.candidate_actions[candidate_idx] = bridge_action
             self.candidate_values[candidate_idx] = bridge_value
@@ -268,11 +268,6 @@ class BestResponsePolicy(Policy):
             actions=(chosen_action,),
             value={
                 "value": float(self.candidate_values[chosen_idx]),
-                "other_actions_values": list(
-                    zip(
-                        self.candidate_actions[: candidate_idx + 1],
-                        self.candidate_values[: candidate_idx + 1],
-                    )
-                ),
+                # "other_actions_values": list(zip(self.candidate_actions[: candidate_idx + 1],self.candidate_values[: candidate_idx + 1],)),
             },
         )

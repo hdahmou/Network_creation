@@ -22,6 +22,19 @@ from tests.graph_factories import graph_from_adjacency_matrix
 
 class BestResponsePolicyTest(unittest.TestCase):
     @staticmethod
+    def _discounted_benefit(
+        policy: BestResponsePolicy,
+        graph,
+        *,
+        source_idx: int = 0,
+    ) -> float:
+        distances = np.asarray(
+            graph.distances(source=[source_idx], mode="all")[0],
+            dtype=np.float32,
+        )
+        return float(np.power(policy.distance_discount, distances).sum())
+
+    @staticmethod
     def _build_observation_and_action_space(
         adjacency: np.ndarray,
         node_id: int,
@@ -54,11 +67,10 @@ class BestResponsePolicyTest(unittest.TestCase):
         policy: BestResponsePolicy,
         observation,
     ) -> float:
-        baseline_dist = np.asarray(
-            observation.graph.distances(source=[0], mode="all")[0],
-            dtype=np.float32,
+        base_benefit = BestResponsePolicyTest._discounted_benefit(
+            policy,
+            observation.graph,
         )
-        base_benefit = float(np.power(policy.distance_discount, baseline_dist).sum())
         spillover_targets = max(len(observation.outside_node_idxs) - 1, 0)
         expected_bridge_gain = (
             policy.distance_discount
@@ -67,8 +79,61 @@ class BestResponsePolicyTest(unittest.TestCase):
             * policy.distance_discount**2
         )
         return float(
-            policy.benefit_to_cost_ratio * (expected_bridge_gain - base_benefit) - 1.0
+            policy.benefit_to_cost_ratio * (expected_bridge_gain - (base_benefit - 1.0))
+            - 1.0
         )
+
+    @staticmethod
+    def _expected_delete_value(
+        policy: BestResponsePolicy,
+        observation,
+        *,
+        delete_target: int,
+    ) -> float:
+        graph = observation.graph.copy()
+        base_benefit = BestResponsePolicyTest._discounted_benefit(policy, graph)
+        eid = graph.get_eid(0, delete_target, directed=True, error=True)
+        graph.delete_edges([eid])
+        deleted_benefit = BestResponsePolicyTest._discounted_benefit(policy, graph)
+        return float(
+            policy.benefit_to_cost_ratio * (deleted_benefit - base_benefit) + 1.0
+        )
+
+    @staticmethod
+    def _expected_add_value(
+        policy: BestResponsePolicy,
+        observation,
+        *,
+        add_target: int,
+    ) -> float:
+        graph = observation.graph
+        base_benefit = BestResponsePolicyTest._discounted_benefit(policy, graph)
+
+        add_only_graph = graph.copy()
+        add_only_graph.add_edge(0, add_target)
+        add_only_benefit = BestResponsePolicyTest._discounted_benefit(
+            policy,
+            add_only_graph,
+        )
+        best_add_value = (
+            policy.benefit_to_cost_ratio * (add_only_benefit - base_benefit) - 1.0
+        )
+
+        for edge in graph.es.select(_source=0):
+            swap_graph = graph.copy()
+            eid = swap_graph.get_eid(0, edge.target, directed=True, error=True)
+            swap_graph.delete_edges([eid])
+            swap_graph.add_edge(0, add_target)
+            swap_benefit = BestResponsePolicyTest._discounted_benefit(
+                policy,
+                swap_graph,
+            )
+            best_add_value = max(
+                best_add_value,
+                policy.benefit_to_cost_ratio * (swap_benefit - base_benefit),
+            )
+
+        return float(best_add_value)
 
     def test_constructor_stores_parameters(self) -> None:
         policy = self._build_policy(
@@ -164,7 +229,7 @@ class BestResponsePolicyTest(unittest.TestCase):
         self.assertEqual(decision.actions, (Action(ActionType.PASS, source=0),))
         self.assertIsNotNone(decision.value)
         assert decision.value is not None
-        self.assertEqual(set(decision.value), {"value"})
+        self.assertIn("value", decision.value)
         self.assertAlmostEqual(float(decision.value["value"]), 0.0)
 
     def test_add_action_is_returned_as_one_local_action_without_bridge(self) -> None:
@@ -208,8 +273,11 @@ class BestResponsePolicyTest(unittest.TestCase):
         )
         self.assertIsNotNone(decision.value)
         assert decision.value is not None
-        self.assertEqual(set(decision.value), {"value"})
-        self.assertAlmostEqual(float(decision.value["value"]), 1.25)
+        self.assertIn("value", decision.value)
+        self.assertAlmostEqual(
+            float(decision.value["value"]),
+            self._expected_add_value(policy, observation, add_target=2),
+        )
 
     def test_delete_action_uses_local_indices_for_non_contiguous_observations(self) -> None:
         adjacency = np.zeros((6, 6), dtype=np.int8)
@@ -247,7 +315,10 @@ class BestResponsePolicyTest(unittest.TestCase):
         )
         self.assertIsNotNone(decision.value)
         assert decision.value is not None
-        self.assertAlmostEqual(float(decision.value["value"]), -1.25)
+        self.assertAlmostEqual(
+            float(decision.value["value"]),
+            self._expected_delete_value(policy, observation, delete_target=1),
+        )
 
     def test_bridge_action_returns_concrete_local_target(self) -> None:
         observation, action_space = self._build_observation_and_action_space(

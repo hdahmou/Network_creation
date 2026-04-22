@@ -11,54 +11,22 @@ from network_creation.core.environment import Environment
 from network_creation.core.graph import create_empty_graph
 from network_creation.core.model import (
     Action,
-    ActionSpace,
     ActionType,
     ActorScheduler,
-    Observation,
-    PolicyDecision,
 )
 from network_creation.core.observability import ObservationSampling
 from network_creation.core.simulator import Simulator
 from network_creation.observers.social_welfare_observer import (
     CenteredMeanWelfareObserver,
 )
-from network_creation.policies.base import Policy
 from network_creation.stats.topology_welfare import (
     get_ER_normalized_welfare,
     normalized_welfare,
     normalized_welfare_per_topology,
     total_welfare,
 )
+from tests.core.simulation_support import ConstantPolicy
 from tests.graph_factories import graph_from_adjacency_matrix
-
-
-def _local_action(observation: Observation, action: Action) -> Action:
-    return Action(
-        action.type,
-        observation.local_from_global(action.source),
-        None
-        if action.target is None
-        else observation.local_from_global(action.target),
-    )
-
-
-class ConstantPolicy(Policy):
-    def __init__(self, action: Action) -> None:
-        self.action = action
-
-    def reset(self, seed: int) -> None:
-        del seed
-
-    def get_decision(
-        self,
-        observation: Observation,
-        action_space: ActionSpace,
-    ) -> PolicyDecision:
-        del action_space
-        return PolicyDecision(
-            actions=(_local_action(observation, self.action),),
-            value=None,
-        )
 
 
 class SocialWelfareTest(unittest.TestCase):

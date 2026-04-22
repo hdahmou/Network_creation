@@ -16,10 +16,7 @@ from network_creation.core.environment import Environment
 from network_creation.core.graph import create_empty_graph
 from network_creation.core.model import (
     Action,
-    ActionSpace,
     ActionType,
-    Observation,
-    PolicyDecision,
     ActorScheduler,
 )
 from network_creation.core.observability import ObservationSampling
@@ -31,37 +28,8 @@ from network_creation.observers.statistics.episode_tensor_series import (
 from network_creation.observers.triad_census_observer import TriadCensusObserver
 from network_creation.plotting.episode_series import plot_episode_series_observer
 from network_creation.plotting.plot_pair import plot_pair
-from network_creation.policies.base import Policy
 from network_creation.policies.random import RandomPolicy
-
-
-def _local_action(observation: Observation, action: Action) -> Action:
-    return Action(
-        action.type,
-        observation.local_from_global(action.source),
-        None
-        if action.target is None
-        else observation.local_from_global(action.target),
-    )
-
-
-class ConstantPolicy(Policy):
-    def __init__(self, action: Action) -> None:
-        self.action = action
-
-    def reset(self, seed: int) -> None:
-        del seed
-
-    def get_decision(
-        self,
-        observation: Observation,
-        action_space: ActionSpace,
-    ) -> PolicyDecision:
-        del action_space
-        return PolicyDecision(
-            actions=(_local_action(observation, self.action),),
-            value=None,
-        )
+from tests.core.simulation_support import ConstantPolicy
 
 
 class MatrixObserver(EpisodeSeriesTensorStatisticObserver):

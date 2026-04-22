@@ -27,6 +27,14 @@ from network_creation.core.observability import (
 )
 from network_creation.core.simulator import Simulator
 from network_creation.policies.base import Policy
+from tests.core.simulation_support import (
+    BatchRecordingObserver,
+    ConstantPolicy,
+    MultiActionPolicy,
+    RecordingObserver,
+    ScriptedPolicy,
+    _local_action,
+)
 from tests.graph_factories import graph_from_adjacency_matrix
 
 
@@ -34,28 +42,6 @@ def _flatten_decisions(
     decisions: tuple[PolicyDecision, ...],
 ) -> tuple[Action, ...]:
     return tuple(action for decision in decisions for action in decision.actions)
-
-
-class ConstantPolicy(Policy):
-    def __init__(self, action: Action) -> None:
-        self.action = action
-        self.reset_calls = 0
-        self.reset_seeds: list[int] = []
-        self.get_decision_calls = 0
-
-    def reset(self, seed: int) -> None:
-        self.reset_calls += 1
-        self.reset_seeds.append(seed)
-
-    def get_decision(
-        self, observation: Observation, action_space: ActionSpace
-    ) -> PolicyDecision:
-        del action_space
-        self.get_decision_calls += 1
-        return PolicyDecision(
-            actions=(_local_action(observation, self.action),),
-            value=None,
-        )
 
 
 class PreferAddElsePassPolicy(Policy):
@@ -79,110 +65,6 @@ class PreferAddElsePassPolicy(Policy):
             )
         return PolicyDecision(
             actions=(action_space[ActionType.PASS][0],),
-            value=None,
-        )
-
-
-class RecordingObserver:
-    def __init__(self) -> None:
-        self.observation_sampling = ObservationSampling.periodic(1)
-        self.episode_start_event: EpisodeStartEvent | None = None
-        self.step_events: list[StepEvent] = []
-        self.episode_end_event: EpisodeEndEvent | None = None
-
-    def on_episode_start(self, event: EpisodeStartEvent) -> None:
-        self.episode_start_event = event
-
-    def observes_step(self, step_index: int, max_steps: int) -> bool:
-        return self.observation_sampling.samples_step(step_index, max_steps)
-
-    def on_step_end(self, event: StepEvent) -> None:
-        self.step_events.append(event)
-
-    def on_episode_end(self, event: EpisodeEndEvent) -> None:
-        self.episode_end_event = event
-
-
-class BatchRecordingObserver:
-    def __init__(self) -> None:
-        self.observation_sampling = ObservationSampling.periodic(1)
-        self.episode_start_events: list[EpisodeStartEvent] = []
-        self.episode_end_events: list[EpisodeEndEvent] = []
-
-    def reset(self) -> None:
-        self.episode_start_events = []
-        self.episode_end_events = []
-
-    def on_episode_start(self, event: EpisodeStartEvent) -> None:
-        self.episode_start_events.append(event)
-
-    def observes_step(self, step_index: int, max_steps: int) -> bool:
-        return self.observation_sampling.samples_step(step_index, max_steps)
-
-    def on_step_end(self, event: StepEvent) -> None:
-        del event
-
-    def on_episode_end(self, event: EpisodeEndEvent) -> None:
-        self.episode_end_events.append(event)
-
-
-def _local_action(observation: Observation, action: Action) -> Action:
-    return Action(
-        action.type,
-        observation.local_from_global(action.source),
-        None
-        if action.target is None
-        else observation.local_from_global(action.target),
-    )
-
-
-class MultiActionPolicy(Policy):
-    def __init__(self, actions: list[Action]) -> None:
-        self.actions = actions
-        self.reset_calls = 0
-        self.reset_seeds: list[int] = []
-
-    def reset(self, seed: int) -> None:
-        self.reset_calls += 1
-        self.reset_seeds.append(seed)
-
-    def get_decision(
-        self, observation: Observation, action_space: ActionSpace
-    ) -> PolicyDecision:
-        del action_space
-        return PolicyDecision(
-            actions=tuple(
-                _local_action(observation, action) for action in self.actions
-            ),
-            value=None,
-        )
-
-
-class ScriptedPolicy(Policy):
-    def __init__(self, actions_by_call: list[list[Action]]) -> None:
-        self.actions_by_call = [list(actions) for actions in actions_by_call]
-        self.reset_calls = 0
-        self.reset_seeds: list[int] = []
-        self.get_decision_calls = 0
-        self._next_call_idx = 0
-
-    def reset(self, seed: int) -> None:
-        self.reset_calls += 1
-        self.reset_seeds.append(seed)
-        self._next_call_idx = 0
-
-    def get_decision(
-        self, observation: Observation, action_space: ActionSpace
-    ) -> PolicyDecision:
-        del action_space
-        if self._next_call_idx >= len(self.actions_by_call):
-            raise AssertionError("policy was queried more times than expected")
-
-        self.get_decision_calls += 1
-        actions = list(self.actions_by_call[self._next_call_idx])
-        self._next_call_idx += 1
-        return PolicyDecision(
-            actions=tuple(_local_action(observation, action) for action in actions),
             value=None,
         )
 

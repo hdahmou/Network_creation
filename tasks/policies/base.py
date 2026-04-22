@@ -46,6 +46,7 @@ class PolicyRun(ABC):
             self.parameter_table,
             parameter_specs=parameter_specs,
         )
+        self.validate_simulation_sweep()
         self.observer_specs = load_observers(
             raw_observers=config["observers"],
             max_steps=self.simulation_sweep.max_steps,
@@ -87,6 +88,9 @@ class PolicyRun(ABC):
                 "input_spec.parameters.visibility_distance must contain only integers"
             )
 
+    def validate_simulation_sweep(self) -> None:
+        """Validate task-specific resolved configuration values."""
+
     def build_agent(
         self,
         node_id: int,
@@ -108,7 +112,15 @@ class PolicyRun(ABC):
         spec: ObserverSpec,
         configuration: NDArray[np.float32],
     ) -> Any:
+        from network_creation.observers.statistics.episode import (
+            EpisodeStatisticObserver,
+        )
+
         kwargs = dict(spec.kwargs)
+        if issubclass(spec.observer_class, EpisodeStatisticObserver):
+            kwargs["n_agents"] = int(
+                configuration[self.simulation_sweep.column_index_by_name["n_agents"]]
+            )
         if spec.name in {"centered_mean_welfare"}:
             for parameter_name in ("benefit_to_cost_ratio", "distance_discount"):
                 if parameter_name in kwargs:

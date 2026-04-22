@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from numbers import Integral
 from typing import Any
 
 import numpy as np
@@ -27,6 +28,7 @@ class EpisodeStatisticObserver(SimulationObserver, ABC):
     """Observer base that turns one episode event stream into one episode result."""
 
     name: str = "statistic"
+    n_agents: int
     observation_sampling: ObservationSampling
     aggregations: tuple[str, ...]
     n_episodes: int
@@ -34,9 +36,17 @@ class EpisodeStatisticObserver(SimulationObserver, ABC):
 
     def __init__(
         self,
+        n_agents: int,
         observation_sampling: ObservationSampling,
         aggregations: tuple[str, ...],
     ) -> None:
+        if (
+            isinstance(n_agents, bool)
+            or not isinstance(n_agents, Integral)
+            or int(n_agents) < 0
+        ):
+            raise ValueError("n_agents must be a non-negative integer")
+        self.n_agents = int(n_agents)
         self.observation_sampling = observation_sampling
         self.aggregations = tuple(aggregations)
         self.reset()
@@ -47,6 +57,10 @@ class EpisodeStatisticObserver(SimulationObserver, ABC):
         self._reset_episode_state()
 
     def on_episode_start(self, event: EpisodeStartEvent) -> None:
+        if event.n_agents != self.n_agents:
+            raise ValueError(
+                "observer n_agents must match the episode n_agents"
+            )
         self._reset_episode_state()
         self._start_episode(event)
 

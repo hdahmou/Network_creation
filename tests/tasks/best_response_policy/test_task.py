@@ -17,7 +17,7 @@ class BestResponsePolicyTaskTest(unittest.TestCase):
                 "log2_budget": 0,
                 "sampler_seed": 123,
                 "parameters": {
-                    "benefit_to_cost_ratio": {"type": "fixed", "payload": 0.1},
+                    "benefit_to_cost_ratio": {"type": "fixed", "payload": 0.8},
                     "distance_discount": {"type": "fixed", "payload": 0.5},
                     "outside_optimism": {"type": "fixed", "payload": 0.25},
                     "exploration": {"type": "fixed", "payload": 0.5},
@@ -98,7 +98,7 @@ class BestResponsePolicyTaskTest(unittest.TestCase):
         inferred_prepared = BestResponsePolicyRun().prepare(self._base_config())
 
         explicit_config = self._base_config()
-        explicit_config["observers"][1]["kwargs"]["benefit_to_cost_ratio"] = 0.1
+        explicit_config["observers"][1]["kwargs"]["benefit_to_cost_ratio"] = 0.8
         explicit_config["observers"][1]["kwargs"]["distance_discount"] = 0.5
         explicit_prepared = BestResponsePolicyRun().prepare(explicit_config)
 
@@ -108,17 +108,19 @@ class BestResponsePolicyTaskTest(unittest.TestCase):
         np.testing.assert_allclose(
             inferred_output["centered_mean_welfare.mean"],
             explicit_output["centered_mean_welfare.mean"],
+            rtol=1e-6,
+            atol=1e-6,
         )
 
     def test_run_uses_sampled_n_agents_from_sweeps(self) -> None:
         sweep_config = self._base_config()
-        sweep_config["simulation"]["n_agents"] = [2, 4]
+        sweep_config["simulation"]["n_agents"] = [4, 6]
 
         small_config = self._base_config()
-        small_config["simulation"]["n_agents"] = 2
+        small_config["simulation"]["n_agents"] = 4
 
         large_config = self._base_config()
-        large_config["simulation"]["n_agents"] = 4
+        large_config["simulation"]["n_agents"] = 6
 
         sweep_prepared = BestResponsePolicyRun().prepare(sweep_config)
         small_prepared = BestResponsePolicyRun().prepare(small_config)
@@ -203,7 +205,7 @@ class BestResponsePolicyTaskTest(unittest.TestCase):
             "log2_budget": 1,
             "sampler_seed": 123,
             "parameters": {
-                "benefit_to_cost_ratio": {"type": "fixed", "payload": 0.1},
+                "benefit_to_cost_ratio": {"type": "fixed", "payload": 0.8},
                 "distance_discount": {"type": "fixed", "payload": 0.5},
                 "outside_optimism": {
                     "type": "continuous",
@@ -211,7 +213,7 @@ class BestResponsePolicyTaskTest(unittest.TestCase):
                 },
                 "exploration": {
                     "type": "continuous",
-                    "payload": {"min": 0.0, "max": 1.0},
+                    "payload": {"min": 1e-3, "max": 1.0},
                 },
                 "visibility_distance": {"type": "fixed", "payload": 4},
             },

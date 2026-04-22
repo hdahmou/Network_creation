@@ -853,6 +853,7 @@ class ReplayTest(unittest.TestCase):
             density_by_group_size: dict[int, DensityObserver] = {}
             for group_size in (2, 3):
                 density_observer = DensityObserver(
+                    n_agents=group_size,
                     observation_sampling=ObservationSampling.periodic(1),
                     aggregations=("mean",),
                 )

@@ -98,7 +98,7 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
                 },
                 "exploration": {
                     "type": "continuous",
-                    "payload": {"min": 0.0, "max": 1.0},
+                    "payload": {"min": 1e-3, "max": 1.0},
                 },
                 "visibility_distance": {"type": "fixed", "payload": 4},
             },
@@ -116,7 +116,7 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
             (
                 0.2 + (unit_samples[:, 0] * 0.6),
                 unit_samples[:, 1],
-                unit_samples[:, 2],
+                1e-3 + (unit_samples[:, 2] * 0.999),
                 np.full(4, 4.0, dtype=np.float32),
             )
         ).astype(np.float32, copy=False)
@@ -169,7 +169,7 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "visibility_distance is required"):
             BestResponsePolicyRun().prepare(config)
 
-    def test_run_accepts_scaled_inverse_benefit_to_cost_ratio_above_one(
+    def test_prepare_rejects_scaled_inverse_benefit_to_cost_ratio_above_one(
         self,
     ) -> None:
         config = self._base_config()
@@ -192,7 +192,23 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
             },
         }
 
-        prepared = BestResponsePolicyRun().prepare(config)
-        output = prepared.run(prepared.inputs[0])
+        with self.assertRaisesRegex(
+            ValueError,
+            r"input_spec.parameters.benefit_to_cost_ratio must satisfy "
+            r"benefit_to_cost_ratio in \(0\.0,1\.0\]",
+        ):
+            BestResponsePolicyRun().prepare(config)
 
-        self.assertIn("density.mean", output)
+    def test_prepare_rejects_non_positive_exploration(self) -> None:
+        config = self._base_config()
+        config["input_spec"]["parameters"]["exploration"] = {
+            "type": "fixed",
+            "payload": 0.0,
+        }
+
+        with self.assertRaisesRegex(
+            ValueError,
+            r"input_spec.parameters.exploration must satisfy "
+            r"exploration in \(0\.0,inf\)",
+        ):
+            BestResponsePolicyRun().prepare(config)

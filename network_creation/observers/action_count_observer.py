@@ -23,20 +23,12 @@ class ActionCountObserver(EpisodeSeriesStatisticObserver):
     y_min = 0.0
     y_max = None
 
-    def _reset_episode_state(self) -> None:
-        self._n_agents = 0
-        super()._reset_episode_state()
-
-    def _start_episode(self, event: EpisodeStartEvent) -> None:
-        self._n_agents = event.n_agents
-        super()._start_episode(event)
-
     def compute_initial_value(self, event: EpisodeStartEvent) -> float:
         del event
         return 0.0
 
     def compute_step_value(self, event: StepEvent) -> float:
-        if self._n_agents == 0:
+        if self.n_agents == 0:
             return 0.0
 
         n_non_pass_actions = sum(
@@ -45,4 +37,4 @@ class ActionCountObserver(EpisodeSeriesStatisticObserver):
             for action in decision.actions
             if action.type is not ActionType.PASS
         )
-        return float(n_non_pass_actions / self._n_agents)
+        return float(n_non_pass_actions / self.n_agents)

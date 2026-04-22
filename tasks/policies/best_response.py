@@ -16,6 +16,43 @@ from .results import PolicyTensorGroup
 class BestResponsePolicyRun(PolicyRun):
     name: ClassVar[str] = "best-response-policy"
 
+    def validate_simulation_sweep(self) -> None:
+        parameter_columns = self.simulation_sweep.column_index_by_name
+        configuration_values = self.simulation_sweep.configuration_values
+
+        self._validate_parameter_bounds(
+            configuration_values[:, :, parameter_columns["benefit_to_cost_ratio"]],
+            lower_bound=0.0,
+            upper_bound=1.0,
+            include_lower=False,
+            include_upper=True,
+            parameter_name="benefit_to_cost_ratio",
+        )
+        self._validate_parameter_bounds(
+            configuration_values[:, :, parameter_columns["distance_discount"]],
+            lower_bound=0.0,
+            upper_bound=1.0,
+            include_lower=False,
+            include_upper=False,
+            parameter_name="distance_discount",
+        )
+        self._validate_parameter_bounds(
+            configuration_values[:, :, parameter_columns["outside_optimism"]],
+            lower_bound=0.0,
+            upper_bound=1.0,
+            include_lower=True,
+            include_upper=True,
+            parameter_name="outside_optimism",
+        )
+        self._validate_parameter_bounds(
+            configuration_values[:, :, parameter_columns["exploration"]],
+            lower_bound=0.0,
+            upper_bound=None,
+            include_lower=False,
+            include_upper=False,
+            parameter_name="exploration",
+        )
+
     def build_policy(
         self,
         node_id: int,
@@ -88,3 +125,40 @@ class BestResponsePolicyRun(PolicyRun):
             series_arrays.append(np.asarray(array, dtype=np.float32))
 
         return tuple(series_names), series_arrays
+
+    @staticmethod
+    def _validate_parameter_bounds(
+        values: NDArray[np.float32],
+        *,
+        lower_bound: float | None,
+        upper_bound: float | None,
+        include_lower: bool,
+        include_upper: bool,
+        parameter_name: str,
+    ) -> None:
+        invalid_mask = np.zeros(values.shape, dtype=bool)
+        if lower_bound is not None:
+            if include_lower:
+                invalid_mask |= values < lower_bound
+            else:
+                invalid_mask |= values <= lower_bound
+        if upper_bound is not None:
+            if include_upper:
+                invalid_mask |= values > upper_bound
+            else:
+                invalid_mask |= values >= upper_bound
+
+        if np.any(invalid_mask):
+            lower_text = (
+                ("[" if include_lower else "(")
+                + (str(lower_bound) if lower_bound is not None else "-inf")
+            )
+            upper_text = (
+                (str(upper_bound) if upper_bound is not None else "inf")
+                + ("]" if include_upper else ")")
+            )
+            raise ValueError(
+                "input_spec.parameters."
+                f"{parameter_name} must satisfy {parameter_name} in "
+                f"{lower_text},{upper_text}"
+            )

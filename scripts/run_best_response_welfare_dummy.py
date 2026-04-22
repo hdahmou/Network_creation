@@ -32,7 +32,7 @@ PARAMETER_SETS = (
         "benefit_to_cost_ratio": 0.5,
         "distance_discount": 0.9,
         "outside_optimism": 0.0,
-        "exploration": 0.0,
+        "exploration": 1e-3,
     },
     {
         "benefit_to_cost_ratio": 0.5,
@@ -69,6 +69,7 @@ def run_case(case_index: int, policy_kwargs: dict[str, float]) -> None:
         stagnation_patience=None,
     )
     welfare_observer = CenteredMeanWelfareObserver(
+        n_agents=N_AGENTS,
         observation_sampling=ObservationSampling.periodic(1),
         benefit_to_cost_ratio=policy_kwargs["benefit_to_cost_ratio"],
         distance_discount=policy_kwargs["distance_discount"],

@@ -226,6 +226,46 @@ class SimulatorTest(unittest.TestCase):
         )
         self.assertEqual(simulator.env.state.graph.get_edgelist(), [(0, expected_target)])
 
+    def test_decision_to_global_preserves_concrete_bridge_target_from_policy(self) -> None:
+        env = Environment(create_empty_graph(3), seed=29)
+        simulator = Simulator(
+            env=env,
+            agents=(
+                Agent(
+                    id=0,
+                    visibility_distance=1,
+                    policy=ConstantPolicy(Action(ActionType.PASS, source=0)),
+                    seed=31,
+                ),
+            ),
+            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, seed=21),
+            max_steps=1,
+            rng=np.random.default_rng(37),
+            observers=(),
+        )
+        observation = env.get_observation(simulator.agents[0])
+        local_bridge_target = int(observation.outside_node_idxs[-1])
+        decision = PolicyDecision(
+            actions=(Action(ActionType.BRIDGE, source=0, target=local_bridge_target),),
+            value={"value": 5.0},
+        )
+
+        global_decision = simulator._decision_to_global(observation, decision)
+
+        self.assertEqual(
+            global_decision,
+            PolicyDecision(
+                actions=(
+                    Action(
+                        ActionType.BRIDGE,
+                        source=0,
+                        target=observation.global_from_local(local_bridge_target),
+                    ),
+                ),
+                value={"value": 5.0},
+            ),
+        )
+
     def test_run_sequential_tracks_final_state(self) -> None:
         env = Environment(create_empty_graph(2), seed=37)
         observer = RecordingObserver()
@@ -733,6 +773,7 @@ class SimulatorTest(unittest.TestCase):
         assert end_event is not None
         self.assertEqual(end_event.current_step, 5)
         self.assertEqual(end_event.last_modified_step, -1)
+
 
     def test_stagnation_counter_resets_after_modifying_step(self) -> None:
         left_policy = ScriptedPolicy(

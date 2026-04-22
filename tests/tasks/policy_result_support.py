@@ -66,7 +66,7 @@ def build_best_response_config(*, log2_budget: int = 2) -> dict[str, object]:
                 },
                 "exploration": {
                     "type": "continuous",
-                    "payload": {"min": 0.0, "max": 1.0},
+                    "payload": {"min": 1e-3, "max": 1.0},
                 },
                 "visibility_distance": {"type": "fixed", "payload": 4.0},
             },

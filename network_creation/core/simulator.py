@@ -94,9 +94,9 @@ class Simulator:
                 for agent in acting_agents:
                     observation = self.env.get_observation(agent)
                     action_space = get_action_space(observation)
-                    agent_choose_decision = agent.act(observation, action_space)
+                    agent_choosen_decision = agent.act(observation, action_space)
                     decision_list.append(
-                        self._decision_to_global(observation, agent_choose_decision)
+                        self._decision_to_global(observation, agent_choosen_decision)
                     )
                 decisions = tuple(decision_list)
 

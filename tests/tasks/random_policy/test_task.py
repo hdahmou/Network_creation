@@ -42,7 +42,7 @@ class RandomPolicyTaskTest(unittest.TestCase):
                     "kwargs": {
                         "observation_sampling": {"kind": "periodic", "every": 1},
                         "aggregations": ["mean"],
-                        "benefit_to_cost_ratio": 0.1,
+                        "benefit_to_cost_ratio": 2.0,
                         "distance_discount": 0.5,
                     },
                 },

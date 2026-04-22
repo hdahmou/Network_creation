@@ -17,7 +17,7 @@ class MyopicPolicyTaskTest(unittest.TestCase):
                 "log2_budget": 0,
                 "sampler_seed": 123,
                 "parameters": {
-                    "benefit_to_cost_ratio": {"type": "fixed", "payload": 0.1},
+                    "benefit_to_cost_ratio": {"type": "fixed", "payload": 2.0},
                     "distance_discount": {"type": "fixed", "payload": 0.5},
                     "bridge_probability": {"type": "fixed", "payload": 1.0},
                     "visibility_distance": {"type": "fixed", "payload": 4},
@@ -161,7 +161,7 @@ class MyopicPolicyTaskTest(unittest.TestCase):
         inferred_prepared = MyopicPolicyRun().prepare(self._base_config())
 
         explicit_config = self._base_config()
-        explicit_config["observers"][1]["kwargs"]["benefit_to_cost_ratio"] = 0.1
+        explicit_config["observers"][1]["kwargs"]["benefit_to_cost_ratio"] = 2.0
         explicit_config["observers"][1]["kwargs"]["distance_discount"] = 0.5
         explicit_prepared = MyopicPolicyRun().prepare(explicit_config)
 
@@ -179,7 +179,7 @@ class MyopicPolicyTaskTest(unittest.TestCase):
             "log2_budget": 1,
             "sampler_seed": 55,
             "parameters": {
-                "benefit_to_cost_ratio": {"type": "fixed", "payload": 0.1},
+                "benefit_to_cost_ratio": {"type": "fixed", "payload": 2.0},
                 "distance_discount": {"type": "fixed", "payload": 0.5},
                 "bridge_probability": {
                     "type": "continuous",

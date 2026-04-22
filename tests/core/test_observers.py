@@ -237,38 +237,63 @@ def _build_contract_test_observer(name: str):
     observer_class = OBSERVER_GRIMOIRE[name]
     periodic = ObservationSampling.periodic(1)
     kwargs_by_name = {
-        "action_count": {"observation_sampling": periodic, "aggregations": ()},
-        "action_print": {"observation_sampling": periodic, "print_empty_steps": False},
-        "central_point_of_dominance": {
+        "action_count": {
+            "n_agents": 3,
             "observation_sampling": periodic,
             "aggregations": (),
         },
-        "density": {"observation_sampling": periodic, "aggregations": ()},
-        "distance": {"observation_sampling": periodic, "aggregations": ()},
+        "action_print": {"observation_sampling": periodic, "print_empty_steps": False},
+        "central_point_of_dominance": {
+            "n_agents": 3,
+            "observation_sampling": periodic,
+            "aggregations": (),
+        },
+        "density": {
+            "n_agents": 3,
+            "observation_sampling": periodic,
+            "aggregations": (),
+        },
+        "distance": {
+            "n_agents": 3,
+            "observation_sampling": periodic,
+            "aggregations": (),
+        },
         "global_closeness_centrality": {
+            "n_agents": 3,
             "observation_sampling": periodic,
             "aggregations": (),
         },
         "hub_persistence": {
+            "n_agents": 3,
             "observation_sampling": periodic,
             "window_size": 1,
             "aggregations": (),
         },
-        "indegree": {"observation_sampling": periodic, "aggregations": ()},
-        "centered_mean_welfare": {
+        "indegree": {
+            "n_agents": 3,
             "observation_sampling": periodic,
-            "benefit_to_cost_ratio": 0.1,
+            "aggregations": (),
+        },
+        "centered_mean_welfare": {
+            "n_agents": 3,
+            "observation_sampling": periodic,
+            "benefit_to_cost_ratio": 1.0,
             "distance_discount": 0.5,
             "aggregations": (),
         },
         "normalized_welfare": {
+            "n_agents": 3,
             "observation_sampling": periodic,
             "benefit_to_cost_ratio": 0.1,
             "distance_discount": 0.5,
             "aggregations": (),
         },
         "state_history": {"observation_sampling": periodic, "keep_runs": False},
-        "triad_census": {"observation_sampling": periodic, "aggregations": ()},
+        "triad_census": {
+            "n_agents": 3,
+            "observation_sampling": periodic,
+            "aggregations": (),
+        },
     }
     return observer_class(**kwargs_by_name[name])
 
@@ -410,6 +435,7 @@ class ObserverTest(unittest.TestCase):
 
     def test_density_observer_tracks_density_only(self) -> None:
         density_observer = DensityObserver(
+            n_agents=2,
             observation_sampling=ObservationSampling.periodic(1),
             aggregations=(),
         )
@@ -436,6 +462,7 @@ class ObserverTest(unittest.TestCase):
 
     def test_tensor_series_observer_tracks_matrix_values(self) -> None:
         tensor_observer = TensorMatrixObserver(
+            n_agents=1,
             observation_sampling=ObservationSampling.periodic(1),
             aggregations=(),
         )
@@ -480,6 +507,7 @@ class ObserverTest(unittest.TestCase):
 
     def test_scalar_series_observer_still_tracks_scalar_values(self) -> None:
         scalar_observer = ShapeMismatchObserver(
+            n_agents=1,
             observation_sampling=ObservationSampling.periodic(1),
             aggregations=(),
         )
@@ -510,6 +538,7 @@ class ObserverTest(unittest.TestCase):
 
     def test_tensor_series_observer_rejects_mismatched_step_shape(self) -> None:
         mismatch_observer = TensorShapeMismatchObserver(
+            n_agents=1,
             observation_sampling=ObservationSampling.periodic(1),
             aggregations=(),
         )
@@ -538,6 +567,7 @@ class ObserverTest(unittest.TestCase):
 
     def test_tensor_series_observer_rejects_scalar_values(self) -> None:
         scalar_value_observer = TensorScalarValueObserver(
+            n_agents=0,
             observation_sampling=ObservationSampling.periodic(1),
             aggregations=(),
         )
@@ -559,6 +589,7 @@ class ObserverTest(unittest.TestCase):
 
     def test_tensor_series_observer_rejects_wrong_dimension_name_count(self) -> None:
         wrong_names_observer = TensorWrongDimensionNamesObserver(
+            n_agents=0,
             observation_sampling=ObservationSampling.periodic(1),
             aggregations=(),
         )
@@ -580,6 +611,7 @@ class ObserverTest(unittest.TestCase):
 
     def test_indegree_observer_uses_directed_adjacency_matrix(self) -> None:
         indegree_observer = IndegreeObserver(
+            n_agents=0,
             observation_sampling=ObservationSampling.periodic(1),
             aggregations=(),
         )
@@ -618,6 +650,7 @@ class ObserverTest(unittest.TestCase):
 
     def test_triad_census_observer_returns_zero_when_no_triads_exist(self) -> None:
         triad_observer = TriadCensusObserver(
+            n_agents=0,
             observation_sampling=ObservationSampling.periodic(1),
             aggregations=(),
         )
@@ -640,6 +673,7 @@ class ObserverTest(unittest.TestCase):
 
     def test_triad_census_observer_tracks_proportion_series(self) -> None:
         triad_observer = TriadCensusObserver(
+            n_agents=1,
             observation_sampling=ObservationSampling.periodic(1),
             aggregations=(),
         )
@@ -673,6 +707,7 @@ class ObserverTest(unittest.TestCase):
 
     def test_triad_census_observer_ignores_types_outside_configured_subset(self) -> None:
         triad_observer = TriadCensusObserver(
+            n_agents=0,
             observation_sampling=ObservationSampling.periodic(1),
             aggregations=(),
         )
@@ -707,6 +742,7 @@ class ObserverTest(unittest.TestCase):
 
     def test_triad_census_observer_reports_selected_type_proportions(self) -> None:
         triad_observer = TriadCensusObserver(
+            n_agents=0,
             observation_sampling=ObservationSampling.periodic(1),
             aggregations=(),
         )
@@ -728,6 +764,7 @@ class ObserverTest(unittest.TestCase):
 
     def test_triad_census_observer_aggregates_vector_outputs(self) -> None:
         triad_observer = TriadCensusObserver(
+            n_agents=1,
             observation_sampling=ObservationSampling.periodic(1),
             aggregations=("mean", "std", "runs"),
         )
@@ -774,6 +811,7 @@ class ObserverTest(unittest.TestCase):
         self,
     ) -> None:
         distance_observer = DistanceObserver(
+            n_agents=0,
             observation_sampling=ObservationSampling.periodic(1),
             aggregations=(),
         )
@@ -815,6 +853,7 @@ class ObserverTest(unittest.TestCase):
         self,
     ) -> None:
         closeness_observer = GlobalClosenessCentralityObserver(
+            n_agents=0,
             observation_sampling=ObservationSampling.periodic(1),
             aggregations=(),
         )
@@ -853,6 +892,7 @@ class ObserverTest(unittest.TestCase):
         self,
     ) -> None:
         dominance_observer = CentralPointOfDominanceObserver(
+            n_agents=0,
             observation_sampling=ObservationSampling.periodic(1),
             aggregations=(),
         )
@@ -889,6 +929,7 @@ class ObserverTest(unittest.TestCase):
 
     def test_action_count_observer_normalizes_by_total_agents(self) -> None:
         action_count_observer = ActionCountObserver(
+            n_agents=2,
             observation_sampling=ObservationSampling.periodic(1),
             aggregations=(),
         )
@@ -929,6 +970,7 @@ class ObserverTest(unittest.TestCase):
         self,
     ) -> None:
         action_count_observer = ActionCountObserver(
+            n_agents=3,
             observation_sampling=ObservationSampling.periodic(1),
             aggregations=(),
         )
@@ -978,6 +1020,7 @@ class ObserverTest(unittest.TestCase):
 
     def test_distance_observer_aggregates_mean_and_runs(self) -> None:
         distance_observer = DistanceObserver(
+            n_agents=0,
             observation_sampling=ObservationSampling.periodic(1),
             aggregations=("mean", "runs"),
         )
@@ -1026,6 +1069,7 @@ class ObserverTest(unittest.TestCase):
         self,
     ) -> None:
         dominance_observer = CentralPointOfDominanceObserver(
+            n_agents=0,
             observation_sampling=ObservationSampling.periodic(1),
             aggregations=("mean", "runs"),
         )
@@ -1074,6 +1118,7 @@ class ObserverTest(unittest.TestCase):
         self,
     ) -> None:
         hub_persistence_observer = HubPersistenceObserver(
+            n_agents=3,
             observation_sampling=ObservationSampling.periodic(1),
             window_size=1,
             aggregations=(),
@@ -1133,6 +1178,7 @@ class ObserverTest(unittest.TestCase):
         self,
     ) -> None:
         hub_persistence_observer = HubPersistenceObserver(
+            n_agents=3,
             observation_sampling=ObservationSampling.periodic(1),
             window_size=10,
             aggregations=(),
@@ -1180,6 +1226,7 @@ class ObserverTest(unittest.TestCase):
 
     def test_hub_persistence_observer_aggregates_series_outputs(self) -> None:
         hub_persistence_observer = HubPersistenceObserver(
+            n_agents=3,
             observation_sampling=ObservationSampling.periodic(1),
             window_size=1,
             aggregations=("mean", "std", "runs"),
@@ -1270,6 +1317,7 @@ class ObserverTest(unittest.TestCase):
         self,
     ) -> None:
         hub_persistence_observer = HubPersistenceObserver(
+            n_agents=3,
             observation_sampling=ObservationSampling.terminal(),
             window_size=1,
             aggregations=(),
@@ -1325,6 +1373,7 @@ class ObserverTest(unittest.TestCase):
         self,
     ) -> None:
         hub_persistence_observer = HubPersistenceObserver(
+            n_agents=0,
             observation_sampling=ObservationSampling.terminal(),
             window_size=10,
             aggregations=(),
@@ -1404,6 +1453,7 @@ class ObserverTest(unittest.TestCase):
 
     def test_observers_record_sampled_step_ids_with_observation_sampling(self) -> None:
         density_observer = DensityObserver(
+            n_agents=2,
             observation_sampling=ObservationSampling.periodic(2),
             aggregations=(),
         )
@@ -1436,6 +1486,7 @@ class ObserverTest(unittest.TestCase):
 
     def test_density_observer_terminal_sampling_returns_last_step_value(self) -> None:
         density_observer = DensityObserver(
+            n_agents=2,
             observation_sampling=ObservationSampling.terminal(),
             aggregations=(),
         )
@@ -1464,6 +1515,7 @@ class ObserverTest(unittest.TestCase):
         self,
     ) -> None:
         density_observer = DensityObserver(
+            n_agents=0,
             observation_sampling=ObservationSampling.terminal(),
             aggregations=(),
         )
@@ -1487,6 +1539,7 @@ class ObserverTest(unittest.TestCase):
 
     def test_action_count_observer_terminal_sampling_uses_last_step_decisions(self) -> None:
         action_count_observer = ActionCountObserver(
+            n_agents=2,
             observation_sampling=ObservationSampling.terminal(),
             aggregations=(),
         )
@@ -1525,6 +1578,7 @@ class ObserverTest(unittest.TestCase):
 
     def test_triad_census_observer_terminal_sampling_returns_last_tensor_value(self) -> None:
         triad_observer = TriadCensusObserver(
+            n_agents=1,
             observation_sampling=ObservationSampling.terminal(),
             aggregations=(),
         )
@@ -1624,6 +1678,7 @@ class ObserverTest(unittest.TestCase):
 
     def test_density_observer_aggregates_selected_outputs_and_runs(self) -> None:
         density_observer = DensityObserver(
+            n_agents=2,
             observation_sampling=ObservationSampling.periodic(1),
             aggregations=("mean", "runs"),
         )
@@ -1660,6 +1715,7 @@ class ObserverTest(unittest.TestCase):
 
     def test_density_observer_get_keeps_sampled_steps_for_aggregated_series(self) -> None:
         density_observer = DensityObserver(
+            n_agents=2,
             observation_sampling=ObservationSampling.periodic(2),
             aggregations=("mean", "runs"),
         )
@@ -1688,6 +1744,7 @@ class ObserverTest(unittest.TestCase):
 
     def test_density_observer_can_request_std_without_mean(self) -> None:
         density_observer = DensityObserver(
+            n_agents=2,
             observation_sampling=ObservationSampling.periodic(1),
             aggregations=("std",),
         )
@@ -1716,6 +1773,7 @@ class ObserverTest(unittest.TestCase):
 
     def test_observers_keep_sampling_tail_steps_after_early_stopping(self) -> None:
         density_observer = DensityObserver(
+            n_agents=2,
             observation_sampling=ObservationSampling.periodic(2),
             aggregations=(),
         )

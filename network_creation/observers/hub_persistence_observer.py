@@ -54,6 +54,7 @@ class HubPersistenceObserver(EpisodeSeriesStatisticObserver):
 
     def __init__(
         self,
+        n_agents: int,
         observation_sampling: ObservationSampling,
         window_size: int,
         aggregations: tuple[str, ...],
@@ -62,6 +63,7 @@ class HubPersistenceObserver(EpisodeSeriesStatisticObserver):
             raise ValueError("window_size must be positive")
         self._window_size = window_size
         super().__init__(
+            n_agents=n_agents,
             observation_sampling=observation_sampling,
             aggregations=aggregations,
         )

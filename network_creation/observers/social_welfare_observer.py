@@ -49,21 +49,15 @@ class CenteredMeanWelfareObserver(EpisodeSeriesStatisticObserver):
         )
 
     def compute_initial_value(self, event: EpisodeStartEvent) -> float:
-        return (
-            normalized_welfare(
-                graph=event.initial_state.graph,
-                benefit_to_cost_ratio=self.benefit_to_cost_ratio,
-                distance_discount=self.distance_discount,
-            )
-            / self.max_normalized_welfare
-        )
+        return normalized_welfare(
+            graph=event.initial_state.graph,
+            benefit_to_cost_ratio=self.benefit_to_cost_ratio,
+            distance_discount=self.distance_discount,
+        ) / (self.max_normalized_welfare + 1e-8)
 
     def compute_step_value(self, event: StepEvent) -> float:
-        return (
-            normalized_welfare(
-                graph=event.post_state.graph,
-                benefit_to_cost_ratio=self.benefit_to_cost_ratio,
-                distance_discount=self.distance_discount,
-            )
-            / self.max_normalized_welfare
-        )
+        return normalized_welfare(
+            graph=event.post_state.graph,
+            benefit_to_cost_ratio=self.benefit_to_cost_ratio,
+            distance_discount=self.distance_discount,
+        ) / (self.max_normalized_welfare + 1e-8)

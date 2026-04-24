@@ -11,18 +11,10 @@ from network_creation.core.model import (
     PolicyDecision,
 )
 
+from ._best_response_kernel import evaluate_best_response_terms_from_edges
 from .base import Policy
 
 FLOATING_POINT_TYPE = np.float32
-
-
-def _sum_discounted_distances(
-    distance_discount: float,
-    distances: NDArray[FLOATING_POINT_TYPE],
-    power_buffer: NDArray[FLOATING_POINT_TYPE],
-) -> float:
-    np.power(distance_discount, distances, out=power_buffer)
-    return float(power_buffer.sum())
 
 
 def stable_softmax_boltzmann(
@@ -87,7 +79,6 @@ class BestResponsePolicy(Policy):
         self, observation: Observation, action_space: ActionSpace
     ) -> PolicyDecision:
         graph = observation.graph
-        node_count = graph.vcount()
 
         pass_action = action_space[ActionType.PASS][0]
         add_actions = action_space[ActionType.ADD]
@@ -96,136 +87,51 @@ class BestResponsePolicy(Policy):
         bridge_action = bridge_actions[0] if bridge_actions else None
 
         source_idx = pass_action.source
-        add_targets = [action.target for action in add_actions]
+        add_targets = [int(action.target) for action in add_actions]
+        delete_targets = [int(action.target) for action in delete_actions]
         outside_node_idxs = observation.outside_node_idxs
 
-        baseline_dist = np.empty(node_count, dtype=FLOATING_POINT_TYPE)
-        power_buffer = np.empty(node_count, dtype=FLOATING_POINT_TYPE)
-        baseline_dist[:] = graph.distances(source=[source_idx], mode="all")[0]
-        base_benefit = _sum_discounted_distances(
-            self.distance_discount,
-            baseline_dist,
-            power_buffer,
+        (
+            base_score_excluding_self,
+            delete_score_deltas,
+            add_only_score_deltas,
+            best_swap_score_deltas,
+            _best_swap_delete,
+        ) = evaluate_best_response_terms_from_edges(
+            graph.vcount(),
+            graph.get_edgelist(),
+            int(source_idx),
+            float(self.distance_discount),
+            add_targets,
+            delete_targets,
         )
 
-        add_benefit_matrix: np.ndarray | None = None
-        add_target_distance_buffer: NDArray[FLOATING_POINT_TYPE] | None = None
-        combo_distance_buffer: NDArray[FLOATING_POINT_TYPE] | None = None
-        combo_power_buffer: NDArray[FLOATING_POINT_TYPE] | None = None
-
-        if add_actions:
-            add_benefit_matrix = np.empty(
-                (len(add_actions), len(delete_actions) + 1),
-                dtype=FLOATING_POINT_TYPE,
-            )
-            add_target_distance_buffer = np.empty(
-                (len(add_actions), node_count),
-                dtype=FLOATING_POINT_TYPE,
-            )
-            combo_distance_buffer = np.empty(
-                (len(add_actions), node_count),
-                dtype=FLOATING_POINT_TYPE,
-            )
-            combo_power_buffer = np.empty(
-                (len(add_actions), node_count),
-                dtype=FLOATING_POINT_TYPE,
-            )
-
         candidate_idx = 0
-        if delete_actions:
-            g_delete = graph.copy()
-            deleted_dist = np.empty(node_count, dtype=FLOATING_POINT_TYPE)
-            # DELETE actions
-            for delete_idx, action in enumerate(delete_actions):
-                eid = g_delete.get_eid(
-                    source_idx, action.target, directed=True, error=True
-                )
-                g_delete.delete_edges([eid])
-
-                deleted_dist[:] = g_delete.distances(source=[source_idx], mode="all")[0]
-                deleted_benefit = _sum_discounted_distances(
-                    self.distance_discount,
-                    deleted_dist,
-                    power_buffer,
-                )
-                delete_value = (
-                    self.benefit_to_cost_ratio * (deleted_benefit - base_benefit) + 1.0
-                )
-
-                self.candidate_actions[candidate_idx] = action
-                self.candidate_values[candidate_idx] = delete_value
-                candidate_idx += 1
-
-                if (
-                    add_benefit_matrix is not None
-                    and add_target_distance_buffer is not None
-                    and combo_distance_buffer is not None
-                    and combo_power_buffer is not None
-                ):
-                    add_target_distance_buffer[:] = g_delete.distances(
-                        source=add_targets, mode="all"
-                    )
-                    np.add(add_target_distance_buffer, 1.0, out=combo_distance_buffer)
-                    np.minimum(
-                        combo_distance_buffer,
-                        deleted_dist[None, :],
-                        out=combo_distance_buffer,
-                    )
-                    np.power(
-                        self.distance_discount,
-                        combo_distance_buffer,
-                        out=combo_power_buffer,
-                    )
-                    add_benefit_matrix[:, delete_idx] = np.sum(
-                        combo_power_buffer,
-                        axis=1,
-                    )
-
-                g_delete.add_edge(source_idx, action.target)
+        # DELETE actions
+        for action, delta_score in zip(delete_actions, delete_score_deltas, strict=True):
+            self.candidate_actions[candidate_idx] = action
+            self.candidate_values[candidate_idx] = (
+                self.benefit_to_cost_ratio * delta_score + 1.0
+            )
+            candidate_idx += 1
 
         # ADD / SWAP actions
-        if (
-            add_benefit_matrix is not None
-            and add_target_distance_buffer is not None
-            and combo_distance_buffer is not None
-            and combo_power_buffer is not None
+        for action, add_only_delta, swap_delta in zip(
+            add_actions,
+            add_only_score_deltas,
+            best_swap_score_deltas,
+            strict=True,
         ):
-            add_target_distance_buffer[:] = graph.distances(
-                source=add_targets, mode="all"
-            )
-            np.add(add_target_distance_buffer, 1.0, out=combo_distance_buffer)
-            np.minimum(
-                combo_distance_buffer,
-                baseline_dist[None, :],
-                out=combo_distance_buffer,
-            )
-            np.power(
-                self.distance_discount,
-                combo_distance_buffer,
-                out=combo_power_buffer,
-            )
-
-            add_only_benefit = np.sum(combo_power_buffer, axis=1)
-            add_benefit_matrix[:, -1] = add_only_benefit
-            add_only_value = (
-                self.benefit_to_cost_ratio * (add_only_benefit - base_benefit) - 1.0
-            )
-
+            add_only_value = self.benefit_to_cost_ratio * add_only_delta - 1.0
             if delete_actions:
-                swap_values = self.benefit_to_cost_ratio * (
-                    add_benefit_matrix[:, :-1] - base_benefit
-                )
-                best_add_values = np.maximum(
-                    np.max(swap_values, axis=1),
-                    add_only_value,
-                )
+                swap_value = self.benefit_to_cost_ratio * swap_delta
+                best_add_value = max(add_only_value, swap_value)
             else:
-                best_add_values = add_only_value
+                best_add_value = add_only_value
 
-            for action, best_add_value in zip(add_actions, best_add_values):
-                self.candidate_actions[candidate_idx] = action
-                self.candidate_values[candidate_idx] = best_add_value
-                candidate_idx += 1
+            self.candidate_actions[candidate_idx] = action
+            self.candidate_values[candidate_idx] = best_add_value
+            candidate_idx += 1
 
         # BRIDGE
         if bridge_action is not None:
@@ -236,9 +142,7 @@ class BestResponsePolicy(Policy):
             )
             bridge_value = (
                 self.benefit_to_cost_ratio
-                * (
-                    expected_bridge_gain - (base_benefit - 1.0)
-                )  # subtract 1 for the self-distance
+                * (expected_bridge_gain - base_score_excluding_self)
                 - 1.0
             )
             self.candidate_actions[candidate_idx] = bridge_action

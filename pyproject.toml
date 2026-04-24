@@ -40,6 +40,9 @@ network-creation-dispatcher = "tasks.dispatch.dispatcher:main"
 [tool.setuptools.packages.find]
 include = ["network_creation*", "tasks*"]
 
+[tool.setuptools.package-data]
+"network_creation.policies" = ["*.pyi"]
+
 [tool.uv.sources]
 igraph = { url = "https://github.com/hdahmou/python-igraph/releases/download/wheel-2026-04-03/igraph-1.0.0-cp39-abi3-manylinux_2_28_x86_64.whl" }
 

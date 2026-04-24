@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import unittest
 
+from network_creation.core.local_global_map import LocalGlobalMap
 from network_creation.core.model import Action, ActionType, ActorScheduler
 
 
@@ -14,6 +15,31 @@ class ActionTest(unittest.TestCase):
         self.assertEqual(action.type, ActionType.PASS)
         self.assertEqual(action.source, 0)
         self.assertEqual(action.target, 1)
+
+
+class LocalGlobalMapTest(unittest.TestCase):
+    def test_uses_dense_local_and_global_indices(self) -> None:
+        local_global = LocalGlobalMap([2, 0, 1])
+
+        self.assertEqual(local_global[0], 2)
+        self.assertEqual(local_global[1], 0)
+        self.assertEqual(local_global[2], 1)
+        self.assertEqual(local_global.inverse[0], 1)
+        self.assertEqual(local_global.inverse[1], 2)
+        self.assertEqual(local_global.inverse[2], 0)
+
+    def test_compares_equal_to_plain_mapping(self) -> None:
+        local_global = LocalGlobalMap([2, 0, 1])
+
+        self.assertEqual(local_global, {0: 2, 1: 0, 2: 1})
+
+    def test_rejects_duplicate_global_node_ids(self) -> None:
+        with self.assertRaisesRegex(ValueError, "unique"):
+            LocalGlobalMap([0, 1, 1])
+
+    def test_rejects_out_of_range_global_node_ids(self) -> None:
+        with self.assertRaisesRegex(ValueError, "range"):
+            LocalGlobalMap([0, 1, 3])
 
 
 class ActorSchedulerTest(unittest.TestCase):

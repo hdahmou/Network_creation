@@ -28,7 +28,6 @@ dependencies = [
     "matplotlib-label-lines>=0.8.1",
     "jupyter-server-proxy>=4.5.0",
     "py-spy>=0.4.1",
-    "bidict>=0.23.1",
     "seaborn[stats]>=0.13.2",
     "pykrige>=1.7.3",
     "ipympl>=0.10.0",

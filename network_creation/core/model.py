@@ -5,11 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 from numbers import Integral
-from typing import TYPE_CHECKING, Annotated, NamedTuple
+from typing import TYPE_CHECKING, Annotated, NamedTuple, cast
 
-from bidict import bidict
 import numpy as np
 from numpy.typing import NDArray
+
+from .local_global_map import LocalGlobalMap
 
 if TYPE_CHECKING:
     import igraph as ig
@@ -28,6 +29,9 @@ class ActionType(str, Enum):
 
 class ActorScheduler:
     """Randomly select the agents that act during one simulator step."""
+
+    _rng: np.random.Generator
+    _n_actors: int
 
     def __init__(
         self,
@@ -57,11 +61,14 @@ class ActorScheduler:
         n_agents = len(agents)
         if self._n_actors >= n_agents:
             return agents
-        agent_indices = self._rng.choice(
-            n_agents,
-            size=self._n_actors,
-            replace=False,
-            shuffle=False,
+        agent_indices = cast(
+            NDArray[np.int_],
+            self._rng.choice(
+                n_agents,
+                size=self._n_actors,
+                replace=False,
+                shuffle=True,
+            ),
         )
         return tuple(agents[int(agent_index)] for agent_index in agent_indices)
 
@@ -108,7 +115,7 @@ class Observation:
     node_idx: int
     graph: ig.Graph
     outside_node_idxs: Annotated[NDArray[np.int_], "shape=(n_outside_nodes,)"]
-    local_global: bidict[int, int]
+    local_global: LocalGlobalMap
 
     @staticmethod
     def create_local_global_map(
@@ -117,21 +124,15 @@ class Observation:
             NDArray[np.int_],
             "shape=(n_outside_nodes,)",
         ],
-    ) -> bidict[int, int]:
-        local_global = bidict(
-            {
-                int(vertex.index): int(vertex["name"])
-                for vertex in graph.vs
-            }
-        )
+    ) -> LocalGlobalMap:
         visible_count = graph.vcount()
-        local_global.update(
-            {
-                visible_count + outside_idx: int(node_id)
-                for outside_idx, node_id in enumerate(outside_global_node_ids)
-            }
-        )
-        return local_global
+        local_to_global = [int(node_id) for node_id in graph.vs["name"]]
+        local_to_global.extend(int(node_id) for node_id in outside_global_node_ids)
+        if len(local_to_global) != visible_count + len(outside_global_node_ids):
+            raise ValueError(
+                "local-to-global map size must match visible and outside nodes"
+            )
+        return LocalGlobalMap(local_to_global)
 
     def global_from_local(self, local_idx: int) -> int:
         return self.local_global[int(local_idx)]

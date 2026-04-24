@@ -41,8 +41,8 @@ namespace CoreModel {
         +node_idx: int
         +graph: Graph
         +outside_node_idxs: NDArray
-        +local_global: bidict[int, int]
-        +create_local_global_map(graph, outside_global_node_ids) bidict[int, int]
+        +local_global: LocalGlobalMap
+        +create_local_global_map(graph, outside_global_node_ids) LocalGlobalMap
         +global_from_local(local_idx: int) int
         +local_from_global(node_id: int) int
     }

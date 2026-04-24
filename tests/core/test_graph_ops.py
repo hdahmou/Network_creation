@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import unittest
 
-from bidict import bidict
 import igraph as ig
 import numpy as np
 
@@ -14,6 +13,7 @@ from network_creation.core.graph import (
     build_state_from_graph,
     get_action_space,
 )
+from network_creation.core.local_global_map import LocalGlobalMap
 from network_creation.core.model import Action, ActionSpace, ActionType
 from tests.graph_factories import graph_from_adjacency_matrix
 
@@ -187,7 +187,7 @@ class GraphOpsTest(unittest.TestCase):
             observation.outside_node_idxs,
             np.array([3, 4, 5]),
         )
-        self.assertIsInstance(observation.local_global, bidict)
+        self.assertIsInstance(observation.local_global, LocalGlobalMap)
         self.assertEqual(
             observation.local_global,
             {0: 2, 1: 3, 2: 4, 3: 0, 4: 1, 5: 5},

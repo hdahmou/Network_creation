@@ -9,7 +9,9 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.collections import PathCollection, QuadMesh
 from matplotlib.colors import TwoSlopeNorm
+from matplotlib.ticker import NullLocator
 
 from network_creation.core.agent import Agent
 from network_creation.core.environment import Environment
@@ -485,6 +487,125 @@ class PlotPairTest(unittest.TestCase):
         self.assertIs(image.norm, custom_norm)
         np.testing.assert_allclose(figure.axes[-1].get_ybound(), (0.0, 50.0))
         plt.close(figure)
+
+    def test_plot_pair_preserves_points_path_for_ordered_discrete_axis(self) -> None:
+        X = np.array(
+            [
+                [1.0, 0.2, 3.0],
+                [1.0, 0.5, 4.0],
+                [2.0, 0.8, 5.0],
+                [3.0, 1.1, 6.0],
+            ],
+            dtype=float,
+        )
+        custom_norm = TwoSlopeNorm(vmin=0.0, vcenter=25.0, vmax=50.0)
+        figure, axes = plot_pair(
+            X,
+            self.y,
+            labels=["stage", "weight", "bias"],
+            ordered_discrete_keys=["stage"],
+            method="points",
+            norm=custom_norm,
+        )
+
+        collection = axes[0, 0].collections[0]
+        self.assertIsInstance(collection, PathCollection)
+        self.assertIs(collection.norm, custom_norm)
+        self.assertEqual(len(axes[0, 0].images), 0)
+        np.testing.assert_allclose(axes[0, 0].get_xticks(), [1.0, 2.0, 3.0])
+        self.assertIsInstance(axes[0, 0].xaxis.get_minor_locator(), NullLocator)
+        self.assertEqual(len(axes[0, 0].lines), 2)
+        np.testing.assert_allclose(
+            [line.get_xdata()[0] for line in axes[0, 0].lines],
+            [1.5, 2.5],
+        )
+        plt.close(figure)
+
+    def test_plot_pair_uses_quadmesh_for_mixed_ordered_discrete_gaussian_mode(
+        self,
+    ) -> None:
+        X = np.array(
+            [
+                [1.0, 0.2, 3.0],
+                [1.0, 0.5, 4.0],
+                [2.0, 0.8, 5.0],
+                [3.0, 1.1, 6.0],
+            ],
+            dtype=float,
+        )
+        custom_norm = TwoSlopeNorm(vmin=0.0, vcenter=25.0, vmax=50.0)
+        figure, axes = plot_pair(
+            X,
+            self.y,
+            labels=["stage", "weight", "bias"],
+            ordered_discrete_keys=["stage"],
+            method="gaussian",
+            norm=custom_norm,
+        )
+
+        collection = axes[0, 0].collections[0]
+        self.assertIsInstance(collection, QuadMesh)
+        self.assertIs(collection.norm, custom_norm)
+        np.testing.assert_allclose(axes[0, 0].get_xticks(), [1.0, 2.0, 3.0])
+        self.assertIsInstance(axes[0, 0].xaxis.get_minor_locator(), NullLocator)
+        self.assertEqual(len(axes[0, 0].lines), 2)
+        np.testing.assert_allclose(
+            [line.get_xdata()[0] for line in axes[0, 0].lines],
+            [1.5, 2.5],
+        )
+        plt.close(figure)
+
+    def test_plot_pair_uses_discrete_heatmap_for_two_ordered_discrete_axes(
+        self,
+    ) -> None:
+        X = np.array(
+            [
+                [1.0, 10.0, 0.1],
+                [1.0, 20.0, 0.2],
+                [2.0, 10.0, 0.3],
+                [3.0, 20.0, 0.4],
+            ],
+            dtype=float,
+        )
+        custom_norm = TwoSlopeNorm(vmin=0.0, vcenter=25.0, vmax=50.0)
+        figure, axes = plot_pair(
+            X,
+            self.y,
+            labels=["stage", "rank", "bias"],
+            ordered_discrete_keys=["stage", "rank"],
+            method="gaussian",
+            norm=custom_norm,
+        )
+
+        collection = axes[0, 0].collections[0]
+        self.assertIsInstance(collection, QuadMesh)
+        self.assertIs(collection.norm, custom_norm)
+        np.testing.assert_allclose(axes[0, 0].get_xticks(), [1.0, 2.0, 3.0])
+        np.testing.assert_allclose(axes[0, 0].get_yticks(), [10.0, 20.0])
+        self.assertIsInstance(axes[0, 0].xaxis.get_minor_locator(), NullLocator)
+        self.assertIsInstance(axes[0, 0].yaxis.get_minor_locator(), NullLocator)
+        self.assertEqual(len(axes[0, 0].lines), 3)
+        np.testing.assert_allclose(
+            [line.get_xdata()[0] for line in axes[0, 0].lines[:2]],
+            [1.5, 2.5],
+        )
+        np.testing.assert_allclose(
+            [line.get_ydata()[0] for line in axes[0, 0].lines[2:]],
+            [15.0],
+        )
+        plt.close(figure)
+
+    def test_plot_pair_rejects_unknown_ordered_discrete_keys(self) -> None:
+        with self.assertRaisesRegex(
+            ValueError,
+            "unknown labels: missing",
+        ):
+            plot_pair(
+                self.X,
+                self.y,
+                labels=["a", "b", "c"],
+                ordered_discrete_keys=["missing"],
+            )
 
 
 if __name__ == "__main__":

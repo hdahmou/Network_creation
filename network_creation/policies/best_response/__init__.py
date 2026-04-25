@@ -11,8 +11,8 @@ from network_creation.core.model import (
     PolicyDecision,
 )
 
-from ._best_response_kernel import evaluate_best_response_terms
-from .base import Policy
+from ._kernel import evaluate_best_response_terms
+from ..base import Policy
 
 FLOATING_POINT_TYPE = np.float32
 
@@ -93,9 +93,9 @@ class BestResponsePolicy(Policy):
 
         (
             base_score_excluding_self,
-            delete_score_deltas,
-            add_only_score_deltas,
-            best_swap_score_deltas,
+            delete_scores,
+            add_only_scores,
+            best_swap_scores,
             _best_swap_delete,
         ) = evaluate_best_response_terms(
             graph,
@@ -107,20 +107,23 @@ class BestResponsePolicy(Policy):
 
         candidate_idx = 0
         # DELETE actions
-        for action, delta_score in zip(delete_actions, delete_score_deltas, strict=True):
+        for action, delete_score in zip(delete_actions, delete_scores, strict=True):
+            delete_delta = delete_score - base_score_excluding_self
             self.candidate_actions[candidate_idx] = action
             self.candidate_values[candidate_idx] = (
-                self.benefit_to_cost_ratio * delta_score + 1.0
+                self.benefit_to_cost_ratio * delete_delta + 1.0
             )
             candidate_idx += 1
 
         # ADD / SWAP actions
-        for action, add_only_delta, swap_delta in zip(
+        for action, add_only_score, swap_score in zip(
             add_actions,
-            add_only_score_deltas,
-            best_swap_score_deltas,
+            add_only_scores,
+            best_swap_scores,
             strict=True,
         ):
+            add_only_delta = add_only_score - base_score_excluding_self
+            swap_delta = swap_score - base_score_excluding_self
             add_only_value = self.benefit_to_cost_ratio * add_only_delta - 1.0
             if delete_actions:
                 swap_value = self.benefit_to_cost_ratio * swap_delta

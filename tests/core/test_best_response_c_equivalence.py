@@ -14,7 +14,7 @@ from network_creation.core.graph import (
     get_action_space,
 )
 from network_creation.core.model import Action, ActionType
-from network_creation.policies._best_response_kernel import (
+from network_creation.policies.best_response._kernel import (
     evaluate_best_response_terms,
 )
 from network_creation.policies.best_response import BestResponsePolicy
@@ -53,7 +53,7 @@ def _reference_terms(
 ) -> tuple[float, list[float], list[float], list[float], list[int]]:
     base_score = _score_excluding_self(graph, source, delta)
 
-    delete_deltas: list[float] = []
+    delete_scores: list[float] = []
     for delete_target in delete_targets:
         deleted_graph = graph.copy()
         edge_id = deleted_graph.get_eid(
@@ -63,24 +63,20 @@ def _reference_terms(
             error=True,
         )
         deleted_graph.delete_edges([edge_id])
-        delete_deltas.append(
-            _score_excluding_self(deleted_graph, source, delta) - base_score
-        )
+        delete_scores.append(_score_excluding_self(deleted_graph, source, delta))
 
-    add_only_deltas: list[float] = []
-    best_swap_deltas: list[float] = []
+    add_only_scores: list[float] = []
+    best_swap_scores: list[float] = []
     best_swap_delete: list[int] = []
     for add_target in add_targets:
         add_graph = graph.copy()
         add_graph.add_edge(source, add_target)
-        add_only_deltas.append(
-            _score_excluding_self(add_graph, source, delta) - base_score
-        )
+        add_only_scores.append(_score_excluding_self(add_graph, source, delta))
 
-        best_delta = 0.0
+        best_score = base_score
         best_delete = -1
         if delete_targets:
-            best_delta = -math.inf
+            best_score = -math.inf
             for delete_target in delete_targets:
                 swap_graph = graph.copy()
                 edge_id = swap_graph.get_eid(
@@ -91,23 +87,21 @@ def _reference_terms(
                 )
                 swap_graph.delete_edges([edge_id])
                 swap_graph.add_edge(source, add_target)
-                candidate_delta = (
-                    _score_excluding_self(swap_graph, source, delta) - base_score
-                )
-                if candidate_delta > best_delta:
-                    best_delta = candidate_delta
+                candidate_score = _score_excluding_self(swap_graph, source, delta)
+                if candidate_score > best_score:
+                    best_score = candidate_score
                     best_delete = delete_target
             if best_delete == -1:
-                best_delta = 0.0
+                best_score = base_score
 
-        best_swap_deltas.append(best_delta)
+        best_swap_scores.append(best_score)
         best_swap_delete.append(best_delete)
 
     return (
         base_score,
-        delete_deltas,
-        add_only_deltas,
-        best_swap_deltas,
+        delete_scores,
+        add_only_scores,
+        best_swap_scores,
         best_swap_delete,
     )
 
@@ -224,9 +218,9 @@ class BestResponseCKernelEquivalenceTest(unittest.TestCase):
 
         (
             base_score,
-            delete_deltas,
-            add_only_deltas,
-            best_swap_deltas,
+            delete_scores,
+            add_only_scores,
+            best_swap_scores,
             _best_swap_delete,
         ) = evaluate_best_response_terms(
             observation.graph,
@@ -238,14 +232,16 @@ class BestResponseCKernelEquivalenceTest(unittest.TestCase):
 
         expected_actions: list[Action] = [*delete_actions, *add_actions]
         expected_values = [
-            policy.benefit_to_cost_ratio * delta + 1.0
-            for delta in delete_deltas
+            policy.benefit_to_cost_ratio * (score - base_score) + 1.0
+            for score in delete_scores
         ]
-        for add_only_delta, swap_delta in zip(
-            add_only_deltas,
-            best_swap_deltas,
+        for add_only_score, swap_score in zip(
+            add_only_scores,
+            best_swap_scores,
             strict=True,
         ):
+            add_only_delta = add_only_score - base_score
+            swap_delta = swap_score - base_score
             add_only_value = policy.benefit_to_cost_ratio * add_only_delta - 1.0
             if delete_actions:
                 swap_value = policy.benefit_to_cost_ratio * swap_delta

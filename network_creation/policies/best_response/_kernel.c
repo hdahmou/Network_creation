@@ -42,9 +42,8 @@ typedef struct
     int *label1;
 
     double *pow_delta;
-    double *add_delta;
-    double *delete_delta;
-    double *swap_delta; /* n x n */
+    double *add_score;
+    double *delete_score;
 } Kernel;
 
 /*
@@ -131,9 +130,8 @@ static void free_kernel(Kernel *k)
     PyMem_Free(k->best2);
     PyMem_Free(k->label1);
     PyMem_Free(k->pow_delta);
-    PyMem_Free(k->add_delta);
-    PyMem_Free(k->delete_delta);
-    PyMem_Free(k->swap_delta);
+    PyMem_Free(k->add_score);
+    PyMem_Free(k->delete_score);
     memset(k, 0, sizeof(*k));
 }
 
@@ -150,13 +148,12 @@ static int alloc_kernel(Kernel *k)
     k->best2 = xcalloc(n, sizeof(uint16_t));
     k->label1 = xcalloc(n, sizeof(int));
     k->pow_delta = xcalloc(n + 2, sizeof(double));
-    k->add_delta = xcalloc(n, sizeof(double));
-    k->delete_delta = xcalloc(n, sizeof(double));
-    k->swap_delta = xcalloc(n * n, sizeof(double));
+    k->add_score = xcalloc(n, sizeof(double));
+    k->delete_score = xcalloc(n, sizeof(double));
 
     if (!k->adj_bits || !k->dist || !k->source_out_mult || !k->source_total_mult ||
         !k->best1 || !k->best2 || !k->label1 || !k->pow_delta ||
-        !k->add_delta || !k->delete_delta || !k->swap_delta)
+        !k->add_score || !k->delete_score)
     {
         PyErr_NoMemory();
         return -1;
@@ -445,7 +442,19 @@ static int precompute(Kernel *k)
         const int t = k->label1[x];
         if (t >= 0 && k->best2[x] > k->best1[x])
         {
-            k->delete_delta[t] += weight_from_hdist(k, k->best2[x]) - base_w;
+            k->delete_score[t] += weight_from_hdist(k, k->best2[x]) - base_w;
+        }
+    }
+
+    for (int v = 0; v < n; ++v)
+    {
+        if (v == source || k->source_total_mult[v] != 1)
+        {
+            k->delete_score[v] = k->base_score;
+        }
+        else
+        {
+            k->delete_score[v] += k->base_score;
         }
     }
 
@@ -453,66 +462,20 @@ static int precompute(Kernel *k)
     {
         if (u == source || k->source_total_mult[u] > 0)
         {
-            k->add_delta[u] = 0.0;
+            k->add_score[u] = k->base_score;
             continue;
         }
         const uint16_t *row = k->dist + (size_t)u * (size_t)n;
-        double total = 0.0;
+        double score = 0.0;
         for (int x = 0; x < n; ++x)
         {
             if (x == source)
                 continue;
             const uint16_t base_h = k->best1[x];
             const uint16_t new_h = row[x] < base_h ? row[x] : base_h;
-            total += weight_from_hdist(k, new_h) - weight_from_hdist(k, base_h);
+            score += weight_from_hdist(k, new_h);
         }
-        k->add_delta[u] = total;
-    }
-
-    for (int v_del = 0; v_del < n; ++v_del)
-    {
-        if (v_del == source || k->source_out_mult[v_del] == 0)
-            continue;
-        const int removes_shadow = (k->source_total_mult[v_del] == 1);
-        for (int v_add = 0; v_add < n; ++v_add)
-        {
-            if (v_add == v_del)
-            {
-                k->swap_delta[(size_t)v_del * (size_t)n + (size_t)v_add] = 0.0;
-                continue;
-            }
-            const int adds_shadow = (v_add != source && k->source_total_mult[v_add] == 0);
-            if (!removes_shadow && !adds_shadow)
-            {
-                k->swap_delta[(size_t)v_del * (size_t)n + (size_t)v_add] = 0.0;
-                continue;
-            }
-            if (!removes_shadow && adds_shadow)
-            {
-                k->swap_delta[(size_t)v_del * (size_t)n + (size_t)v_add] = k->add_delta[v_add];
-                continue;
-            }
-            const uint16_t *row_add = adds_shadow ? (k->dist + (size_t)v_add * (size_t)n) : NULL;
-            double total = 0.0;
-            for (int x = 0; x < n; ++x)
-            {
-                if (x == source)
-                    continue;
-                const uint16_t base_h = k->best1[x];
-                uint16_t del_h = base_h;
-                if (k->label1[x] == v_del && k->best2[x] > base_h)
-                {
-                    del_h = k->best2[x];
-                }
-                uint16_t new_h = del_h;
-                if (row_add != NULL && row_add[x] < new_h)
-                {
-                    new_h = row_add[x];
-                }
-                total += weight_from_hdist(k, new_h) - weight_from_hdist(k, base_h);
-            }
-            k->swap_delta[(size_t)v_del * (size_t)n + (size_t)v_add] = total;
-        }
+        k->add_score[u] = score;
     }
 
     return 0;
@@ -573,42 +536,73 @@ static int parse_vertex_list(const Kernel *k, PyObject *obj, const char *message
     return 0;
 }
 
-static PyObject *build_delete_values(const Kernel *k, const VertexList *deletes)
+static PyObject *build_delete_scores(const Kernel *k, const VertexList *deletes)
 {
-    PyObject *values = PyList_New(deletes->len);
-    if (values == NULL)
+    PyObject *scores = PyList_New(deletes->len);
+    if (scores == NULL)
         return NULL;
 
     for (Py_ssize_t i = 0; i < deletes->len; ++i)
     {
         const int v = deletes->values[i];
-        double value = 0.0;
+        double score = k->base_score;
         if (v != k->source)
         {
             if (k->source_out_mult[v] == 0)
             {
                 PyErr_Format(PyExc_ValueError, "No outgoing arc %d->%d exists in the base graph", k->source, v);
-                Py_DECREF(values);
+                Py_DECREF(scores);
                 return NULL;
             }
-            value = (k->source_total_mult[v] == 1) ? k->delete_delta[v] : 0.0;
+            score = k->delete_score[v];
         }
 
-        PyObject *value_obj = PyFloat_FromDouble(value);
-        if (value_obj == NULL)
+        PyObject *score_obj = PyFloat_FromDouble(score);
+        if (score_obj == NULL)
         {
-            Py_DECREF(values);
+            Py_DECREF(scores);
             return NULL;
         }
-        PyList_SET_ITEM(values, i, value_obj);
+        PyList_SET_ITEM(scores, i, score_obj);
     }
 
-    return values;
+    return scores;
 }
 
-static void best_swap_delta(const Kernel *k, int u, const VertexList *deletes, double *best, int *best_del)
+static double score_with_swap(const Kernel *k, int v_del, int v_add)
 {
-    *best = deletes->len > 0 ? -INFINITY : 0.0;
+    if (v_add == v_del)
+        return k->base_score;
+
+    const int removes_shadow = (k->source_total_mult[v_del] == 1);
+    const int adds_shadow = (v_add != k->source && k->source_total_mult[v_add] == 0);
+    if (!removes_shadow && !adds_shadow)
+        return k->base_score;
+    if (!removes_shadow)
+        return k->add_score[v_add];
+    if (!adds_shadow)
+        return k->delete_score[v_del];
+
+    const uint16_t *row_add = k->dist + (size_t)v_add * (size_t)k->n;
+    double score = 0.0;
+    for (int x = 0; x < k->n; ++x)
+    {
+        if (x == k->source)
+            continue;
+        uint16_t hdist = k->best1[x];
+        if (k->label1[x] == v_del && k->best2[x] > hdist)
+            hdist = k->best2[x];
+        if (row_add[x] < hdist)
+            hdist = row_add[x];
+        score += weight_from_hdist(k, hdist);
+    }
+    return score;
+}
+
+static void best_swap_score(const Kernel *k, int u, const VertexList *deletes, double *best, int *best_del)
+{
+    int has_candidate = 0;
+    *best = -INFINITY;
     *best_del = -1;
 
     for (Py_ssize_t i = 0; i < deletes->len; ++i)
@@ -617,7 +611,8 @@ static void best_swap_delta(const Kernel *k, int u, const VertexList *deletes, d
         if (v == k->source)
             continue;
 
-        const double cand = k->swap_delta[(size_t)v * (size_t)k->n + (size_t)u];
+        has_candidate = 1;
+        const double cand = score_with_swap(k, v, u);
         if (cand > *best)
         {
             *best = cand;
@@ -625,8 +620,8 @@ static void best_swap_delta(const Kernel *k, int u, const VertexList *deletes, d
         }
     }
 
-    if (*best_del == -1 && deletes->len > 0)
-        *best = 0.0;
+    if (!has_candidate)
+        *best = k->base_score;
 }
 
 static PyObject *evaluate_best_response_terms(PyObject *Py_UNUSED(module), PyObject *args)
@@ -637,9 +632,9 @@ static PyObject *evaluate_best_response_terms(PyObject *Py_UNUSED(module), PyObj
     PyObject *graph_obj = NULL;
     PyObject *add_targets_obj = NULL;
     PyObject *delete_targets_obj = NULL;
-    PyObject *delete_values = NULL;
-    PyObject *add_only_values = NULL;
-    PyObject *best_swap_values = NULL;
+    PyObject *delete_scores = NULL;
+    PyObject *add_only_scores = NULL;
+    PyObject *best_swap_scores = NULL;
     PyObject *best_swap_delete = NULL;
     PyObject *result = NULL;
     int source;
@@ -660,20 +655,20 @@ static PyObject *evaluate_best_response_terms(PyObject *Py_UNUSED(module), PyObj
     if (parse_vertex_list(&k, delete_targets_obj, "delete_targets must be a sequence of vertices", &deletes) < 0)
         goto done;
 
-    delete_values = build_delete_values(&k, &deletes);
-    add_only_values = PyList_New(adds.len);
-    best_swap_values = PyList_New(adds.len);
+    delete_scores = build_delete_scores(&k, &deletes);
+    add_only_scores = PyList_New(adds.len);
+    best_swap_scores = PyList_New(adds.len);
     best_swap_delete = PyList_New(adds.len);
-    if (delete_values == NULL || add_only_values == NULL || best_swap_values == NULL || best_swap_delete == NULL)
+    if (delete_scores == NULL || add_only_scores == NULL || best_swap_scores == NULL || best_swap_delete == NULL)
         goto done;
 
     for (Py_ssize_t i = 0; i < adds.len; ++i)
     {
         const int u = adds.values[i];
-        const double add_only = (u == k.source) ? 0.0 : k.add_delta[u];
+        const double add_only = (u == k.source) ? k.base_score : k.add_score[u];
         double best_swap;
         int best_del;
-        best_swap_delta(&k, u, &deletes, &best_swap, &best_del);
+        best_swap_score(&k, u, &deletes, &best_swap, &best_del);
 
         PyObject *add_only_obj = PyFloat_FromDouble(add_only);
         PyObject *best_swap_obj = PyFloat_FromDouble(best_swap);
@@ -685,17 +680,17 @@ static PyObject *evaluate_best_response_terms(PyObject *Py_UNUSED(module), PyObj
             Py_XDECREF(best_del_obj);
             goto done;
         }
-        PyList_SET_ITEM(add_only_values, i, add_only_obj);
-        PyList_SET_ITEM(best_swap_values, i, best_swap_obj);
+        PyList_SET_ITEM(add_only_scores, i, add_only_obj);
+        PyList_SET_ITEM(best_swap_scores, i, best_swap_obj);
         PyList_SET_ITEM(best_swap_delete, i, best_del_obj);
     }
 
-    result = Py_BuildValue("(dOOOO)", k.base_score, delete_values, add_only_values, best_swap_values, best_swap_delete);
+    result = Py_BuildValue("(dOOOO)", k.base_score, delete_scores, add_only_scores, best_swap_scores, best_swap_delete);
 
 done:
-    Py_XDECREF(delete_values);
-    Py_XDECREF(add_only_values);
-    Py_XDECREF(best_swap_values);
+    Py_XDECREF(delete_scores);
+    Py_XDECREF(add_only_scores);
+    Py_XDECREF(best_swap_scores);
     Py_XDECREF(best_swap_delete);
     free_vertex_list(&adds);
     free_vertex_list(&deletes);
@@ -705,18 +700,18 @@ done:
 
 static PyMethodDef methods[] = {
     {"evaluate_best_response_terms", (PyCFunction)evaluate_best_response_terms, METH_VARARGS,
-     PyDoc_STR("evaluate_best_response_terms(graph, source, delta, add_targets, delete_targets) -> (base_score, delete_values, add_only_values, best_swap_values, best_swap_delete)")},
+     PyDoc_STR("evaluate_best_response_terms(graph, source, delta, add_targets, delete_targets) -> (base_score, delete_scores, add_only_scores, best_swap_scores, best_swap_delete)")},
     {NULL, NULL, 0, NULL}};
 
 static struct PyModuleDef moduledef = {
     PyModuleDef_HEAD_INIT,
-    .m_name = "_best_response_kernel",
+    .m_name = "_kernel",
     .m_doc = "Bitset C kernel for source-edge decay-centrality changes",
     .m_size = -1,
     .m_methods = methods,
 };
 
-PyMODINIT_FUNC PyInit__best_response_kernel(void)
+PyMODINIT_FUNC PyInit__kernel(void)
 {
     return PyModule_Create(&moduledef);
 }

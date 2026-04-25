@@ -15,7 +15,7 @@ from network_creation.core.graph import (
 )
 from network_creation.core.model import Action, ActionType
 from network_creation.policies._best_response_kernel import (
-    evaluate_best_response_terms_from_edges,
+    evaluate_best_response_terms,
 )
 from network_creation.policies.best_response import BestResponsePolicy
 from tests.graph_factories import graph_from_adjacency_matrix
@@ -121,9 +121,8 @@ class BestResponseCKernelEquivalenceTest(unittest.TestCase):
         add_targets: list[int],
         delete_targets: list[int],
     ) -> None:
-        actual = evaluate_best_response_terms_from_edges(
-            graph.vcount(),
-            graph.get_edgelist(),
+        actual = evaluate_best_response_terms(
+            graph,
             source,
             delta,
             add_targets,
@@ -229,9 +228,8 @@ class BestResponseCKernelEquivalenceTest(unittest.TestCase):
             add_only_deltas,
             best_swap_deltas,
             _best_swap_delete,
-        ) = evaluate_best_response_terms_from_edges(
-            observation.graph.vcount(),
-            observation.graph.get_edgelist(),
+        ) = evaluate_best_response_terms(
+            observation.graph,
             pass_action.source,
             policy.distance_discount,
             add_targets,

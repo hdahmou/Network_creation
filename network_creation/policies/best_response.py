@@ -11,7 +11,7 @@ from network_creation.core.model import (
     PolicyDecision,
 )
 
-from ._best_response_kernel import evaluate_best_response_terms_from_edges
+from ._best_response_kernel import evaluate_best_response_terms
 from .base import Policy
 
 FLOATING_POINT_TYPE = np.float32
@@ -97,9 +97,8 @@ class BestResponsePolicy(Policy):
             add_only_score_deltas,
             best_swap_score_deltas,
             _best_swap_delete,
-        ) = evaluate_best_response_terms_from_edges(
-            graph.vcount(),
-            graph.get_edgelist(),
+        ) = evaluate_best_response_terms(
+            graph,
             int(source_idx),
             float(self.distance_discount),
             add_targets,

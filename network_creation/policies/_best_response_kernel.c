@@ -1,6 +1,8 @@
 #define PY_SSIZE_T_CLEAN
 #include <Python.h>
+#include <limits.h>
 #include <math.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -44,6 +46,41 @@ typedef struct
     double *delete_delta;
     double *swap_delta; /* n x n */
 } Kernel;
+
+/*
+ * Private python-igraph 1.0.0 layout. Keep this boxed in here.
+ * The wheel used by this project stores igraph_int_t as int64_t and
+ * exposes the graph pointer through Graph.__graph_as_capsule().
+ */
+typedef int64_t IGraphInt;
+
+typedef struct
+{
+    IGraphInt *stor_begin;
+    IGraphInt *stor_end;
+    IGraphInt *end;
+} IGraphIntVector;
+
+typedef struct
+{
+    IGraphInt n;
+    IGraphInt directed;
+    IGraphIntVector from;
+    IGraphIntVector to;
+    IGraphIntVector oi;
+    IGraphIntVector ii;
+    IGraphIntVector os;
+    IGraphIntVector is;
+    void *attr;
+} IGraph1Graph;
+
+typedef struct
+{
+    int *values;
+    Py_ssize_t len;
+} VertexList;
+
+static int precompute(Kernel *k);
 
 static inline void *xcalloc(size_t count, size_t size)
 {
@@ -127,81 +164,144 @@ static int alloc_kernel(Kernel *k)
     return 0;
 }
 
-static int parse_edges(Kernel *k, PyObject *edges_obj)
+static void init_kernel(Kernel *k, int n, int source, double delta)
 {
-    PyObject *seq = PySequence_Fast(edges_obj, "directed_edges must be a sequence of pairs");
-    if (seq == NULL)
-        return -1;
+    memset(k, 0, sizeof(*k));
+    k->n = n;
+    k->source = source;
+    k->words = bit_words(n);
+    k->INF = n + 1;
+    k->last_mask = (n & 63) ? (((uint64_t)1 << (n & 63)) - 1U) : UINT64_MAX;
+    k->delta = delta;
+}
 
-    const Py_ssize_t m = PySequence_Fast_GET_SIZE(seq);
-    PyObject **items = PySequence_Fast_ITEMS(seq);
-    const int n = k->n;
+static void add_directed_edge(Kernel *k, int a, int b)
+{
     const int source = k->source;
 
-    for (Py_ssize_t i = 0; i < m; ++i)
+    if (a == source && b != source)
     {
-        PyObject *pair = PySequence_Fast(items[i], "each edge must be a pair");
-        if (pair == NULL)
-        {
-            Py_DECREF(seq);
-            return -1;
-        }
-        if (PySequence_Fast_GET_SIZE(pair) != 2)
-        {
-            Py_DECREF(pair);
-            Py_DECREF(seq);
-            PyErr_SetString(PyExc_ValueError, "each edge must have exactly two endpoints");
-            return -1;
-        }
-
-        PyObject **ep = PySequence_Fast_ITEMS(pair);
-        long a_l = PyLong_AsLong(ep[0]);
-        if (a_l == -1 && PyErr_Occurred())
-        {
-            Py_DECREF(pair);
-            Py_DECREF(seq);
-            return -1;
-        }
-        long b_l = PyLong_AsLong(ep[1]);
-        if (b_l == -1 && PyErr_Occurred())
-        {
-            Py_DECREF(pair);
-            Py_DECREF(seq);
-            return -1;
-        }
-        Py_DECREF(pair);
-
-        if (a_l < 0 || a_l >= n || b_l < 0 || b_l >= n)
-        {
-            Py_DECREF(seq);
-            PyErr_SetString(PyExc_ValueError, "edge endpoint out of range");
-            return -1;
-        }
-
-        const int a = (int)a_l;
-        const int b = (int)b_l;
-
-        if (a == source && b != source)
-        {
-            k->source_out_mult[b] += 1;
-            k->source_total_mult[b] += 1;
-        }
-        else if (b == source && a != source)
-        {
-            k->source_total_mult[a] += 1;
-        }
-
-        if (a == b || a == source || b == source)
-        {
-            continue;
-        }
-
-        set_bit(adj_row(k, a), b);
-        set_bit(adj_row(k, b), a);
+        k->source_out_mult[b] += 1;
+        k->source_total_mult[b] += 1;
+    }
+    else if (b == source && a != source)
+    {
+        k->source_total_mult[a] += 1;
     }
 
-    Py_DECREF(seq);
+    if (a == b || a == source || b == source)
+    {
+        return;
+    }
+
+    set_bit(adj_row(k, a), b);
+    set_bit(adj_row(k, b), a);
+}
+
+static int graph_int_vector_len(const IGraphIntVector *vec, Py_ssize_t *out)
+{
+    if (vec->stor_begin == NULL || vec->stor_end == NULL || vec->end == NULL ||
+        vec->end < vec->stor_begin || vec->end > vec->stor_end)
+    {
+        PyErr_SetString(PyExc_ValueError, "invalid igraph integer vector layout");
+        return -1;
+    }
+
+    const ptrdiff_t len = vec->end - vec->stor_begin;
+    if (len < 0 || (uintmax_t)len > (uintmax_t)PY_SSIZE_T_MAX)
+    {
+        PyErr_SetString(PyExc_OverflowError, "igraph integer vector is too large");
+        return -1;
+    }
+
+    *out = (Py_ssize_t)len;
     return 0;
+}
+
+static int get_igraph_graph(PyObject *graph_obj, const IGraph1Graph **out)
+{
+    PyObject *method = PyObject_GetAttrString(graph_obj, "__graph_as_capsule");
+    if (method == NULL)
+    {
+        return -1;
+    }
+
+    PyObject *capsule = PyObject_CallNoArgs(method);
+    Py_DECREF(method);
+    if (capsule == NULL)
+    {
+        return -1;
+    }
+
+    void *ptr = PyCapsule_GetPointer(capsule, NULL);
+    Py_DECREF(capsule);
+    if (ptr == NULL)
+    {
+        if (!PyErr_Occurred())
+            PyErr_SetString(PyExc_ValueError, "igraph capsule contained a null graph pointer");
+        return -1;
+    }
+
+    *out = (const IGraph1Graph *)ptr;
+    return 0;
+}
+
+static int build_kernel_from_graph(Kernel *k, PyObject *graph_obj, int source, double delta)
+{
+    const IGraph1Graph *graph;
+    Py_ssize_t from_len;
+    Py_ssize_t to_len;
+
+    if (get_igraph_graph(graph_obj, &graph) < 0)
+        return -1;
+    if (graph->n <= 0 || graph->n > INT_MAX)
+    {
+        PyErr_SetString(PyExc_ValueError, "n must be positive");
+        return -1;
+    }
+
+    const int n = (int)graph->n;
+    if (source < 0 || source >= n)
+    {
+        PyErr_SetString(PyExc_ValueError, "source out of range");
+        return -1;
+    }
+
+    init_kernel(k, n, source, delta);
+    if (alloc_kernel(k) < 0)
+        goto fail;
+
+    if (graph_int_vector_len(&graph->from, &from_len) < 0 ||
+        graph_int_vector_len(&graph->to, &to_len) < 0)
+    {
+        goto fail;
+    }
+    if (from_len != to_len)
+    {
+        PyErr_SetString(PyExc_ValueError, "igraph edge vectors have inconsistent lengths");
+        goto fail;
+    }
+
+    for (Py_ssize_t i = 0; i < from_len; ++i)
+    {
+        const IGraphInt a_l = graph->from.stor_begin[i];
+        const IGraphInt b_l = graph->to.stor_begin[i];
+        if (a_l < 0 || a_l >= n || b_l < 0 || b_l >= n)
+        {
+            PyErr_SetString(PyExc_ValueError, "edge endpoint out of range");
+            goto fail;
+        }
+        add_directed_edge(k, (int)a_l, (int)b_l);
+    }
+
+    if (precompute(k) < 0)
+        goto fail;
+
+    return 0;
+
+fail:
+    free_kernel(k);
+    return -1;
 }
 
 static int compute_all_pairs(Kernel *k)
@@ -429,421 +529,151 @@ static int validate_vertex(const Kernel *k, long v_l, int *out)
     return 0;
 }
 
-static PyObject *evaluate_from_edges(PyObject *Py_UNUSED(module), PyObject *args)
+static void free_vertex_list(VertexList *list)
 {
-    int n;
-    int source;
-    double delta;
-    PyObject *edges_obj;
-    PyObject *add_targets_obj;
-    PyObject *delete_targets_obj;
-
-    if (!PyArg_ParseTuple(args, "iOidOO", &n, &edges_obj, &source, &delta, &add_targets_obj, &delete_targets_obj))
-    {
-        return NULL;
-    }
-    if (n <= 0)
-    {
-        PyErr_SetString(PyExc_ValueError, "n must be positive");
-        return NULL;
-    }
-    if (source < 0 || source >= n)
-    {
-        PyErr_SetString(PyExc_ValueError, "source out of range");
-        return NULL;
-    }
-    if (!(delta >= 0.0 && delta <= 1.0))
-    {
-        PyErr_SetString(PyExc_ValueError, "delta must lie in [0, 1]");
-        return NULL;
-    }
-
-    Kernel k;
-    memset(&k, 0, sizeof(k));
-    k.n = n;
-    k.source = source;
-    k.words = bit_words(n);
-    k.INF = n + 1;
-    k.last_mask = (n & 63) ? (((uint64_t)1 << (n & 63)) - 1U) : UINT64_MAX;
-    k.delta = delta;
-
-    if (alloc_kernel(&k) < 0)
-    {
-        free_kernel(&k);
-        return NULL;
-    }
-    if (parse_edges(&k, edges_obj) < 0)
-    {
-        free_kernel(&k);
-        return NULL;
-    }
-    if (precompute(&k) < 0)
-    {
-        free_kernel(&k);
-        return NULL;
-    }
-
-    PyObject *add_seq = PySequence_Fast(add_targets_obj, "add_targets must be a sequence of vertices");
-    if (add_seq == NULL)
-    {
-        free_kernel(&k);
-        return NULL;
-    }
-    PyObject *del_seq = PySequence_Fast(delete_targets_obj, "delete_targets must be a sequence of vertices");
-    if (del_seq == NULL)
-    {
-        Py_DECREF(add_seq);
-        free_kernel(&k);
-        return NULL;
-    }
-
-    const Py_ssize_t n_add = PySequence_Fast_GET_SIZE(add_seq);
-    const Py_ssize_t n_del = PySequence_Fast_GET_SIZE(del_seq);
-    PyObject **add_items = PySequence_Fast_ITEMS(add_seq);
-    PyObject **del_items = PySequence_Fast_ITEMS(del_seq);
-
-    PyObject *delete_values = PyList_New(n_del);
-    PyObject *add_values = PyList_New(n_add);
-    PyObject *add_best_delete = PyList_New(n_add);
-    if (delete_values == NULL || add_values == NULL || add_best_delete == NULL)
-    {
-        Py_XDECREF(delete_values);
-        Py_XDECREF(add_values);
-        Py_XDECREF(add_best_delete);
-        Py_DECREF(add_seq);
-        Py_DECREF(del_seq);
-        free_kernel(&k);
-        return NULL;
-    }
-
-    for (Py_ssize_t i = 0; i < n_del; ++i)
-    {
-        long v_l = PyLong_AsLong(del_items[i]);
-        int v;
-        if ((v_l == -1 && PyErr_Occurred()) || validate_vertex(&k, v_l, &v) < 0)
-        {
-            Py_DECREF(delete_values);
-            Py_DECREF(add_values);
-            Py_DECREF(add_best_delete);
-            Py_DECREF(add_seq);
-            Py_DECREF(del_seq);
-            free_kernel(&k);
-            return NULL;
-        }
-        double value = 0.0;
-        if (v != source)
-        {
-            if (k.source_out_mult[v] == 0)
-            {
-                PyErr_Format(PyExc_ValueError, "No outgoing arc %d->%d exists in the base graph", source, v);
-                Py_DECREF(delete_values);
-                Py_DECREF(add_values);
-                Py_DECREF(add_best_delete);
-                Py_DECREF(add_seq);
-                Py_DECREF(del_seq);
-                free_kernel(&k);
-                return NULL;
-            }
-            if (k.source_total_mult[v] == 1)
-            {
-                value = k.delete_delta[v];
-            }
-        }
-        PyObject *value_obj = PyFloat_FromDouble(value);
-        if (value_obj == NULL)
-        {
-            Py_DECREF(delete_values);
-            Py_DECREF(add_values);
-            Py_DECREF(add_best_delete);
-            Py_DECREF(add_seq);
-            Py_DECREF(del_seq);
-            free_kernel(&k);
-            return NULL;
-        }
-        PyList_SET_ITEM(delete_values, i, value_obj);
-    }
-
-    for (Py_ssize_t i = 0; i < n_add; ++i)
-    {
-        long u_l = PyLong_AsLong(add_items[i]);
-        int u;
-        if ((u_l == -1 && PyErr_Occurred()) || validate_vertex(&k, u_l, &u) < 0)
-        {
-            Py_DECREF(delete_values);
-            Py_DECREF(add_values);
-            Py_DECREF(add_best_delete);
-            Py_DECREF(add_seq);
-            Py_DECREF(del_seq);
-            free_kernel(&k);
-            return NULL;
-        }
-        double best = (u == source) ? 0.0 : k.add_delta[u];
-        int best_del = -1;
-        for (Py_ssize_t j = 0; j < n_del; ++j)
-        {
-            long v_l = PyLong_AsLong(del_items[j]);
-            int v = (int)v_l;
-            if (v == source)
-                continue;
-            if (k.source_out_mult[v] == 0)
-            {
-                PyErr_Format(PyExc_ValueError, "No outgoing arc %d->%d exists in the base graph", source, v);
-                Py_DECREF(delete_values);
-                Py_DECREF(add_values);
-                Py_DECREF(add_best_delete);
-                Py_DECREF(add_seq);
-                Py_DECREF(del_seq);
-                free_kernel(&k);
-                return NULL;
-            }
-            const double cand = k.swap_delta[(size_t)v * (size_t)n + (size_t)u];
-            if (cand > best)
-            {
-                best = cand;
-                best_del = v;
-            }
-        }
-        PyObject *best_obj = PyFloat_FromDouble(best);
-        PyObject *best_del_obj = PyLong_FromLong(best_del);
-        if (best_obj == NULL || best_del_obj == NULL)
-        {
-            Py_XDECREF(best_obj);
-            Py_XDECREF(best_del_obj);
-            Py_DECREF(delete_values);
-            Py_DECREF(add_values);
-            Py_DECREF(add_best_delete);
-            Py_DECREF(add_seq);
-            Py_DECREF(del_seq);
-            free_kernel(&k);
-            return NULL;
-        }
-        PyList_SET_ITEM(add_values, i, best_obj);
-        PyList_SET_ITEM(add_best_delete, i, best_del_obj);
-    }
-
-    const double base_score = k.base_score;
-    Py_DECREF(add_seq);
-    Py_DECREF(del_seq);
-    free_kernel(&k);
-
-    PyObject *result = PyTuple_New(4);
-    if (result == NULL)
-    {
-        Py_DECREF(delete_values);
-        Py_DECREF(add_values);
-        Py_DECREF(add_best_delete);
-        return NULL;
-    }
-
-    PyObject *base_obj = PyFloat_FromDouble(base_score);
-    if (base_obj == NULL)
-    {
-        Py_DECREF(result);
-        Py_DECREF(delete_values);
-        Py_DECREF(add_values);
-        Py_DECREF(add_best_delete);
-        return NULL;
-    }
-
-    PyTuple_SET_ITEM(result, 0, base_obj);
-    PyTuple_SET_ITEM(result, 1, delete_values);
-    PyTuple_SET_ITEM(result, 2, add_values);
-    PyTuple_SET_ITEM(result, 3, add_best_delete);
-    return result;
+    PyMem_Free(list->values);
+    memset(list, 0, sizeof(*list));
 }
 
-static PyObject *evaluate_best_response_terms_from_edges(PyObject *Py_UNUSED(module), PyObject *args)
+static int parse_vertex_list(const Kernel *k, PyObject *obj, const char *message, VertexList *out)
 {
-    int n;
+    PyObject *seq;
+    PyObject **items;
+
+    memset(out, 0, sizeof(*out));
+    seq = PySequence_Fast(obj, message);
+    if (seq == NULL)
+        return -1;
+
+    out->len = PySequence_Fast_GET_SIZE(seq);
+    if (out->len > 0)
+    {
+        out->values = PyMem_Malloc((size_t)out->len * sizeof(int));
+        if (out->values == NULL)
+        {
+            PyErr_NoMemory();
+            Py_DECREF(seq);
+            return -1;
+        }
+    }
+
+    items = PySequence_Fast_ITEMS(seq);
+    for (Py_ssize_t i = 0; i < out->len; ++i)
+    {
+        long v_l = PyLong_AsLong(items[i]);
+        if ((v_l == -1 && PyErr_Occurred()) || validate_vertex(k, v_l, &out->values[i]) < 0)
+        {
+            Py_DECREF(seq);
+            free_vertex_list(out);
+            return -1;
+        }
+    }
+
+    Py_DECREF(seq);
+    return 0;
+}
+
+static PyObject *build_delete_values(const Kernel *k, const VertexList *deletes)
+{
+    PyObject *values = PyList_New(deletes->len);
+    if (values == NULL)
+        return NULL;
+
+    for (Py_ssize_t i = 0; i < deletes->len; ++i)
+    {
+        const int v = deletes->values[i];
+        double value = 0.0;
+        if (v != k->source)
+        {
+            if (k->source_out_mult[v] == 0)
+            {
+                PyErr_Format(PyExc_ValueError, "No outgoing arc %d->%d exists in the base graph", k->source, v);
+                Py_DECREF(values);
+                return NULL;
+            }
+            value = (k->source_total_mult[v] == 1) ? k->delete_delta[v] : 0.0;
+        }
+
+        PyObject *value_obj = PyFloat_FromDouble(value);
+        if (value_obj == NULL)
+        {
+            Py_DECREF(values);
+            return NULL;
+        }
+        PyList_SET_ITEM(values, i, value_obj);
+    }
+
+    return values;
+}
+
+static void best_swap_delta(const Kernel *k, int u, const VertexList *deletes, double *best, int *best_del)
+{
+    *best = deletes->len > 0 ? -INFINITY : 0.0;
+    *best_del = -1;
+
+    for (Py_ssize_t i = 0; i < deletes->len; ++i)
+    {
+        const int v = deletes->values[i];
+        if (v == k->source)
+            continue;
+
+        const double cand = k->swap_delta[(size_t)v * (size_t)k->n + (size_t)u];
+        if (cand > *best)
+        {
+            *best = cand;
+            *best_del = v;
+        }
+    }
+
+    if (*best_del == -1 && deletes->len > 0)
+        *best = 0.0;
+}
+
+static PyObject *evaluate_best_response_terms(PyObject *Py_UNUSED(module), PyObject *args)
+{
+    Kernel k = {0};
+    VertexList adds = {0};
+    VertexList deletes = {0};
+    PyObject *graph_obj = NULL;
+    PyObject *add_targets_obj = NULL;
+    PyObject *delete_targets_obj = NULL;
+    PyObject *delete_values = NULL;
+    PyObject *add_only_values = NULL;
+    PyObject *best_swap_values = NULL;
+    PyObject *best_swap_delete = NULL;
+    PyObject *result = NULL;
     int source;
     double delta;
-    PyObject *edges_obj;
-    PyObject *add_targets_obj;
-    PyObject *delete_targets_obj;
 
-    if (!PyArg_ParseTuple(args, "iOidOO", &n, &edges_obj, &source, &delta, &add_targets_obj, &delete_targets_obj))
-    {
+    if (!PyArg_ParseTuple(args, "OidOO", &graph_obj, &source, &delta, &add_targets_obj, &delete_targets_obj))
         return NULL;
-    }
-    if (n <= 0)
-    {
-        PyErr_SetString(PyExc_ValueError, "n must be positive");
-        return NULL;
-    }
-    if (source < 0 || source >= n)
-    {
-        PyErr_SetString(PyExc_ValueError, "source out of range");
-        return NULL;
-    }
     if (!(delta >= 0.0 && delta <= 1.0))
     {
         PyErr_SetString(PyExc_ValueError, "delta must lie in [0, 1]");
         return NULL;
     }
 
-    Kernel k;
-    memset(&k, 0, sizeof(k));
-    k.n = n;
-    k.source = source;
-    k.words = bit_words(n);
-    k.INF = n + 1;
-    k.last_mask = (n & 63) ? (((uint64_t)1 << (n & 63)) - 1U) : UINT64_MAX;
-    k.delta = delta;
+    if (build_kernel_from_graph(&k, graph_obj, source, delta) < 0)
+        goto done;
+    if (parse_vertex_list(&k, add_targets_obj, "add_targets must be a sequence of vertices", &adds) < 0)
+        goto done;
+    if (parse_vertex_list(&k, delete_targets_obj, "delete_targets must be a sequence of vertices", &deletes) < 0)
+        goto done;
 
-    if (alloc_kernel(&k) < 0)
-    {
-        free_kernel(&k);
-        return NULL;
-    }
-    if (parse_edges(&k, edges_obj) < 0)
-    {
-        free_kernel(&k);
-        return NULL;
-    }
-    if (precompute(&k) < 0)
-    {
-        free_kernel(&k);
-        return NULL;
-    }
-
-    PyObject *add_seq = PySequence_Fast(add_targets_obj, "add_targets must be a sequence of vertices");
-    if (add_seq == NULL)
-    {
-        free_kernel(&k);
-        return NULL;
-    }
-    PyObject *del_seq = PySequence_Fast(delete_targets_obj, "delete_targets must be a sequence of vertices");
-    if (del_seq == NULL)
-    {
-        Py_DECREF(add_seq);
-        free_kernel(&k);
-        return NULL;
-    }
-
-    const Py_ssize_t n_add = PySequence_Fast_GET_SIZE(add_seq);
-    const Py_ssize_t n_del = PySequence_Fast_GET_SIZE(del_seq);
-    PyObject **add_items = PySequence_Fast_ITEMS(add_seq);
-    PyObject **del_items = PySequence_Fast_ITEMS(del_seq);
-
-    PyObject *delete_values = PyList_New(n_del);
-    PyObject *add_only_values = PyList_New(n_add);
-    PyObject *best_swap_values = PyList_New(n_add);
-    PyObject *best_swap_delete = PyList_New(n_add);
+    delete_values = build_delete_values(&k, &deletes);
+    add_only_values = PyList_New(adds.len);
+    best_swap_values = PyList_New(adds.len);
+    best_swap_delete = PyList_New(adds.len);
     if (delete_values == NULL || add_only_values == NULL || best_swap_values == NULL || best_swap_delete == NULL)
+        goto done;
+
+    for (Py_ssize_t i = 0; i < adds.len; ++i)
     {
-        Py_XDECREF(delete_values);
-        Py_XDECREF(add_only_values);
-        Py_XDECREF(best_swap_values);
-        Py_XDECREF(best_swap_delete);
-        Py_DECREF(add_seq);
-        Py_DECREF(del_seq);
-        free_kernel(&k);
-        return NULL;
-    }
-
-    for (Py_ssize_t i = 0; i < n_del; ++i)
-    {
-        long v_l = PyLong_AsLong(del_items[i]);
-        int v;
-        if ((v_l == -1 && PyErr_Occurred()) || validate_vertex(&k, v_l, &v) < 0)
-        {
-            Py_DECREF(delete_values);
-            Py_DECREF(add_only_values);
-            Py_DECREF(best_swap_values);
-            Py_DECREF(best_swap_delete);
-            Py_DECREF(add_seq);
-            Py_DECREF(del_seq);
-            free_kernel(&k);
-            return NULL;
-        }
-        double value = 0.0;
-        if (v != source)
-        {
-            if (k.source_out_mult[v] == 0)
-            {
-                PyErr_Format(PyExc_ValueError, "No outgoing arc %d->%d exists in the base graph", source, v);
-                Py_DECREF(delete_values);
-                Py_DECREF(add_only_values);
-                Py_DECREF(best_swap_values);
-                Py_DECREF(best_swap_delete);
-                Py_DECREF(add_seq);
-                Py_DECREF(del_seq);
-                free_kernel(&k);
-                return NULL;
-            }
-            if (k.source_total_mult[v] == 1)
-            {
-                value = k.delete_delta[v];
-            }
-        }
-
-        PyObject *value_obj = PyFloat_FromDouble(value);
-        if (value_obj == NULL)
-        {
-            Py_DECREF(delete_values);
-            Py_DECREF(add_only_values);
-            Py_DECREF(best_swap_values);
-            Py_DECREF(best_swap_delete);
-            Py_DECREF(add_seq);
-            Py_DECREF(del_seq);
-            free_kernel(&k);
-            return NULL;
-        }
-        PyList_SET_ITEM(delete_values, i, value_obj);
-    }
-
-    for (Py_ssize_t i = 0; i < n_add; ++i)
-    {
-        long u_l = PyLong_AsLong(add_items[i]);
-        int u;
-        if ((u_l == -1 && PyErr_Occurred()) || validate_vertex(&k, u_l, &u) < 0)
-        {
-            Py_DECREF(delete_values);
-            Py_DECREF(add_only_values);
-            Py_DECREF(best_swap_values);
-            Py_DECREF(best_swap_delete);
-            Py_DECREF(add_seq);
-            Py_DECREF(del_seq);
-            free_kernel(&k);
-            return NULL;
-        }
-
-        const double add_only = (u == source) ? 0.0 : k.add_delta[u];
-        double best_swap = 0.0;
-        int best_del = -1;
-        if (n_del > 0)
-        {
-            best_swap = -INFINITY;
-            for (Py_ssize_t j = 0; j < n_del; ++j)
-            {
-                long v_l = PyLong_AsLong(del_items[j]);
-                int v = (int)v_l;
-                if (v == source)
-                    continue;
-                if (k.source_out_mult[v] == 0)
-                {
-                    PyErr_Format(PyExc_ValueError, "No outgoing arc %d->%d exists in the base graph", source, v);
-                    Py_DECREF(delete_values);
-                    Py_DECREF(add_only_values);
-                    Py_DECREF(best_swap_values);
-                    Py_DECREF(best_swap_delete);
-                    Py_DECREF(add_seq);
-                    Py_DECREF(del_seq);
-                    free_kernel(&k);
-                    return NULL;
-                }
-                const double cand = k.swap_delta[(size_t)v * (size_t)n + (size_t)u];
-                if (cand > best_swap)
-                {
-                    best_swap = cand;
-                    best_del = v;
-                }
-            }
-            if (best_del == -1)
-            {
-                best_swap = 0.0;
-            }
-        }
+        const int u = adds.values[i];
+        const double add_only = (u == k.source) ? 0.0 : k.add_delta[u];
+        double best_swap;
+        int best_del;
+        best_swap_delta(&k, u, &deletes, &best_swap, &best_del);
 
         PyObject *add_only_obj = PyFloat_FromDouble(add_only);
         PyObject *best_swap_obj = PyFloat_FromDouble(best_swap);
@@ -853,59 +683,29 @@ static PyObject *evaluate_best_response_terms_from_edges(PyObject *Py_UNUSED(mod
             Py_XDECREF(add_only_obj);
             Py_XDECREF(best_swap_obj);
             Py_XDECREF(best_del_obj);
-            Py_DECREF(delete_values);
-            Py_DECREF(add_only_values);
-            Py_DECREF(best_swap_values);
-            Py_DECREF(best_swap_delete);
-            Py_DECREF(add_seq);
-            Py_DECREF(del_seq);
-            free_kernel(&k);
-            return NULL;
+            goto done;
         }
         PyList_SET_ITEM(add_only_values, i, add_only_obj);
         PyList_SET_ITEM(best_swap_values, i, best_swap_obj);
         PyList_SET_ITEM(best_swap_delete, i, best_del_obj);
     }
 
-    const double base_score = k.base_score;
-    Py_DECREF(add_seq);
-    Py_DECREF(del_seq);
+    result = Py_BuildValue("(dOOOO)", k.base_score, delete_values, add_only_values, best_swap_values, best_swap_delete);
+
+done:
+    Py_XDECREF(delete_values);
+    Py_XDECREF(add_only_values);
+    Py_XDECREF(best_swap_values);
+    Py_XDECREF(best_swap_delete);
+    free_vertex_list(&adds);
+    free_vertex_list(&deletes);
     free_kernel(&k);
-
-    PyObject *result = PyTuple_New(5);
-    if (result == NULL)
-    {
-        Py_DECREF(delete_values);
-        Py_DECREF(add_only_values);
-        Py_DECREF(best_swap_values);
-        Py_DECREF(best_swap_delete);
-        return NULL;
-    }
-
-    PyObject *base_obj = PyFloat_FromDouble(base_score);
-    if (base_obj == NULL)
-    {
-        Py_DECREF(result);
-        Py_DECREF(delete_values);
-        Py_DECREF(add_only_values);
-        Py_DECREF(best_swap_values);
-        Py_DECREF(best_swap_delete);
-        return NULL;
-    }
-
-    PyTuple_SET_ITEM(result, 0, base_obj);
-    PyTuple_SET_ITEM(result, 1, delete_values);
-    PyTuple_SET_ITEM(result, 2, add_only_values);
-    PyTuple_SET_ITEM(result, 3, best_swap_values);
-    PyTuple_SET_ITEM(result, 4, best_swap_delete);
     return result;
 }
 
 static PyMethodDef methods[] = {
-    {"evaluate_from_edges", (PyCFunction)evaluate_from_edges, METH_VARARGS,
-     PyDoc_STR("evaluate_from_edges(n, directed_edges, source, delta, add_targets, delete_targets) -> (base_score, delete_values, add_values, add_best_delete)")},
-    {"evaluate_best_response_terms_from_edges", (PyCFunction)evaluate_best_response_terms_from_edges, METH_VARARGS,
-     PyDoc_STR("evaluate_best_response_terms_from_edges(n, directed_edges, source, delta, add_targets, delete_targets) -> (base_score, delete_values, add_only_values, best_swap_values, best_swap_delete)")},
+    {"evaluate_best_response_terms", (PyCFunction)evaluate_best_response_terms, METH_VARARGS,
+     PyDoc_STR("evaluate_best_response_terms(graph, source, delta, add_targets, delete_targets) -> (base_score, delete_values, add_only_values, best_swap_values, best_swap_delete)")},
     {NULL, NULL, 0, NULL}};
 
 static struct PyModuleDef moduledef = {

@@ -19,10 +19,11 @@ from .support import (
     generate_parameter_table,
     load_observers,
     load_simulation_sweep,
+    parameter_bounds,
 )
 
 if TYPE_CHECKING:
-    from .results import PolicyTensorGroup
+    from .results import PolicyOutput
     from network_creation.core.runtime import SimulationSettings
     from network_creation.policies.base import Policy
 
@@ -52,6 +53,10 @@ class PolicyRun(ABC):
             max_steps=self.simulation_sweep.max_steps,
             n_episodes=self.simulation_sweep.n_episodes,
         )
+        result_attrs, result_arrays = self._result_metadata(
+            config=config,
+            parameter_specs=parameter_specs,
+        )
 
         return PreparedTask(
             inputs=tuple(range(self.simulation_sweep.total_inputs)),
@@ -59,6 +64,48 @@ class PolicyRun(ABC):
                 fields=tuple(spec.field for spec in self.observer_specs)
             ),
             run=self.run,
+            result_attrs=result_attrs,
+            result_arrays=result_arrays,
+        )
+
+    def _result_metadata(
+        self,
+        *,
+        config: Mapping[str, Any],
+        parameter_specs: Mapping[str, Mapping[str, object]],
+    ) -> tuple[dict[str, Any], dict[str, np.ndarray[Any, Any]]]:
+        parameters = np.asarray(
+            self.simulation_sweep.configuration_values[:, :, 1:],
+            dtype=np.float32,
+        )
+        parameter_low, parameter_high = parameter_bounds(
+            parameters,
+            parameter_names=self.parameter_table.parameter_names,
+            parameter_specs=parameter_specs,
+        )
+        input_coordinates = np.asarray(
+            [
+                self.simulation_sweep.coordinates(input_index)
+                for input_index in range(self.simulation_sweep.total_inputs)
+            ],
+            dtype=np.int64,
+        )
+
+        return (
+            {
+                "parameter_names": list(self.parameter_table.parameter_names),
+                "simulation": config["simulation"],
+            },
+            {
+                "n_agents": np.asarray(
+                    self.simulation_sweep.n_agents_values,
+                    dtype=np.int64,
+                ),
+                "parameters": parameters,
+                "parameter_low": parameter_low,
+                "parameter_high": parameter_high,
+                "input_coordinates": input_coordinates,
+            },
         )
 
     def validate_input_spec(self, input_spec: Mapping[str, object]) -> None:
@@ -182,5 +229,5 @@ class PolicyRun(ABC):
     def build_output_group(
         cls,
         outputs: dict[str, NDArray[np.generic]],
-    ) -> PolicyTensorGroup:
+    ) -> PolicyOutput:
         """Convert raw stored outputs into formatted tensors."""

@@ -10,7 +10,8 @@ from numpy.typing import NDArray
 from network_creation.policies.myopic_payoff import MyopicPayoffPolicy
 
 from .base import PolicyRun
-from .results import PolicyTensorGroup
+from .results import PolicyOutput
+from .support import collect_timeseries_outputs
 
 
 class MyopicPolicyRun(PolicyRun):
@@ -20,9 +21,8 @@ class MyopicPolicyRun(PolicyRun):
         self,
         node_id: int,
         configuration: NDArray[np.float32],
-        simulation_settings,
+        _simulation_settings,
     ) -> MyopicPayoffPolicy:
-        del simulation_settings
         parameter_columns = self.simulation_sweep.column_index_by_name
         return MyopicPayoffPolicy(
             seed=node_id,
@@ -39,48 +39,17 @@ class MyopicPolicyRun(PolicyRun):
     def build_output_group(
         cls,
         outputs: dict[str, NDArray[np.generic]],
-    ) -> PolicyTensorGroup:
-        observable_names, series_arrays = cls._collect_timeseries_outputs(outputs)
+    ) -> PolicyOutput:
+        observable_names, series_arrays = collect_timeseries_outputs(
+            outputs,
+            task_name=cls.name,
+        )
         if not series_arrays:
             raise ValueError("myopic-policy results do not contain any time-series outputs")
 
         timeseries = np.stack(series_arrays, axis=2).astype(np.float32, copy=False)
-        final = np.asarray(timeseries[:, :, :, -1], dtype=np.float32)
-
-        return {
-            "tensors": {
-                "timeseries": timeseries,
-                "final": final,
-            },
-            "dims": {
-                "timeseries": ("n_agents", "parameter_row", "observable", "step"),
-                "final": ("n_agents", "parameter_row", "observable"),
-            },
-            "labels": {
-                "observable": observable_names,
-                "step": np.arange(timeseries.shape[3], dtype=np.int64),
-            },
-        }
-
-    @staticmethod
-    def _collect_timeseries_outputs(
-        outputs: dict[str, NDArray[np.generic]],
-    ) -> tuple[tuple[str, ...], list[NDArray[np.float32]]]:
-        series_names: list[str] = []
-        series_arrays: list[NDArray[np.float32]] = []
-        expected_steps: int | None = None
-
-        for name, values in outputs.items():
-            array = np.asarray(values)
-            if array.ndim != 3:
-                continue
-            if expected_steps is None:
-                expected_steps = array.shape[2]
-            elif array.shape[2] != expected_steps:
-                raise ValueError(
-                    "myopic-policy time-series outputs must share the same step axis length"
-                )
-            series_names.append(name)
-            series_arrays.append(np.asarray(array, dtype=np.float32))
-
-        return tuple(series_names), series_arrays
+        return PolicyOutput(
+            timeseries=timeseries,
+            observable_names=observable_names,
+            step_labels=np.arange(timeseries.shape[1], dtype=np.int64),
+        )

@@ -194,8 +194,7 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
 
         with self.assertRaisesRegex(
             ValueError,
-            r"input_spec.parameters.benefit_to_cost_ratio must satisfy "
-            r"benefit_to_cost_ratio in \(0\.0,1\.0\]",
+            r"input_spec.parameters.benefit_to_cost_ratio must be in \(0, 1\]",
         ):
             BestResponsePolicyRun().prepare(config)
 
@@ -208,7 +207,6 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
 
         with self.assertRaisesRegex(
             ValueError,
-            r"input_spec.parameters.exploration must satisfy "
-            r"exploration in \(0\.0,inf\)",
+            r"input_spec.parameters.exploration must be greater than 0",
         ):
             BestResponsePolicyRun().prepare(config)

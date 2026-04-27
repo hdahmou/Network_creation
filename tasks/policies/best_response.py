@@ -10,7 +10,8 @@ from numpy.typing import NDArray
 from network_creation.policies.best_response import BestResponsePolicy
 
 from .base import PolicyRun
-from .results import PolicyTensorGroup
+from .results import PolicyOutput
+from .support import collect_timeseries_outputs
 
 
 class BestResponsePolicyRun(PolicyRun):
@@ -20,38 +21,35 @@ class BestResponsePolicyRun(PolicyRun):
         parameter_columns = self.simulation_sweep.column_index_by_name
         configuration_values = self.simulation_sweep.configuration_values
 
-        self._validate_parameter_bounds(
-            configuration_values[:, :, parameter_columns["benefit_to_cost_ratio"]],
-            lower_bound=0.0,
-            upper_bound=1.0,
-            include_lower=False,
-            include_upper=True,
-            parameter_name="benefit_to_cost_ratio",
-        )
-        self._validate_parameter_bounds(
-            configuration_values[:, :, parameter_columns["distance_discount"]],
-            lower_bound=0.0,
-            upper_bound=1.0,
-            include_lower=False,
-            include_upper=False,
-            parameter_name="distance_discount",
-        )
-        self._validate_parameter_bounds(
-            configuration_values[:, :, parameter_columns["outside_optimism"]],
-            lower_bound=0.0,
-            upper_bound=1.0,
-            include_lower=True,
-            include_upper=True,
-            parameter_name="outside_optimism",
-        )
-        self._validate_parameter_bounds(
-            configuration_values[:, :, parameter_columns["exploration"]],
-            lower_bound=0.0,
-            upper_bound=None,
-            include_lower=False,
-            include_upper=False,
-            parameter_name="exploration",
-        )
+        benefit_to_cost_ratio = configuration_values[
+            :, :, parameter_columns["benefit_to_cost_ratio"]
+        ]
+        if np.any((benefit_to_cost_ratio <= 0.0) | (benefit_to_cost_ratio > 1.0)):
+            raise ValueError(
+                "input_spec.parameters.benefit_to_cost_ratio must be in (0, 1]"
+            )
+
+        distance_discount = configuration_values[
+            :, :, parameter_columns["distance_discount"]
+        ]
+        if np.any((distance_discount <= 0.0) | (distance_discount >= 1.0)):
+            raise ValueError(
+                "input_spec.parameters.distance_discount must be in (0, 1)"
+            )
+
+        outside_optimism = configuration_values[
+            :, :, parameter_columns["outside_optimism"]
+        ]
+        if np.any((outside_optimism < 0.0) | (outside_optimism > 1.0)):
+            raise ValueError(
+                "input_spec.parameters.outside_optimism must be in [0, 1]"
+            )
+
+        exploration = configuration_values[:, :, parameter_columns["exploration"]]
+        if np.any(exploration <= 0.0):
+            raise ValueError(
+                "input_spec.parameters.exploration must be greater than 0"
+            )
 
     def build_policy(
         self,
@@ -77,88 +75,19 @@ class BestResponsePolicyRun(PolicyRun):
     def build_output_group(
         cls,
         outputs: dict[str, NDArray[np.generic]],
-    ) -> PolicyTensorGroup:
-        observable_names, series_arrays = cls._collect_timeseries_outputs(outputs)
+    ) -> PolicyOutput:
+        observable_names, series_arrays = collect_timeseries_outputs(
+            outputs,
+            task_name=cls.name,
+        )
         if not series_arrays:
             raise ValueError(
                 "best-response-policy results do not contain any time-series outputs"
             )
 
         timeseries = np.stack(series_arrays, axis=2).astype(np.float32, copy=False)
-        final = np.asarray(timeseries[:, :, :, -1], dtype=np.float32)
-
-        return {
-            "tensors": {
-                "timeseries": timeseries,
-                "final": final,
-            },
-            "dims": {
-                "timeseries": ("n_agents", "parameter_row", "observable", "step"),
-                "final": ("n_agents", "parameter_row", "observable"),
-            },
-            "labels": {
-                "observable": observable_names,
-                "step": np.arange(timeseries.shape[3], dtype=np.int64),
-            },
-        }
-
-    @staticmethod
-    def _collect_timeseries_outputs(
-        outputs: dict[str, NDArray[np.generic]],
-    ) -> tuple[tuple[str, ...], list[NDArray[np.float32]]]:
-        series_names: list[str] = []
-        series_arrays: list[NDArray[np.float32]] = []
-        expected_steps: int | None = None
-
-        for name, values in outputs.items():
-            array = np.asarray(values)
-            if array.ndim != 3:
-                continue
-            if expected_steps is None:
-                expected_steps = array.shape[2]
-            elif array.shape[2] != expected_steps:
-                raise ValueError(
-                    "best-response-policy time-series outputs must share "
-                    "the same step axis length"
-                )
-            series_names.append(name)
-            series_arrays.append(np.asarray(array, dtype=np.float32))
-
-        return tuple(series_names), series_arrays
-
-    @staticmethod
-    def _validate_parameter_bounds(
-        values: NDArray[np.float32],
-        *,
-        lower_bound: float | None,
-        upper_bound: float | None,
-        include_lower: bool,
-        include_upper: bool,
-        parameter_name: str,
-    ) -> None:
-        invalid_mask = np.zeros(values.shape, dtype=bool)
-        if lower_bound is not None:
-            if include_lower:
-                invalid_mask |= values < lower_bound
-            else:
-                invalid_mask |= values <= lower_bound
-        if upper_bound is not None:
-            if include_upper:
-                invalid_mask |= values > upper_bound
-            else:
-                invalid_mask |= values >= upper_bound
-
-        if np.any(invalid_mask):
-            lower_text = (
-                ("[" if include_lower else "(")
-                + (str(lower_bound) if lower_bound is not None else "-inf")
-            )
-            upper_text = (
-                (str(upper_bound) if upper_bound is not None else "inf")
-                + ("]" if include_upper else ")")
-            )
-            raise ValueError(
-                "input_spec.parameters."
-                f"{parameter_name} must satisfy {parameter_name} in "
-                f"{lower_text},{upper_text}"
-            )
+        return PolicyOutput(
+            timeseries=timeseries,
+            observable_names=observable_names,
+            step_labels=np.arange(timeseries.shape[1], dtype=np.int64),
+        )

@@ -9,9 +9,8 @@ from pathlib import Path
 import numpy as np
 import zarr
 
-from tasks.dispatch.result_store import ResultStore, load_result_zarr, task_class_path
+from tasks.dispatch.result_store import ResultStore, load_result_zarr
 from tasks.dispatch.runtime import OutputField, OutputSchema
-from tests.tasks import support_tasks as _support_tasks
 
 
 class ResultStoreTest(unittest.TestCase):
@@ -19,12 +18,6 @@ class ResultStoreTest(unittest.TestCase):
     def _output_schema() -> OutputSchema:
         return OutputSchema(
             fields=(OutputField(name="vector", shape=(2,), dtype=np.int64),)
-        )
-
-    def test_task_class_path_uses_module_and_qualname(self) -> None:
-        self.assertEqual(
-            task_class_path(_support_tasks.VectorTask()),
-            "tests.tasks.support_tasks:VectorTask",
         )
 
     def test_load_result_zarr_raises_for_missing_store(self) -> None:
@@ -41,7 +34,6 @@ class ResultStoreTest(unittest.TestCase):
                 ResultStore(
                     str(store_path),
                     task_name="vector",
-                    task_class="tests.tasks.support_tasks:VectorTask",
                     output_schema=self._output_schema(),
                     batch_size=0,
                     total_inputs=1,
@@ -51,7 +43,6 @@ class ResultStoreTest(unittest.TestCase):
                 ResultStore(
                     str(store_path),
                     task_name="vector",
-                    task_class="tests.tasks.support_tasks:VectorTask",
                     output_schema=self._output_schema(),
                     batch_size=1,
                     total_inputs=-1,
@@ -63,7 +54,6 @@ class ResultStoreTest(unittest.TestCase):
             writer = ResultStore(
                 str(store_path),
                 task_name="vector",
-                task_class="tests.tasks.support_tasks:VectorTask",
                 output_schema=self._output_schema(),
                 batch_size=2,
                 total_inputs=1,
@@ -72,34 +62,37 @@ class ResultStoreTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "exported shape"):
                 writer.add_success(
                     input_index=0,
-                    input_label="0",
                     output={"vector": np.asarray([1, 2, 3], dtype=np.int64)},
                     duration_ms=1.0,
                 )
 
-    def test_result_store_batches_failures_and_flushes_pending_rows(self) -> None:
+    def test_result_store_records_failure_flag_and_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             store_path = Path(tmp_dir) / "results.zarr"
             writer = ResultStore(
                 str(store_path),
                 task_name="vector",
-                task_class="tests.tasks.support_tasks:VectorTask",
                 output_schema=self._output_schema(),
                 batch_size=2,
                 total_inputs=3,
+                metadata_attrs={"custom_attr": "present"},
+                metadata_arrays={"grid": np.asarray([[1, 2], [3, 4]], dtype=np.int64)},
             )
 
-            self.assertEqual(writer.add_failure("boom-1"), (0, 0))
-            self.assertEqual(writer.add_failure("boom-2"), (0, 2))
-            self.assertEqual(writer.add_failure("boom-3"), (0, 0))
-            self.assertEqual(writer.flush(), (0, 1))
+            writer.add_failure()
+            writer.add_failure()
+            writer.add_failure()
+            writer.flush()
 
             root = zarr.open_group(store_path, mode="r")
+            self.assertEqual(root.attrs["custom_attr"], "present")
+            self.assertTrue(root.attrs["has_failures"])
             np.testing.assert_array_equal(
-                np.asarray(root["failures"]["error"]),
-                np.asarray(["boom-1", "boom-2", "boom-3"]),
+                np.asarray(root["metadata"]["grid"]),
+                np.asarray([[1, 2], [3, 4]], dtype=np.int64),
             )
-            self.assertEqual(writer.failure_count, 3)
+            self.assertNotIn("failures", root)
+            self.assertTrue(writer.has_failures)
 
 
 if __name__ == "__main__":

@@ -14,7 +14,7 @@ from ..policy_result_support import build_random_config, write_result_store
 
 
 class RandomPolicyResultFormatterTest(unittest.TestCase):
-    def test_from_zarr_reconstructs_visibility_distance_parameter_with_timeseries_outputs(self) -> None:
+    def test_from_zarr_reconstructs_timeseries_outputs(self) -> None:
         config = build_random_config()
         outputs_by_index = [
             (
@@ -30,31 +30,33 @@ class RandomPolicyResultFormatterTest(unittest.TestCase):
             store_path = write_result_store(
                 Path(tmpdir),
                 task_name="random-policy",
-                task_class="tasks.policies.random:RandomPolicyRun",
                 config=config,
                 outputs_by_index=outputs_by_index,
                 total_inputs=1,
             )
 
-            formatted = load_policy_results(store_path)
+            ds = load_policy_results(store_path)
 
-        self.assertEqual(formatted.inputs["tensors"]["parameters"].shape, (1, 1, 1))
+        self.assertNotIn("final", ds)
+        self.assertNotIn("parameters", ds)
+        self.assertNotIn("timeseries", ds)
+        self.assertEqual(ds["theta"].shape, (1, 2))
         np.testing.assert_array_equal(
-            formatted.inputs["labels"]["n_agents"],
-            np.asarray([4], dtype=np.int64),
+            ds.coords["input_index"].values,
+            np.asarray([0], dtype=np.int64),
         )
-        np.testing.assert_array_equal(
-            formatted.status["tensors"]["success"],
-            np.asarray([[True]], dtype=np.bool_),
+        self.assertEqual(ds.attrs["average_completion_duration_ms"], 1.0)
+        self.assertFalse(ds.attrs["has_failures"])
+        self.assertEqual(
+            tuple(ds.coords["theta_parameter"].values),
+            ("n_agents", "visibility_distance"),
         )
-        self.assertEqual(formatted.metadata["average_completion_duration_ms"], 1.0)
-        self.assertEqual(formatted.metadata["simulation"], config["simulation"])
-        self.assertEqual(tuple(formatted.inputs["labels"]["parameter"]), ("visibility_distance",))
-        self.assertEqual(formatted.outputs["tensors"]["timeseries"].shape, (1, 1, 2, 3))
-        self.assertEqual(formatted.outputs["tensors"]["final"].shape, (1, 1, 2))
+        np.testing.assert_allclose(ds["prior_low"].values, [4.0, 4.0])
+        np.testing.assert_allclose(ds["prior_high"].values, [4.0, 4.0])
+        self.assertEqual(ds["x"].shape, (1, 3, 2))
         np.testing.assert_allclose(
-            formatted.outputs["tensors"]["final"],
-            np.asarray([[[2.0, 12.0]]], dtype=np.float32),
+            ds["x"].isel(step=-1).values,
+            np.asarray([[2.0, 12.0]], dtype=np.float32),
         )
 
     def test_from_zarr_supports_scalar_outputs_without_timeseries(self) -> None:
@@ -73,32 +75,25 @@ class RandomPolicyResultFormatterTest(unittest.TestCase):
             store_path = write_result_store(
                 Path(tmpdir),
                 task_name="random-policy",
-                task_class="tasks.policies.random:RandomPolicyRun",
                 config=config,
                 outputs_by_index=outputs_by_index,
                 total_inputs=1,
             )
 
-            formatted = load_policy_results(store_path)
+            ds = load_policy_results(store_path)
 
-        self.assertNotIn("timeseries", formatted.outputs["tensors"])
-        np.testing.assert_array_equal(
-            formatted.inputs["labels"]["n_agents"],
-            np.asarray([4], dtype=np.int64),
+        self.assertNotIn("final", ds)
+        self.assertEqual(ds["x"].shape, (1, 1, 2))
+        self.assertEqual(ds.attrs["average_completion_duration_ms"], 1.0)
+        self.assertEqual(
+            tuple(ds.coords["theta_parameter"].values),
+            ("n_agents", "visibility_distance"),
         )
-        np.testing.assert_array_equal(
-            formatted.status["tensors"]["success"],
-            np.asarray([[True]], dtype=np.bool_),
-        )
-        self.assertEqual(formatted.metadata["average_completion_duration_ms"], 1.0)
-        self.assertEqual(formatted.metadata["simulation"], config["simulation"])
-        self.assertEqual(tuple(formatted.inputs["labels"]["parameter"]), ("visibility_distance",))
-        self.assertEqual(formatted.outputs["tensors"]["final"].shape, (1, 1, 2))
         np.testing.assert_allclose(
-            formatted.outputs["tensors"]["final"],
+            ds["x"].values,
             np.asarray([[[0.25, 12.5]]], dtype=np.float32),
         )
         self.assertEqual(
-            tuple(formatted.outputs["labels"]["observable"]),
+            tuple(ds.coords["observable"].values),
             ("density.final", "centered_mean_welfare.final"),
         )

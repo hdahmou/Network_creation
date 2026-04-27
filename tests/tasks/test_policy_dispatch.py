@@ -60,7 +60,6 @@ class PolicyDispatchTest(unittest.TestCase):
             store_path = write_result_store(
                 Path(tmpdir),
                 task_name="unsupported-policy",
-                task_class="tests.tasks.support_tasks:VectorTask",
                 config=build_random_config(),
                 outputs_by_index=[
                     (
@@ -124,11 +123,20 @@ class PolicyDispatchTest(unittest.TestCase):
                 (2, 4),
             )
             self.assertEqual(root["results"]["input_index"][:].tolist(), [0, 1])
+            self.assertEqual(root.attrs["parameter_names"], ["visibility_distance"])
+            np.testing.assert_array_equal(
+                root["metadata"]["input_coordinates"][:],
+                np.asarray([[0, 0], [1, 0]], dtype=np.int64),
+            )
 
-            formatted = load_policy_results(summary["output_zarr"])
+            ds = load_policy_results(summary["output_zarr"])
 
-        self.assertEqual(formatted.outputs["tensors"]["timeseries"].shape, (2, 1, 2, 4))
         np.testing.assert_array_equal(
-            formatted.status["tensors"]["success"],
-            np.asarray([[True], [True]], dtype=np.bool_),
+            ds.coords["input_index"].values,
+            np.asarray([0, 1], dtype=np.int64),
+        )
+        self.assertEqual(ds["x"].shape, (2, 4, 2))
+        np.testing.assert_array_equal(
+            ds["theta"].sel(theta_parameter="n_agents").values,
+            np.asarray([2, 4], dtype=np.float32),
         )

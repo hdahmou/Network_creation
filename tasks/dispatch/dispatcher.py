@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 from datetime import datetime
-import json
 import logging
 import sys
 import time
@@ -16,8 +15,10 @@ from typing import Any
 
 from dask.distributed import Client, as_completed
 
+from network_creation.io import read_json, write_json
+
 from tasks.catalog import load_task
-from .result_store import ResultStore, task_class_path
+from .result_store import ResultStore
 from .runtime import PreparedTask, TaskOutput
 
 
@@ -26,7 +27,6 @@ class DispatchPlan:
     config: dict[str, Any]
     scheduler_address: str
     task_name: str
-    task_class_name: str
     batch_size: int
     prepared: PreparedTask[Any]
     task_inputs: tuple[Any, ...]
@@ -51,7 +51,7 @@ def configure_logging(logger_name: str, level: str = "INFO") -> logging.Logger:
 
 
 def _load_config(config_path: Path) -> dict[str, Any]:
-    data = json.loads(config_path.read_text(encoding="utf-8"))
+    data = read_json(config_path)
     if not isinstance(data, dict):
         raise ValueError("Config file must contain a JSON object")
 
@@ -77,8 +77,7 @@ def _build_dispatch_plan(
     task_key = str(config["task"])
     task = load_task(task_key)
     task_name = str(task.name)
-    task_class_name = task_class_path(task)
-    logger.info("Preparing task %s (%s)", task_name, task_class_name)
+    logger.info("Preparing task %s", task_name)
     prepared = task.prepare(config)
     task_inputs = tuple(prepared.inputs)
     if not task_inputs:
@@ -94,7 +93,6 @@ def _build_dispatch_plan(
         config=config,
         scheduler_address=str(config["scheduler_address"]),
         task_name=task_name,
-        task_class_name=task_class_name,
         batch_size=int(config.get("write_batch_size", 16)),
         prepared=prepared,
         task_inputs=task_inputs,
@@ -156,10 +154,7 @@ def _write_runtime_config_copy(
     config: Mapping[str, Any], config_copy_path: Path
 ) -> Path:
     config_copy_path.parent.mkdir(parents=True, exist_ok=True)
-    config_copy_path.write_text(
-        json.dumps(dict(config), indent=2) + "\n",
-        encoding="utf-8",
-    )
+    write_json(config_copy_path, dict(config))
     return config_copy_path
 
 
@@ -171,22 +166,25 @@ def dispatch_from_config(config_path: str, log_level: str = "INFO") -> dict[str,
     writer = ResultStore(
         str(plan.output_zarr),
         task_name=plan.task_name,
-        task_class=plan.task_class_name,
         output_schema=plan.prepared.output_schema,
         batch_size=plan.batch_size,
         total_inputs=len(plan.task_inputs),
+        metadata_attrs={
+            **dict(plan.prepared.result_attrs),
+            "config_path": str(config_copy_path),
+        },
+        metadata_arrays=plan.prepared.result_arrays,
     )
     logger.info("Initialized output %s", plan.output_zarr)
 
     def handle_result(
         input_index: int,
-        task_input: Any,
+        _task_input: Any,
         task_output: TaskOutput,
         duration_ms: float,
     ) -> None:
         writer.add_success(
             input_index=input_index,
-            input_label=str(task_input),
             output=task_output,
             duration_ms=duration_ms,
         )
@@ -200,7 +198,7 @@ def dispatch_from_config(config_path: str, log_level: str = "INFO") -> dict[str,
         error_text = "".join(
             traceback.format_exception_only(type(error), error)
         ).strip()
-        writer.add_failure(error=error_text)
+        writer.add_failure()
         logger.error(
             "Task failed for input %s at index %s after %.3f ms: %s",
             task_input,
@@ -226,9 +224,8 @@ def dispatch_from_config(config_path: str, log_level: str = "INFO") -> dict[str,
         **stats,
         "task_name": plan.task_name,
         "started_at": plan.started_slug,
-        "task_class": plan.task_class_name,
         "success_rows_written": writer.success_count,
-        "failure_rows_written": writer.failure_count,
+        "has_failures": writer.has_failures,
         "output_zarr": str(plan.output_zarr),
         "config_copy_path": str(config_copy_path),
     }

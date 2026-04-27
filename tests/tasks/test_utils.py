@@ -2,106 +2,93 @@
 
 from __future__ import annotations
 
-import importlib
-import sys
 import tempfile
-import types
 import unittest
 from pathlib import Path
-from unittest import mock
 
 import numpy as np
 
-
-class _FakeGroup(dict):
-    def __init__(self, data: dict[str, object], *, attrs: dict[str, object] | None = None) -> None:
-        super().__init__(data)
-        self.attrs = attrs or {}
+from tasks.dispatch.result_store import ResultStore, load_result_zarr
+from tasks.dispatch.runtime import OutputField, OutputSchema
 
 
 class TaskUtilsTest(unittest.TestCase):
-    def test_load_result_zarr_returns_sorted_numpy_content(self) -> None:
-        output_schema = [
-            {"name": "density.mean", "shape": [3], "dtype": "float32"},
-            {"name": "centered_mean_welfare.mean", "shape": [3], "dtype": "float32"},
-        ]
-        fake_root = _FakeGroup(
-            {
-                "results": _FakeGroup(
-                    {
-                        "input_index": np.asarray([2, 0, 1], dtype=np.int64),
-                        "durations_ms": np.asarray([3.0, 1.0, 2.0], dtype=np.float64),
-                        "outputs": _FakeGroup(
-                            {
-                                "density.mean": np.asarray(
-                                    [[0.2, 0.3, 0.4], [0.0, 0.1, 0.2], [0.1, 0.2, 0.3]],
-                                    dtype=np.float32,
-                                ),
-                                "centered_mean_welfare.mean": np.asarray(
-                                    [[20.0, 21.0, 22.0], [0.0, 1.0, 2.0], [10.0, 11.0, 12.0]],
-                                    dtype=np.float32,
-                                ),
-                            }
-                        ),
-                    }
+    def test_load_result_zarr_returns_sorted_xarray_content(self) -> None:
+        output_schema = OutputSchema(
+            fields=(
+                OutputField(name="density.mean", shape=(3,), dtype=np.float32),
+                OutputField(
+                    name="centered_mean_welfare.mean",
+                    shape=(3,),
+                    dtype=np.float32,
                 ),
-                "failures": _FakeGroup(
-                    {
-                        "error": np.asarray(["boom"], dtype=object),
-                    }
-                ),
-            },
-            attrs={
-                "task_name": "myopic-policy",
-                "task_class": "tasks.policies.myopic:MyopicPolicyRun",
-                "output_schema": output_schema,
-                "total_inputs": 3,
-            },
+            )
         )
-        fake_zarr = types.SimpleNamespace(open_group=lambda path, mode="r": fake_root)
 
         with tempfile.TemporaryDirectory() as tmpdir:
             store_path = Path(tmpdir) / "run.zarr"
-            store_path.mkdir()
-            with mock.patch.dict(
-                sys.modules,
-                {
-                    "zarr": fake_zarr,
+            writer = ResultStore(
+                str(store_path),
+                task_name="myopic-policy",
+                output_schema=output_schema,
+                batch_size=2,
+                total_inputs=3,
+                metadata_attrs={"custom_attr": "present"},
+                metadata_arrays={
+                    "grid": np.asarray([[1, 2], [3, 4]], dtype=np.int64),
                 },
+            )
+            for input_index, density, welfare in (
+                (2, [0.2, 0.3, 0.4], [20.0, 21.0, 22.0]),
+                (0, [0.0, 0.1, 0.2], [0.0, 1.0, 2.0]),
+                (1, [0.1, 0.2, 0.3], [10.0, 11.0, 12.0]),
             ):
-                sys.modules.pop("tasks.dispatch.result_store", None)
-                load_result_zarr = importlib.import_module(
-                    "tasks.dispatch.result_store"
-                ).load_result_zarr
-                result = load_result_zarr(store_path)
+                writer.add_success(
+                    input_index=input_index,
+                    output={
+                        "density.mean": np.asarray(density, dtype=np.float32),
+                        "centered_mean_welfare.mean": np.asarray(
+                            welfare,
+                            dtype=np.float32,
+                        ),
+                    },
+                    duration_ms=float(input_index + 1),
+                )
+            writer.add_failure()
+            writer.flush()
 
-        self.assertEqual(result["path"], store_path.resolve())
-        self.assertEqual(result["task_name"], "myopic-policy")
-        self.assertEqual(
-            result["task_class"],
-            "tasks.policies.myopic:MyopicPolicyRun",
+            result = load_result_zarr(store_path)
+
+        self.assertEqual(result.attrs["path"], store_path.resolve())
+        self.assertEqual(result.attrs["task_name"], "myopic-policy")
+        self.assertEqual(result.attrs["average_completion_duration_ms"], 2.0)
+        self.assertEqual(result.attrs["total_inputs"], 3)
+        self.assertEqual(result.attrs["stored_results"], 3)
+        self.assertTrue(result.attrs["has_failures"])
+        self.assertEqual(result.attrs["custom_attr"], "present")
+        np.testing.assert_array_equal(
+            result.attrs["metadata"]["grid"],
+            np.asarray([[1, 2], [3, 4]], dtype=np.int64),
         )
-        self.assertEqual(result["average_completion_duration_ms"], 2.0)
-        self.assertEqual(result["output_schema"], output_schema)
-        self.assertEqual(result["total_inputs"], 3)
-        self.assertEqual(result["stored_results"], 3)
-        self.assertEqual(result["stored_failures"], 1)
-        np.testing.assert_array_equal(result["input_index"], np.asarray([0, 1, 2]))
+        np.testing.assert_array_equal(
+            result.coords["input_index"].values,
+            np.asarray([0, 1, 2]),
+        )
         np.testing.assert_allclose(
-            result["outputs"]["density.mean"],
+            result["density.mean"].values,
             np.asarray(
                 [[0.0, 0.1, 0.2], [0.1, 0.2, 0.3], [0.2, 0.3, 0.4]],
                 dtype=np.float32,
             ),
         )
         np.testing.assert_allclose(
-            result["outputs"]["centered_mean_welfare.mean"],
+            result["centered_mean_welfare.mean"].values,
             np.asarray(
                 [[0.0, 1.0, 2.0], [10.0, 11.0, 12.0], [20.0, 21.0, 22.0]],
                 dtype=np.float32,
             ),
         )
-        np.testing.assert_array_equal(
-            result["failures"]["error"],
-            np.asarray(["boom"], dtype=object),
-        )
+
+
+if __name__ == "__main__":
+    unittest.main()

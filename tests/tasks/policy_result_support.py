@@ -10,6 +10,11 @@ import numpy as np
 
 from tasks.dispatch.result_store import ResultStore
 from tasks.dispatch.runtime import OutputField, OutputSchema
+from tasks.policies.support import (
+    generate_parameter_table,
+    load_simulation_sweep,
+    parameter_bounds,
+)
 
 
 def _simulation_config() -> dict[str, object]:
@@ -90,7 +95,6 @@ def write_result_store(
     base_dir: Path,
     *,
     task_name: str,
-    task_class: str,
     config: dict[str, object],
     outputs_by_index: list[tuple[int, dict[str, np.ndarray[Any, Any]]]],
     total_inputs: int,
@@ -109,20 +113,24 @@ def write_result_store(
             for name, values in first_output.items()
         )
     )
+    metadata_attrs, metadata_arrays = _policy_metadata(config)
 
     store_path = base_dir / f"{task_name}.zarr"
     writer = ResultStore(
         str(store_path),
         task_name=task_name,
-        task_class=task_class,
         output_schema=output_schema,
         batch_size=2,
         total_inputs=total_inputs,
+        metadata_attrs={
+            **metadata_attrs,
+            "config_path": str(store_path.with_suffix(".dispatch_config.json")),
+        },
+        metadata_arrays=metadata_arrays,
     )
     for input_index, output in outputs_by_index:
         writer.add_success(
             input_index=input_index,
-            input_label=f"input-{input_index}",
             output=output,
             duration_ms=float(input_index + 1),
         )
@@ -131,3 +139,45 @@ def write_result_store(
     config_path = store_path.with_suffix(".dispatch_config.json")
     config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
     return store_path
+
+
+def _policy_metadata(
+    config: dict[str, object],
+) -> tuple[dict[str, object], dict[str, np.ndarray[Any, Any]]]:
+    input_spec = config["input_spec"]
+    parameter_specs = input_spec["parameters"]
+    parameter_table = generate_parameter_table(input_spec)
+    simulation_sweep = load_simulation_sweep(
+        config["simulation"],
+        parameter_table,
+        parameter_specs=parameter_specs,
+    )
+    parameters = np.asarray(
+        simulation_sweep.configuration_values[:, :, 1:],
+        dtype=np.float32,
+    )
+    parameter_low, parameter_high = parameter_bounds(
+        parameters,
+        parameter_names=parameter_table.parameter_names,
+        parameter_specs=parameter_specs,
+    )
+    input_coordinates = np.asarray(
+        [
+            simulation_sweep.coordinates(input_index)
+            for input_index in range(simulation_sweep.total_inputs)
+        ],
+        dtype=np.int64,
+    )
+    return (
+        {
+            "parameter_names": list(parameter_table.parameter_names),
+            "simulation": config["simulation"],
+        },
+        {
+            "n_agents": np.asarray(simulation_sweep.n_agents_values, dtype=np.int64),
+            "parameters": parameters,
+            "parameter_low": parameter_low,
+            "parameter_high": parameter_high,
+            "input_coordinates": input_coordinates,
+        },
+    )

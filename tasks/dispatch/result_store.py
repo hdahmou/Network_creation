@@ -2,65 +2,71 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import zarr
+import xarray as xr
 
 from .runtime import OutputSchema, TaskOutput
 
 
-INPUT_LABEL_DTYPE = "<U1024"
-ERROR_DTYPE = "<U4096"
-
-
-def task_class_path(task: object) -> str:
-    return f"{task.__class__.__module__}:{task.__class__.__qualname__}"
-
-
-def load_result_zarr(path: str | Path) -> dict[str, Any]:
-    """Load one task result Zarr store into NumPy arrays."""
+def load_result_zarr(path: str | Path) -> xr.Dataset:
+    """Load one task result Zarr store into an in-memory xarray dataset."""
     store_path = Path(path).expanduser()
     if not store_path.exists():
         raise FileNotFoundError(f"Result store not found: {store_path}")
 
-    root = zarr.open_group(store_path, mode="r")
+    root = cast(Any, zarr.open_group(store_path, mode="r"))
     results_group = root["results"]
     outputs_group = results_group["outputs"]
-    failures_group = root["failures"]
 
     input_index = np.asarray(results_group["input_index"])
     durations_ms = np.asarray(results_group["durations_ms"], dtype=np.float64)
     order = np.argsort(input_index)
     output_schema = list(root.attrs["output_schema"])
-    outputs = {
-        field["name"]: np.asarray(outputs_group[field["name"]])[order]
-        for field in output_schema
+    root_attrs = dict(root.attrs)
+    metadata_group = root["metadata"]
+    metadata = {
+        name: np.asarray(metadata_group[name]) for name in metadata_group.keys()
     }
-    failures = {
-        name: np.asarray(failures_group[name]) for name in failures_group.keys()
-    }
-    failure_count = 0
-    if failures:
-        failure_count = int(next(iter(failures.values())).shape[0])
 
-    return {
-        "path": store_path.resolve(),
-        "task_name": root.attrs.get("task_name"),
-        "task_class": root.attrs.get("task_class"),
-        "output_schema": output_schema,
-        "total_inputs": root.attrs.get("total_inputs"),
-        "stored_results": int(input_index.shape[0]),
-        "stored_failures": failure_count,
-        "average_completion_duration_ms": (
-            float(np.mean(durations_ms)) if durations_ms.size else None
-        ),
-        "input_index": np.asarray(input_index[order], dtype=np.int64),
-        "durations_ms": np.asarray(durations_ms[order], dtype=np.float64),
-        "outputs": outputs,
-        "failures": failures,
+    coords: dict[str, Any] = {
+        "result": np.arange(input_index.shape[0], dtype=np.int64),
+        "input_index": ("result", np.asarray(input_index[order], dtype=np.int64)),
     }
+    data_vars: dict[str, Any] = {
+        "duration_ms": (
+            ("result",),
+            np.asarray(durations_ms[order], dtype=np.float64),
+        ),
+    }
+    for field in output_schema:
+        name = str(field["name"])
+        values = np.asarray(outputs_group[name])[order]
+        dims = (
+            "result",
+            *tuple(f"{name}_dim_{index}" for index in range(values.ndim - 1)),
+        )
+        data_vars[name] = (dims, values)
+
+    return xr.Dataset(
+        data_vars=data_vars,
+        coords=coords,
+        attrs={
+            **root_attrs,
+            "path": store_path.resolve(),
+            "output_schema": output_schema,
+            "stored_results": int(input_index.shape[0]),
+            "has_failures": bool(root_attrs["has_failures"]),
+            "average_completion_duration_ms": (
+                float(np.mean(durations_ms)) if durations_ms.size else None
+            ),
+            "metadata": metadata,
+        },
+    )
 
 
 class ResultStore:
@@ -69,10 +75,11 @@ class ResultStore:
         output_path: str,
         *,
         task_name: str,
-        task_class: str,
         output_schema: OutputSchema,
         batch_size: int,
         total_inputs: int,
+        metadata_attrs: Mapping[str, Any] | None = None,
+        metadata_arrays: Mapping[str, Any] | None = None,
     ) -> None:
         if batch_size <= 0:
             raise ValueError("batch_size must be > 0")
@@ -81,42 +88,41 @@ class ResultStore:
 
         self.batch_size = batch_size
         self.success_count = 0
-        self.failure_count = 0
+        self.has_failures = False
         self._output_fields = output_schema.fields
         self._pending_success_indices: list[int] = []
-        self._pending_success_labels: list[str] = []
         self._pending_success_outputs: dict[str, list[np.ndarray[Any, Any]]] = {
             field.name: [] for field in self._output_fields
         }
         self._pending_success_durations_ms: list[float] = []
-        self._pending_failure_errors: list[str] = []
 
-        root = zarr.open_group(output_path, mode="w", zarr_format=2)
-        root.attrs.update(
-            {
-                "task_name": task_name,
-                "task_class": task_class,
-                "output_schema": output_schema.metadata(),
-                "total_inputs": int(total_inputs),
-            }
-        )
+        root = cast(Any, zarr.open_group(output_path, mode="w", zarr_format=2))
+        self._root = root
+        attrs = {
+            "task_name": task_name,
+            "output_schema": output_schema.metadata(),
+            "total_inputs": int(total_inputs),
+            "has_failures": False,
+        }
+        if metadata_attrs is not None:
+            attrs.update(dict(metadata_attrs))
+        root.attrs.update(attrs)
 
         results = root.create_group("results", overwrite=True)
         outputs = results.create_group("outputs", overwrite=True)
-        failures = root.create_group("failures", overwrite=True)
+        metadata = root.create_group("metadata", overwrite=True)
+        for name, value in (metadata_arrays or {}).items():
+            metadata.create_array(
+                str(name),
+                data=np.asarray(value),
+                overwrite=True,
+            )
 
         self.results_input_index = results.create_array(
             "input_index",
             shape=(0,),
             chunks=(batch_size,),
             dtype="i8",
-            overwrite=True,
-        )
-        self.results_input_label = results.create_array(
-            "input_label",
-            shape=(0,),
-            chunks=(batch_size,),
-            dtype=INPUT_LABEL_DTYPE,
             overwrite=True,
         )
         self.results_durations_ms = results.create_array(
@@ -138,21 +144,12 @@ class ResultStore:
                 overwrite=True,
             )
 
-        self.failures_error = failures.create_array(
-            "error",
-            shape=(0,),
-            chunks=(batch_size,),
-            dtype=ERROR_DTYPE,
-            overwrite=True,
-        )
-
     def add_success(
         self,
         input_index: int,
-        input_label: str,
         output: TaskOutput,
         duration_ms: float,
-    ) -> tuple[int, int]:
+    ) -> None:
         normalized_output: dict[str, np.ndarray[Any, Any]] = {}
         for field in self._output_fields:
             array = np.asarray(output[field.name], dtype=field.resolved_dtype)
@@ -164,69 +161,46 @@ class ResultStore:
             normalized_output[field.name] = array
 
         self._pending_success_indices.append(int(input_index))
-        self._pending_success_labels.append(str(input_label))
         for field_name, array in normalized_output.items():
             self._pending_success_outputs[field_name].append(array)
         self._pending_success_durations_ms.append(float(duration_ms))
         self.success_count += 1
 
         if len(self._pending_success_indices) >= self.batch_size:
-            return self._flush_successes(), 0
-        return 0, 0
+            self._flush_successes()
 
-    def add_failure(
-        self,
-        error: str,
-    ) -> tuple[int, int]:
-        self._pending_failure_errors.append(str(error))
-        self.failure_count += 1
+    def add_failure(self) -> None:
+        self.has_failures = True
+        self._root.attrs["has_failures"] = True
 
-        if len(self._pending_failure_errors) >= self.batch_size:
-            return 0, self._flush_failures()
-        return 0, 0
+    def flush(self) -> None:
+        self._flush_successes()
 
-    def flush(self) -> tuple[int, int]:
-        return self._flush_successes(), self._flush_failures()
-
-    def _flush_successes(self) -> int:
+    def _flush_successes(self) -> None:
         if not self._pending_success_indices:
-            return 0
+            return
 
-        batch_len = len(self._pending_success_indices)
         self.results_input_index.append(
-            np.asarray(self._pending_success_indices, dtype=self.results_input_index.dtype),
-            axis=0,
-        )
-        self.results_input_label.append(
-            np.asarray(self._pending_success_labels, dtype=self.results_input_label.dtype),
+            np.asarray(
+                self._pending_success_indices,
+                dtype=self.results_input_index.dtype,
+            ),
             axis=0,
         )
         for field in self._output_fields:
-            stacked = np.stack(self._pending_success_outputs[field.name], axis=0).astype(
-                self.results_outputs[field.name].dtype,
-                copy=False,
-            )
+            stacked = np.stack(
+                self._pending_success_outputs[field.name],
+                axis=0,
+            ).astype(self.results_outputs[field.name].dtype, copy=False)
             self.results_outputs[field.name].append(stacked, axis=0)
             self._pending_success_outputs[field.name].clear()
         self.results_durations_ms.append(
-            np.asarray(self._pending_success_durations_ms, dtype=self.results_durations_ms.dtype),
+            np.asarray(
+                self._pending_success_durations_ms,
+                dtype=self.results_durations_ms.dtype,
+            ),
             axis=0,
         )
 
         self._pending_success_indices.clear()
-        self._pending_success_labels.clear()
         self._pending_success_durations_ms.clear()
-        return batch_len
-
-    def _flush_failures(self) -> int:
-        if not self._pending_failure_errors:
-            return 0
-
-        batch_len = len(self._pending_failure_errors)
-        self.failures_error.append(
-            np.asarray(self._pending_failure_errors, dtype=self.failures_error.dtype),
-            axis=0,
-        )
-
-        self._pending_failure_errors.clear()
-        return batch_len

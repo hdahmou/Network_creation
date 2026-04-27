@@ -201,7 +201,7 @@ class DispatcherTests(unittest.TestCase):
         self.assertEqual(summary["success_count"], 3)
         self.assertEqual(summary["failure_count"], 0)
         self.assertEqual(summary["success_rows_written"], 3)
-        self.assertEqual(summary["failure_rows_written"], 0)
+        self.assertFalse(summary["has_failures"])
 
         config_copy = json.loads(
             Path(summary["config_copy_path"]).read_text(encoding="utf-8")
@@ -215,21 +215,20 @@ class DispatcherTests(unittest.TestCase):
 
         root = self.open_store(summary["output_zarr"])
         self.assertEqual(root.attrs["task_name"], "vector")
-        self.assertEqual(root.attrs["task_class"], "tests.tasks.support_tasks:VectorTask")
         self.assertEqual(
             root.attrs["output_schema"],
             [{"name": "vector", "shape": [2], "dtype": "int64"}],
         )
         self.assertEqual(root.attrs["total_inputs"], 3)
+        self.assertEqual(root.attrs["config_path"], summary["config_copy_path"])
+        self.assertFalse(root.attrs["has_failures"])
         self.assertEqual(root["results"]["input_index"][:].tolist(), [0, 1, 2])
-        self.assertEqual(root["results"]["input_label"][:].tolist(), ["3", "7", "11"])
         self.assertEqual(
             root["results"]["outputs"]["vector"][:].tolist(),
             [[3, 4], [7, 8], [11, 12]],
         )
         self.assertEqual(len(root["results"]["durations_ms"][:].tolist()), 3)
-        self.assertEqual(set(root["failures"].keys()), {"error"})
-        self.assertEqual(root["failures"]["error"][:].tolist(), [])
+        self.assertNotIn("failures", root)
 
     def test_dispatcher_writes_results_to_configured_output_dir(self) -> None:
         inputs_path = self.write_inputs([4, 6])
@@ -282,7 +281,7 @@ class DispatcherTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "No tasks found"):
             dispatch_from_config(str(config_path))
 
-    def test_runtime_failures_are_stored_in_failures_group(self) -> None:
+    def test_runtime_failures_are_recorded_as_store_attrs(self) -> None:
         inputs_path = self.write_inputs([5, -1, 8])
         config_path = self.write_config("runtime_failure", inputs_path)
 
@@ -297,8 +296,9 @@ class DispatcherTests(unittest.TestCase):
         )
         root = self.open_store(summary["output_zarr"])
         self.assertEqual(root["results"]["input_index"][:].tolist(), [0, 2])
-        self.assertEqual(set(root["failures"].keys()), {"error"})
-        self.assertIn("negative values are not allowed: -1", str(root["failures"]["error"][0]))
+        self.assertTrue(root.attrs["has_failures"])
+        self.assertTrue(summary["has_failures"])
+        self.assertNotIn("failures", root)
 
     def test_dispatcher_writes_structured_outputs_by_field(self) -> None:
         inputs_path = self.write_inputs([2, 5])
@@ -330,7 +330,6 @@ class DispatcherTests(unittest.TestCase):
         root = self.open_store(summary["output_zarr"])
         self.assertEqual(root.attrs["task_name"], "generated")
         self.assertEqual(root.attrs["total_inputs"], 3)
-        self.assertEqual(root["results"]["input_label"][:].tolist(), ["4", "5", "6"])
         self.assertEqual(
             root["results"]["outputs"]["vector"][:].tolist(),
             [[4, 5], [5, 6], [6, 7]],

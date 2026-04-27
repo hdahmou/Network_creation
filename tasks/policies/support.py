@@ -170,6 +170,61 @@ def load_simulation_sweep(
     )
 
 
+def parameter_bounds(
+    parameter_values: NDArray[np.float32],
+    *,
+    parameter_names: Sequence[str],
+    parameter_specs: ParameterConfig,
+) -> tuple[NDArray[np.float32], NDArray[np.float32]]:
+    flat_parameters = parameter_values.reshape(-1, parameter_values.shape[-1])
+    low = np.nanmin(flat_parameters, axis=0).astype(np.float32)
+    high = np.nanmax(flat_parameters, axis=0).astype(np.float32)
+
+    for index, name in enumerate(parameter_names):
+        spec = parameter_specs.get(name)
+        if spec is None:
+            continue
+        payload = spec["payload"]
+        if spec["type"] == "continuous":
+            typed_payload = cast(Mapping[str, object], payload)
+            low[index] = np.float32(cast(Any, typed_payload["min"]))
+            high[index] = np.float32(cast(Any, typed_payload["max"]))
+        elif spec["type"] == "fixed":
+            low[index] = np.float32(cast(Any, payload))
+            high[index] = np.float32(cast(Any, payload))
+        elif spec["type"] == "discrete":
+            values = np.asarray(payload, dtype=np.float32)
+            low[index] = np.min(values)
+            high[index] = np.max(values)
+
+    return low, high
+
+
+def collect_timeseries_outputs(
+    outputs: Mapping[str, NDArray[np.generic]],
+    *,
+    task_name: str,
+) -> tuple[tuple[str, ...], list[NDArray[np.float32]]]:
+    series_names: list[str] = []
+    series_arrays: list[NDArray[np.float32]] = []
+    expected_steps: int | None = None
+
+    for name, values in outputs.items():
+        array = np.asarray(values)
+        if array.ndim != 2:
+            continue
+        if expected_steps is None:
+            expected_steps = array.shape[1]
+        elif array.shape[1] != expected_steps:
+            raise ValueError(
+                f"{task_name} time-series outputs must share the same step axis length"
+            )
+        series_names.append(name)
+        series_arrays.append(np.asarray(array, dtype=np.float32))
+
+    return tuple(series_names), series_arrays
+
+
 def generate_parameter_table(input_spec: Mapping[str, object]) -> ParameterTable:
     parameters = cast(ParameterConfig, input_spec["parameters"])
     sampler_seed = int(input_spec["sampler_seed"])

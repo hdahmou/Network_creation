@@ -1,181 +1,111 @@
-"""Policy result contracts and loading."""
+"""Policy result loading as labeled xarray datasets."""
 
 from __future__ import annotations
 
-import json
-from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, TypedDict, cast
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 from numpy.typing import NDArray
+import xarray as xr
 
 from ..dispatch.result_store import load_result_zarr
-from .support import generate_parameter_table, load_simulation_sweep
 
-
-type TensorDims = tuple[str, ...]
-type PolicyTensor = NDArray[np.number[Any]] | NDArray[np.bool_]
-type StatusTensor = (
-    NDArray[np.bool_]
-    | NDArray[np.float64]
-    | NDArray[np.int64]
-    | NDArray[np.str_]
-)
-type DimLabels = Sequence[str] | NDArray[np.integer[Any]] | NDArray[np.floating[Any]]
-
-
-class PolicyTensorGroup(TypedDict):
-    tensors: dict[str, PolicyTensor]
-    dims: dict[str, TensorDims]
-    labels: dict[str, DimLabels]
-
-
-class PolicyStatusGroup(TypedDict):
-    tensors: dict[str, StatusTensor]
-    dims: dict[str, TensorDims]
-    labels: dict[str, DimLabels]
-
-
-class PolicyResultMetadata(TypedDict):
-    task_name: str
-    task_class: str
-    result_store_path: Path
-    config_path: Path
-    average_completion_duration_ms: float | None
-    input_index: NDArray[np.int64]
-    output_schema: list[dict[str, object]]
-    simulation: dict[str, object]
+if TYPE_CHECKING:
+    from .base import PolicyRun
 
 
 @dataclass(frozen=True)
-class PolicyFormattedResults:
-    inputs: PolicyTensorGroup
-    outputs: PolicyTensorGroup
-    status: PolicyStatusGroup
-    metadata: PolicyResultMetadata
+class PolicyOutput:
+    timeseries: NDArray[np.float32]
+    observable_names: tuple[str, ...]
+    step_labels: NDArray[np.int64]
 
 
-def load_policy_results(zarr_path: str | Path) -> PolicyFormattedResults:
-    result_data = load_result_zarr(zarr_path)
-    result_store_path = Path(result_data["path"])
-    config_path = result_store_path.with_suffix(".dispatch_config.json")
-    config = json.loads(config_path.read_text(encoding="utf-8"))
-    if not isinstance(config, dict):
-        raise ValueError(
-            f"Dispatch config at {config_path} must contain a JSON object"
-        )
+def load_policy_results(zarr_path: str | Path) -> xr.Dataset:
+    raw = load_result_zarr(zarr_path)
+    result_store_path = Path(raw.attrs["path"])
+    metadata = raw.attrs["metadata"]
+    attrs = raw.attrs
 
+    task_name, task_class = _resolve_policy_task(attrs["task_name"])
+    output_schema = list(attrs["output_schema"])
+    input_index = np.asarray(raw.coords["input_index"].values, dtype=np.int64)
+    input_coordinates = np.asarray(metadata["input_coordinates"], dtype=np.int64)
+    row_coordinates = input_coordinates[input_index]
+    n_agents_index = row_coordinates[:, 0]
+    parameter_row = row_coordinates[:, 1]
+    n_agents = np.asarray(metadata["n_agents"], dtype=np.float32)[n_agents_index]
+    parameters = np.asarray(metadata["parameters"], dtype=np.float32)[
+        n_agents_index,
+        parameter_row,
+    ]
+    theta = np.concatenate([n_agents[:, None], parameters], axis=1)
+    parameter_low = np.asarray(metadata["parameter_low"], dtype=np.float32)
+    parameter_high = np.asarray(metadata["parameter_high"], dtype=np.float32)
+    all_n_agents = np.asarray(metadata["n_agents"], dtype=np.float32)
+    prior_low = np.concatenate(
+        [np.asarray([np.min(all_n_agents)], dtype=np.float32), parameter_low],
+    )
+    prior_high = np.concatenate(
+        [np.asarray([np.max(all_n_agents)], dtype=np.float32), parameter_high],
+    )
+    raw_outputs = {
+        str(field["name"]): np.asarray(raw[str(field["name"])].values)
+        for field in output_schema
+    }
+    output = task_class.build_output_group(raw_outputs)
+
+    coords: dict[str, Any] = {
+        "sample": np.arange(input_index.shape[0], dtype=np.int64),
+        "input_index": ("sample", input_index),
+        "parameter_row": ("sample", parameter_row),
+        "theta_parameter": (
+            "theta_parameter",
+            ["n_agents", *list(attrs["parameter_names"])],
+        ),
+        "observable": ("observable", list(output.observable_names)),
+    }
+    coords["step"] = ("step", output.step_labels)
+    data_vars: dict[str, Any] = {
+        "theta": (("sample", "theta_parameter"), theta),
+        "prior_low": (("theta_parameter",), prior_low),
+        "prior_high": (("theta_parameter",), prior_high),
+        "x": (
+            ("sample", "step", "observable"),
+            output.timeseries,
+        ),
+        "duration_ms": (
+            ("sample",),
+            np.asarray(raw["duration_ms"].values, dtype=np.float64),
+        ),
+    }
+
+    return xr.Dataset(
+        data_vars=data_vars,
+        coords=coords,
+        attrs={
+            "task_name": task_name,
+            "result_store_path": str(result_store_path),
+            "config_path": str(attrs["config_path"]),
+            "average_completion_duration_ms": attrs["average_completion_duration_ms"],
+            "has_failures": attrs["has_failures"],
+        },
+    )
+
+
+def _resolve_policy_task(raw_task_name: object) -> tuple[str, type[PolicyRun]]:
     from tasks.catalog import TASKS
 
-    task_name = str(result_data["task_name"])
+    task_name = str(raw_task_name)
     task_class = TASKS.get(task_name)
     if task_class is None:
         raise ValueError(f"Unsupported policy task: {task_name}")
+    return task_name, task_class
 
-    simulation = config.get("simulation")
-    if not isinstance(simulation, dict):
-        raise ValueError(
-            f"Dispatch config at {config_path} must contain a 'simulation' object"
-        )
 
-    input_spec = cast(dict[str, object], config["input_spec"])
-    parameter_specs = cast(dict[str, dict[str, object]], input_spec["parameters"])
-    parameter_table = generate_parameter_table(input_spec)
-    simulation_sweep = load_simulation_sweep(
-        cast(dict[str, object], simulation),
-        parameter_table,
-        parameter_specs=parameter_specs,
-    )
-    n_agents_count = len(simulation_sweep.n_agents_values)
-    n_parameter_rows = simulation_sweep.n_parameter_rows
-    input_index = np.arange(
-        simulation_sweep.total_inputs,
-        dtype=np.int64,
-    ).reshape(n_agents_count, n_parameter_rows)
-    success_index = np.asarray(result_data["input_index"], dtype=np.int64)
-    success_durations = np.asarray(result_data["durations_ms"], dtype=np.float64)
-    output_schema = list(result_data["output_schema"])
-    outputs: dict[str, NDArray[np.generic]] = {}
-    for field in output_schema:
-        name = str(field["name"])
-        flat_values = np.asarray(result_data["outputs"][name])
-        dense_values = np.zeros(
-            (n_agents_count, n_parameter_rows, *flat_values.shape[1:]),
-            dtype=flat_values.dtype,
-        )
-        for row_index, flat_input_index in enumerate(success_index):
-            n_agents_index, parameter_row_index = simulation_sweep.coordinates(
-                int(flat_input_index)
-            )
-            dense_values[n_agents_index, parameter_row_index] = flat_values[row_index]
-        outputs[name] = dense_values
-    output_group = task_class.build_output_group(
-        outputs=cast(dict[str, NDArray[np.generic]], outputs),
-    )
-    output_group["labels"] = {
-        "n_agents": np.asarray(simulation_sweep.n_agents_values, dtype=np.int64),
-        "parameter_row": np.arange(n_parameter_rows, dtype=np.int64),
-        **output_group["labels"],
-    }
-
-    parameter_values = np.asarray(
-        simulation_sweep.configuration_values[:, :, 1:],
-        dtype=np.float32,
-    )
-    success_mask = np.zeros((n_agents_count, n_parameter_rows), dtype=np.bool_)
-    duration_ms = np.full((n_agents_count, n_parameter_rows), np.nan, dtype=np.float64)
-    for row_index, flat_input_index in enumerate(success_index):
-        n_agents_index, parameter_row_index = simulation_sweep.coordinates(
-            int(flat_input_index)
-        )
-        success_mask[n_agents_index, parameter_row_index] = True
-        duration_ms[n_agents_index, parameter_row_index] = success_durations[row_index]
-    finite_durations = duration_ms[np.isfinite(duration_ms)]
-    error = np.full((n_agents_count, n_parameter_rows), "", dtype="<U1")
-
-    return PolicyFormattedResults(
-        inputs={
-            "tensors": {
-                "parameters": parameter_values,
-            },
-            "dims": {
-                "parameters": ("n_agents", "parameter_row", "parameter"),
-            },
-            "labels": {
-                "n_agents": np.asarray(simulation_sweep.n_agents_values, dtype=np.int64),
-                "parameter_row": np.arange(n_parameter_rows, dtype=np.int64),
-                "parameter": parameter_table.parameter_names,
-            },
-        },
-        outputs=output_group,
-        status={
-            "tensors": {
-                "success": success_mask,
-                "error": error,
-                "duration_ms": duration_ms,
-            },
-            "dims": {
-                "success": ("n_agents", "parameter_row"),
-                "error": ("n_agents", "parameter_row"),
-                "duration_ms": ("n_agents", "parameter_row"),
-            },
-            "labels": {
-                "n_agents": np.asarray(simulation_sweep.n_agents_values, dtype=np.int64),
-                "parameter_row": np.arange(n_parameter_rows, dtype=np.int64),
-            },
-        },
-        metadata={
-            "task_name": task_name,
-            "task_class": str(result_data["task_class"]),
-            "result_store_path": result_store_path,
-            "config_path": config_path,
-            "average_completion_duration_ms": (
-                float(np.mean(finite_durations)) if finite_durations.size else None
-            ),
-            "input_index": input_index,
-            "output_schema": output_schema,
-            "simulation": cast(dict[str, object], simulation),
-        },
-    )
+__all__ = [
+    "PolicyOutput",
+    "load_policy_results",
+]

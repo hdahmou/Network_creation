@@ -53,34 +53,33 @@ class BestResponsePolicyResultFormatterTest(unittest.TestCase):
             store_path = write_result_store(
                 Path(tmpdir),
                 task_name="best-response-policy",
-                task_class="tasks.policies.best_response:BestResponsePolicyRun",
                 config=config,
                 outputs_by_index=outputs_by_index,
                 total_inputs=4,
             )
 
-            formatted = load_policy_results(store_path)
+            ds = load_policy_results(store_path)
 
+        self.assertNotIn("final", ds)
+        self.assertNotIn("parameters", ds)
+        self.assertNotIn("timeseries", ds)
         np.testing.assert_array_equal(
-            formatted.metadata["input_index"],
-            np.asarray([[0, 1, 2, 3]], dtype=np.int64),
+            ds.coords["input_index"].values,
+            np.asarray([0, 1, 2], dtype=np.int64),
         )
-        self.assertEqual(formatted.metadata["simulation"], config["simulation"])
         np.testing.assert_allclose(
-            formatted.inputs["tensors"]["parameters"],
-            parameter_table.parameter_values[None, :, :],
-        )
-        np.testing.assert_array_equal(
-            formatted.inputs["labels"]["n_agents"],
-            np.asarray([4], dtype=np.int64),
-        )
-        np.testing.assert_array_equal(
-            formatted.status["tensors"]["success"],
-            np.asarray([[True, True, True, False]], dtype=np.bool_),
+            ds["theta"].values,
+            np.column_stack(
+                [
+                    np.full(3, 4.0, dtype=np.float32),
+                    parameter_table.parameter_values[:3, :],
+                ]
+            ),
         )
         self.assertEqual(
-            tuple(formatted.inputs["labels"]["parameter"]),
+            tuple(ds.coords["theta_parameter"].values),
             (
+                "n_agents",
                 "benefit_to_cost_ratio",
                 "distance_discount",
                 "outside_optimism",
@@ -89,21 +88,17 @@ class BestResponsePolicyResultFormatterTest(unittest.TestCase):
             ),
         )
         self.assertEqual(
-            tuple(formatted.outputs["labels"]["observable"]),
+            tuple(ds.coords["observable"].values),
             ("density.mean", "centered_mean_welfare.mean"),
         )
-        self.assertEqual(formatted.outputs["tensors"]["timeseries"].shape, (1, 4, 2, 4))
-        self.assertEqual(formatted.outputs["tensors"]["final"].shape, (1, 4, 2))
+        self.assertEqual(ds["x"].shape, (3, 4, 2))
         np.testing.assert_allclose(
-            formatted.outputs["tensors"]["final"],
+            ds["x"].isel(step=-1).values,
             np.asarray(
                 [
-                    [
-                        [3.0, 103.0],
-                        [13.0, 113.0],
-                        [23.0, 203.0],
-                        [0.0, 0.0],
-                    ],
+                    [3.0, 103.0],
+                    [13.0, 113.0],
+                    [23.0, 203.0],
                 ],
                 dtype=np.float32,
             ),

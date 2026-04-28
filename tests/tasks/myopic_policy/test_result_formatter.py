@@ -9,15 +9,18 @@ from pathlib import Path
 import numpy as np
 
 from tasks.policies import load_policy_results
-from tasks.policies.support import generate_parameter_table
 
-from ..policy_result_support import build_myopic_config, write_result_store
+from tests.tasks.policy_result_support import (
+    build_myopic_config,
+    build_policy_parameter_samples,
+    write_result_store,
+)
 
 
 class MyopicPolicyResultFormatterTest(unittest.TestCase):
     def test_from_zarr_reconstructs_parameters_and_sorts_rows(self) -> None:
         config = build_myopic_config(log2_budget=2)
-        parameter_table = generate_parameter_table(config["input_spec"])
+        parameter_samples = build_policy_parameter_samples(config)
 
         outputs_by_index = [
             (
@@ -51,9 +54,7 @@ class MyopicPolicyResultFormatterTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             store_path = write_result_store(
-                Path(tmpdir),
-                task_name="myopic-policy",
-                config=config,
+                Path(tmpdir),                config=config,
                 outputs_by_index=outputs_by_index,
                 total_inputs=4,
             )
@@ -74,7 +75,9 @@ class MyopicPolicyResultFormatterTest(unittest.TestCase):
             np.column_stack(
                 [
                     np.full(3, 4.0, dtype=np.float32),
-                    parameter_table.parameter_values[:3, :],
+                    np.full(3, 1.0, dtype=np.float32),
+                    np.full(3, 4.0, dtype=np.float32),
+                    parameter_samples.parameter_values[:3, :],
                 ]
             ),
         )
@@ -86,19 +89,21 @@ class MyopicPolicyResultFormatterTest(unittest.TestCase):
             tuple(ds.coords["theta_parameter"].values),
             (
                 "n_agents",
+                "myopic_proportion",
+                "myopic_count",
                 "benefit_to_cost_ratio",
                 "distance_discount",
-                "bridge_probability",
                 "visibility_distance",
+                "bridge_probability",
             ),
         )
         np.testing.assert_allclose(
             ds["prior_low"].values,
-            np.asarray([4.0, 0.5, 0.1, 0.0, 4.0], dtype=np.float32),
+            np.asarray([4.0, 1.0, 4.0, 0.5, 0.1, 4.0, 0.0], dtype=np.float32),
         )
         np.testing.assert_allclose(
             ds["prior_high"].values,
-            np.asarray([4.0, 0.5, 0.9, 1.0, 4.0], dtype=np.float32),
+            np.asarray([4.0, 1.0, 4.0, 0.5, 0.9, 4.0, 1.0], dtype=np.float32),
         )
         self.assertEqual(
             tuple(ds.coords["observable"].values),
@@ -127,8 +132,8 @@ class MyopicPolicyResultFormatterTest(unittest.TestCase):
 
     def test_from_zarr_reconstructs_n_agents_sweep_inputs(self) -> None:
         config = build_myopic_config(log2_budget=1)
-        config["simulation"]["n_agents"] = [3, 5]
-        parameter_table = generate_parameter_table(config["input_spec"])
+        config["population"]["n_agents"] = [3, 5]
+        parameter_samples = build_policy_parameter_samples(config)
 
         outputs_by_index = [
             (
@@ -162,9 +167,7 @@ class MyopicPolicyResultFormatterTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             store_path = write_result_store(
-                Path(tmpdir),
-                task_name="myopic-policy",
-                config=config,
+                Path(tmpdir),                config=config,
                 outputs_by_index=outputs_by_index,
                 total_inputs=4,
             )
@@ -179,9 +182,9 @@ class MyopicPolicyResultFormatterTest(unittest.TestCase):
             ds["theta"].values,
             np.asarray(
                 [
-                    [3.0, *parameter_table.parameter_values[0]],
-                    [5.0, *parameter_table.parameter_values[0]],
-                    [5.0, *parameter_table.parameter_values[1]],
+                    [3.0, 1.0, 3.0, *parameter_samples.parameter_values[0]],
+                    [5.0, 1.0, 5.0, *parameter_samples.parameter_values[0]],
+                    [5.0, 1.0, 5.0, *parameter_samples.parameter_values[1]],
                 ],
                 dtype=np.float32,
             ),
@@ -193,13 +196,11 @@ class MyopicPolicyResultFormatterTest(unittest.TestCase):
 
     def test_from_zarr_uses_resolved_scaled_inverse_benefit_to_cost_ratio(self) -> None:
         config = build_myopic_config(log2_budget=0)
-        config["simulation"]["n_agents"] = [5, 10]
-        config["input_spec"]["parameters"]["benefit_to_cost_ratio"] = {
-            "type": "scaled_inverse_n_agents",
-            "payload": {
-                "numerator": 10.0,
-                "factor": 2.0,
-            },
+        config["population"]["n_agents"] = [5, 10]
+        config["game"]["benefit_to_cost_ratio"] = {
+            "kind": "scaled_inverse_agents",
+            "numerator": 10.0,
+            "factor": 2.0,
         }
 
         outputs_by_index = [
@@ -225,9 +226,7 @@ class MyopicPolicyResultFormatterTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             store_path = write_result_store(
-                Path(tmpdir),
-                task_name="myopic-policy",
-                config=config,
+                Path(tmpdir),                config=config,
                 outputs_by_index=outputs_by_index,
                 total_inputs=2,
             )
@@ -240,8 +239,12 @@ class MyopicPolicyResultFormatterTest(unittest.TestCase):
         )
         np.testing.assert_allclose(
             [
-                ds["prior_low"].sel(theta_parameter="benefit_to_cost_ratio").item(),
-                ds["prior_high"].sel(theta_parameter="benefit_to_cost_ratio").item(),
+                ds["prior_low"]
+                .sel(theta_parameter="benefit_to_cost_ratio")
+                .item(),
+                ds["prior_high"]
+                .sel(theta_parameter="benefit_to_cost_ratio")
+                .item(),
             ],
             np.asarray([0.5, 1.0], dtype=np.float32),
         )

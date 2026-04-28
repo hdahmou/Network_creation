@@ -1,4 +1,4 @@
-"""Shared task runtime types for repo-owned dispatch."""
+"""Shared schema types for executable runs."""
 
 from __future__ import annotations
 
@@ -9,12 +9,12 @@ from typing import Any, Generic, TypeVar
 import numpy as np
 
 
-TaskInputT = TypeVar("TaskInputT")
-TaskOutput = Mapping[str, Any]
+RunInputT = TypeVar("RunInputT")
+RunOutput = Mapping[str, Any]
 
 
 @dataclass(frozen=True)
-class OutputField:
+class OutputArraySpec:
     name: str
     shape: tuple[int, ...]
     dtype: np.dtype[Any] | str | type[np.generic]
@@ -32,8 +32,8 @@ class OutputField:
 
 
 @dataclass(frozen=True)
-class OutputSchema:
-    fields: tuple[OutputField, ...]
+class OutputSpec:
+    fields: tuple[OutputArraySpec, ...]
 
     def __post_init__(self) -> None:
         field_names = [field.name for field in self.fields]
@@ -45,9 +45,9 @@ class OutputSchema:
 
 
 @dataclass(frozen=True)
-class PreparedTask(Generic[TaskInputT]):
-    inputs: Sequence[TaskInputT]
-    output_schema: OutputSchema
-    run: Callable[[TaskInputT], TaskOutput]
+class PreparedRun(Generic[RunInputT]):
+    inputs: Sequence[RunInputT]
+    output_schema: OutputSpec
+    run: Callable[[RunInputT], RunOutput]
     result_attrs: Mapping[str, Any] = field(default_factory=dict)
     result_arrays: Mapping[str, Any] = field(default_factory=dict)

@@ -1,4 +1,4 @@
-"""Tests for dispatch runtime value objects."""
+"""Tests for execution runtime value objects."""
 
 from __future__ import annotations
 
@@ -6,12 +6,12 @@ import unittest
 
 import numpy as np
 
-from tasks.dispatch.runtime import OutputField, OutputSchema, PreparedTask
+from tasks.execution.schema import OutputArraySpec, OutputSpec, PreparedRun
 
 
-class DispatchRuntimeTypesTest(unittest.TestCase):
+class ExecutionRuntimeTypesTest(unittest.TestCase):
     def test_output_field_metadata_uses_resolved_dtype(self) -> None:
-        field = OutputField(name="vector", shape=(2,), dtype=np.int64)
+        field = OutputArraySpec(name="vector", shape=(2,), dtype=np.int64)
 
         self.assertEqual(field.resolved_dtype, np.dtype(np.int64))
         self.assertEqual(
@@ -24,18 +24,18 @@ class DispatchRuntimeTypesTest(unittest.TestCase):
             ValueError,
             "output schema field names must be unique",
         ):
-            OutputSchema(
+            OutputSpec(
                 fields=(
-                    OutputField(name="value", shape=(), dtype=np.float32),
-                    OutputField(name="value", shape=(), dtype=np.float32),
+                    OutputArraySpec(name="value", shape=(), dtype=np.float32),
+                    OutputArraySpec(name="value", shape=(), dtype=np.float32),
                 )
             )
 
     def test_prepared_task_carries_inputs_schema_and_callable(self) -> None:
-        prepared = PreparedTask(
+        prepared = PreparedRun(
             inputs=(1, 2),
-            output_schema=OutputSchema(
-                fields=(OutputField(name="vector", shape=(2,), dtype=np.int64),)
+            output_schema=OutputSpec(
+                fields=(OutputArraySpec(name="vector", shape=(2,), dtype=np.int64),)
             ),
             run=lambda value: {"vector": np.asarray([value, value + 1], dtype=np.int64)},
         )

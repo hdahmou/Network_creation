@@ -8,12 +8,13 @@ import tempfile
 import unittest
 from collections.abc import Mapping
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 
 import zarr
 
-from tasks.dispatch.dispatcher import dispatch_from_config, run_tasks
+from tasks.execution.runner import run_from_config, execute_inputs
 from tests.tasks import support_tasks as _support_tasks
 
 
@@ -62,18 +63,32 @@ class _FakeClient:
         return self.futures
 
 
-class DispatcherTests(unittest.TestCase):
+class RunnerTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp_dir.cleanup)
         self.workdir = Path(self.temp_dir.name)
-        self.registry_patch = patch.dict(
-            "tasks.catalog.TASKS",
-            _support_tasks.TEST_TASK_REGISTRY,
-            clear=False,
+        self.loader_patch = patch(
+            "tasks.execution.runner.prepare_policy_run",
+            new=self.prepare_test_task_from_config,
         )
-        self.registry_patch.start()
-        self.addCleanup(self.registry_patch.stop)
+        self.loader_patch.start()
+        self.addCleanup(self.loader_patch.stop)
+
+    @staticmethod
+    def prepare_test_task_from_config(config: Mapping[str, Any]) -> Any:
+        policy_name = str(config["test_task"])
+        try:
+            task_class = _support_tasks.TEST_POLICY_REGISTRY[policy_name]
+        except KeyError as exc:
+            available = ", ".join(sorted(_support_tasks.TEST_POLICY_REGISTRY))
+            raise ValueError(
+                f"Unknown policy {policy_name!r}. Available policies: {available}"
+            ) from exc
+        task = task_class()
+        return SimpleNamespace(
+            prepared=task.prepare(config),
+        )
 
     def write_inputs(self, payload: Any) -> Path:
         inputs_path = self.workdir / "inputs.json"
@@ -82,17 +97,20 @@ class DispatcherTests(unittest.TestCase):
 
     def write_config(
         self,
-        task: str,
+        policy: str,
         inputs_path: Path | None = None,
         batch_size: int = 2,
+        output_dir: str = "artifacts",
         extra_config: Mapping[str, Any] | None = None,
     ) -> Path:
         config_path = self.workdir / "config.json"
         payload: dict[str, Any] = {
-            "scheduler_address": "inproc://tests",
-            "task": task,
-            "write_batch_size": batch_size,
-            "output_dir": "artifacts",
+            "execution": {
+                "scheduler_address": "inproc://tests",
+                "write_batch_size": batch_size,
+                "output_dir": output_dir,
+            },
+            "test_task": policy,
         }
         if inputs_path is not None:
             payload["inputs_json"] = inputs_path.name
@@ -104,20 +122,20 @@ class DispatcherTests(unittest.TestCase):
     def open_store(self, path: str) -> zarr.Group:
         return zarr.open_group(path, mode="r")
 
-    def dispatch_with_fake_client(
+    def execution_with_fake_client(
         self,
         config_path: Path,
         *,
         log_level: str = "INFO",
     ) -> dict[str, Any]:
-        with patch("tasks.dispatch.dispatcher.Client", new=_FakeClient):
+        with patch("tasks.execution.runner.Client", new=_FakeClient):
             with patch(
-                "tasks.dispatch.dispatcher.as_completed",
+                "tasks.execution.runner.as_completed",
                 new=lambda futures: iter(futures),
             ):
-                return dispatch_from_config(str(config_path), log_level=log_level)
+                return run_from_config(str(config_path), log_level=log_level)
 
-    def test_run_tasks_releases_completed_futures_immediately(self) -> None:
+    def test_execute_inputs_releases_completed_futures_immediately(self) -> None:
         _FakeClient.instances.clear()
         release_snapshots: list[tuple[str, list[int]]] = []
 
@@ -152,16 +170,16 @@ class DispatcherTests(unittest.TestCase):
             if input_index == 1:
                 self.assertEqual([future.release_calls for future in futures], [1, 0, 0])
 
-        with patch("tasks.dispatch.dispatcher.Client", new=_FakeClient):
+        with patch("tasks.execution.runner.Client", new=_FakeClient):
             with patch(
-                "tasks.dispatch.dispatcher.as_completed",
+                "tasks.execution.runner.as_completed",
                 new=lambda futures: iter(futures),
             ):
-                stats = run_tasks(
+                stats = execute_inputs(
                     scheduler_address="inproc://tests",
-                    task_name="vector",
-                    task_fn=task_fn,
-                    task_inputs=[1, 2, 3],
+                    run_key="vector",
+                    run_fn=task_fn,
+                    run_inputs=[1, 2, 3],
                     on_result=on_result,
                     on_failure=on_failure,
                     logger=logging.getLogger("test"),
@@ -181,19 +199,19 @@ class DispatcherTests(unittest.TestCase):
             [1, 1, 1],
         )
 
-    def test_dispatcher_writes_success_rows_and_uses_task_name_for_output(self) -> None:
+    def test_runner_writes_success_rows_and_uses_run_name_for_output(self) -> None:
         inputs_path = self.write_inputs([3, 7, 11])
         config_path = self.write_config("vector", inputs_path)
 
-        summary = self.dispatch_with_fake_client(config_path)
+        summary = self.execution_with_fake_client(config_path)
         self.assertTrue(
             summary["output_zarr"].endswith(
-                f"artifacts/vector-{summary['started_at']}.zarr"
+                f"artifacts/run-{summary['started_at']}.zarr"
             )
         )
         self.assertTrue(
             summary["config_copy_path"].endswith(
-                f"artifacts/vector-{summary['started_at']}.dispatch_config.json"
+                f"artifacts/run-{summary['started_at']}.run_config.json"
             )
         )
         self.assertTrue(Path(summary["output_zarr"]).exists())
@@ -206,15 +224,14 @@ class DispatcherTests(unittest.TestCase):
         config_copy = json.loads(
             Path(summary["config_copy_path"]).read_text(encoding="utf-8")
         )
-        self.assertEqual(config_copy["task"], "vector")
+        self.assertEqual(config_copy["test_task"], "vector")
         self.assertEqual(config_copy["inputs_json"], str(inputs_path.resolve()))
         self.assertEqual(
-            config_copy["output_dir"],
+            config_copy["execution"]["output_dir"],
             str((self.workdir / "artifacts").resolve()),
         )
 
         root = self.open_store(summary["output_zarr"])
-        self.assertEqual(root.attrs["task_name"], "vector")
         self.assertEqual(
             root.attrs["output_schema"],
             [{"name": "vector", "shape": [2], "dtype": "int64"}],
@@ -230,24 +247,24 @@ class DispatcherTests(unittest.TestCase):
         self.assertEqual(len(root["results"]["durations_ms"][:].tolist()), 3)
         self.assertNotIn("failures", root)
 
-    def test_dispatcher_writes_results_to_configured_output_dir(self) -> None:
+    def test_runner_writes_results_to_configured_output_dir(self) -> None:
         inputs_path = self.write_inputs([4, 6])
         config_path = self.write_config(
             "vector",
             inputs_path,
-            extra_config={"output_dir": "artifacts/custom"},
+            output_dir="artifacts/custom",
         )
 
-        summary = self.dispatch_with_fake_client(config_path)
+        summary = self.execution_with_fake_client(config_path)
 
         expected_output = (
-            self.workdir / "artifacts" / "custom" / f"vector-{summary['started_at']}.zarr"
+            self.workdir / "artifacts" / "custom" / f"run-{summary['started_at']}.zarr"
         )
         expected_config_copy = (
             self.workdir
             / "artifacts"
             / "custom"
-            / f"vector-{summary['started_at']}.dispatch_config.json"
+            / f"run-{summary['started_at']}.run_config.json"
         )
 
         self.assertEqual(Path(summary["output_zarr"]), expected_output.resolve())
@@ -256,42 +273,42 @@ class DispatcherTests(unittest.TestCase):
         self.assertTrue(expected_config_copy.exists())
 
         config_copy = json.loads(expected_config_copy.read_text(encoding="utf-8"))
-        self.assertEqual(config_copy["task"], "vector")
+        self.assertEqual(config_copy["test_task"], "vector")
         self.assertEqual(config_copy["inputs_json"], str(inputs_path.resolve()))
         self.assertEqual(
-            config_copy["output_dir"],
+            config_copy["execution"]["output_dir"],
             str((self.workdir / "artifacts" / "custom").resolve()),
         )
 
         root = self.open_store(summary["output_zarr"])
         self.assertEqual(root["results"]["outputs"]["vector"][:].tolist(), [[4, 5], [6, 7]])
 
-    def test_dispatcher_rejects_unknown_task(self) -> None:
+    def test_runner_rejects_unknown_policy(self) -> None:
         config_path = self.write_config("unknown-task")
 
-        with self.assertRaisesRegex(ValueError, "Unknown task"):
-            dispatch_from_config(str(config_path))
+        with self.assertRaisesRegex(ValueError, "Unknown policy"):
+            run_from_config(str(config_path))
 
-    def test_dispatcher_rejects_empty_prepared_input_set(self) -> None:
+    def test_runner_rejects_empty_prepared_input_set(self) -> None:
         config_path = self.write_config(
             "generated",
             extra_config={"input_spec": {"start": 4, "count": 0}},
         )
 
-        with self.assertRaisesRegex(ValueError, "No tasks found"):
-            dispatch_from_config(str(config_path))
+        with self.assertRaisesRegex(ValueError, "No run inputs found"):
+            run_from_config(str(config_path))
 
     def test_runtime_failures_are_recorded_as_store_attrs(self) -> None:
         inputs_path = self.write_inputs([5, -1, 8])
         config_path = self.write_config("runtime_failure", inputs_path)
 
-        summary = self.dispatch_with_fake_client(config_path)
+        summary = self.execution_with_fake_client(config_path)
 
         self.assertEqual(summary["success_count"], 2)
         self.assertEqual(summary["failure_count"], 1)
         self.assertTrue(
             summary["output_zarr"].endswith(
-                f"runtime_failure-{summary['started_at']}.zarr"
+                f"run-{summary['started_at']}.zarr"
             )
         )
         root = self.open_store(summary["output_zarr"])
@@ -300,11 +317,11 @@ class DispatcherTests(unittest.TestCase):
         self.assertTrue(summary["has_failures"])
         self.assertNotIn("failures", root)
 
-    def test_dispatcher_writes_structured_outputs_by_field(self) -> None:
+    def test_runner_writes_structured_outputs_by_field(self) -> None:
         inputs_path = self.write_inputs([2, 5])
         config_path = self.write_config("structured", inputs_path)
 
-        summary = self.dispatch_with_fake_client(config_path)
+        summary = self.execution_with_fake_client(config_path)
 
         root = self.open_store(summary["output_zarr"])
         self.assertEqual(
@@ -317,37 +334,36 @@ class DispatcherTests(unittest.TestCase):
         self.assertEqual(root["results"]["outputs"]["vector"][:].tolist(), [[2, 3], [5, 6]])
         self.assertEqual(root["results"]["outputs"]["parity"][:].tolist(), [0, 1])
 
-    def test_dispatcher_allows_task_defined_inputs_without_inputs_json(self) -> None:
+    def test_runner_allows_task_defined_inputs_without_inputs_json(self) -> None:
         config_path = self.write_config(
             "generated",
             extra_config={"input_spec": {"start": 4, "count": 3}},
         )
 
-        summary = self.dispatch_with_fake_client(config_path)
+        summary = self.execution_with_fake_client(config_path)
 
         self.assertEqual(summary["success_count"], 3)
         self.assertEqual(summary["failure_count"], 0)
         root = self.open_store(summary["output_zarr"])
-        self.assertEqual(root.attrs["task_name"], "generated")
         self.assertEqual(root.attrs["total_inputs"], 3)
         self.assertEqual(
             root["results"]["outputs"]["vector"][:].tolist(),
             [[4, 5], [5, 6], [6, 7]],
         )
 
-    def test_dispatcher_logs_human_readable_lifecycle_messages(self) -> None:
+    def test_runner_logs_human_readable_lifecycle_messages(self) -> None:
         inputs_path = self.write_inputs([3])
         config_path = self.write_config("vector", inputs_path)
         log_stream = io.StringIO()
 
         with contextlib.redirect_stdout(log_stream):
-            self.dispatch_with_fake_client(
+            self.execution_with_fake_client(
                 config_path,
                 log_level="DEBUG",
             )
 
         output = log_stream.getvalue()
-        self.assertIn("INFO Preparing task vector", output)
+        self.assertIn("INFO Preparing run", output)
         self.assertIn("INFO Initialized output", output)
         self.assertIn("INFO Connected to scheduler", output)
-        self.assertIn("INFO Run finished for vector", output)
+        self.assertIn("INFO Run finished", output)

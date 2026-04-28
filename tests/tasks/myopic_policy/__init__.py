@@ -1,1 +1,1 @@
-"""Tests for myopic-policy tasks."""
+"""Tests for myopic policy behavior."""

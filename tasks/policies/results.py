@@ -4,16 +4,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import numpy as np
 from numpy.typing import NDArray
 import xarray as xr
 
-from ..dispatch.result_store import load_result_zarr
-
-if TYPE_CHECKING:
-    from .base import PolicyRun
+from ..execution.zarr_store import load_zarr_results
+from .outputs import build_policy_outputs
 
 
 @dataclass(frozen=True)
@@ -24,21 +22,23 @@ class PolicyOutput:
 
 
 def load_policy_results(zarr_path: str | Path) -> xr.Dataset:
-    raw = load_result_zarr(zarr_path)
+    raw = load_zarr_results(zarr_path)
     result_store_path = Path(raw.attrs["path"])
     metadata = raw.attrs["metadata"]
     attrs = raw.attrs
 
-    task_name, task_class = _resolve_policy_task(attrs["task_name"])
     output_schema = list(attrs["output_schema"])
     input_index = np.asarray(raw.coords["input_index"].values, dtype=np.int64)
     input_coordinates = np.asarray(metadata["input_coordinates"], dtype=np.int64)
     row_coordinates = input_coordinates[input_index]
     n_agents_index = row_coordinates[:, 0]
-    parameter_row = row_coordinates[:, 1]
     n_agents = np.asarray(metadata["n_agents"], dtype=np.float32)[n_agents_index]
-    parameters = np.asarray(metadata["parameters"], dtype=np.float32)[
+    raw_parameters = np.asarray(metadata["parameters"], dtype=np.float32)
+    policy_proportion_index = row_coordinates[:, 1]
+    parameter_row = row_coordinates[:, 2]
+    parameters = raw_parameters[
         n_agents_index,
+        policy_proportion_index,
         parameter_row,
     ]
     theta = np.concatenate([n_agents[:, None], parameters], axis=1)
@@ -55,7 +55,7 @@ def load_policy_results(zarr_path: str | Path) -> xr.Dataset:
         str(field["name"]): np.asarray(raw[str(field["name"])].values)
         for field in output_schema
     }
-    output = task_class.build_output_group(raw_outputs)
+    output = build_policy_outputs(raw_outputs)
 
     coords: dict[str, Any] = {
         "sample": np.arange(input_index.shape[0], dtype=np.int64),
@@ -67,6 +67,7 @@ def load_policy_results(zarr_path: str | Path) -> xr.Dataset:
         ),
         "observable": ("observable", list(output.observable_names)),
     }
+    coords["policy_proportion_index"] = ("sample", policy_proportion_index)
     coords["step"] = ("step", output.step_labels)
     data_vars: dict[str, Any] = {
         "theta": (("sample", "theta_parameter"), theta),
@@ -86,23 +87,12 @@ def load_policy_results(zarr_path: str | Path) -> xr.Dataset:
         data_vars=data_vars,
         coords=coords,
         attrs={
-            "task_name": task_name,
             "result_store_path": str(result_store_path),
             "config_path": str(attrs["config_path"]),
             "average_completion_duration_ms": attrs["average_completion_duration_ms"],
             "has_failures": attrs["has_failures"],
         },
     )
-
-
-def _resolve_policy_task(raw_task_name: object) -> tuple[str, type[PolicyRun]]:
-    from tasks.catalog import TASKS
-
-    task_name = str(raw_task_name)
-    task_class = TASKS.get(task_name)
-    if task_class is None:
-        raise ValueError(f"Unsupported policy task: {task_name}")
-    return task_name, task_class
 
 
 __all__ = [

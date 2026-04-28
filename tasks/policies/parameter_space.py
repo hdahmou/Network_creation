@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import cast
+from typing import Any, cast
 
 import numpy as np
 from numpy.typing import NDArray
@@ -14,24 +14,25 @@ type ParameterConfig = Mapping[str, ParameterSpec]
 
 
 def build_parameter_values(
-    parameter_type: str,
-    payload: object,
+    spec: ParameterSpec,
     *,
     sample_budget: int,
     sampler_seed: int,
 ) -> NDArray[np.float32]:
-    if parameter_type == "fixed":
+    kind = str(spec["kind"])
+
+    if kind == "fixed":
         return np.full(
             sample_budget,
-            float(cast(int | float, payload)),
+            float(cast(int | float, spec["value"])),
             dtype=np.float32,
         )
 
-    if parameter_type == "scaled_inverse_n_agents":
+    if kind == "scaled_inverse_agents":
         return np.full(sample_budget, np.nan, dtype=np.float32)
 
-    if parameter_type == "discrete":
-        values = cast(Sequence[int | float], payload)
+    if kind == "sampled_choice":
+        values = cast(Sequence[int | float], spec["values"])
         rng = np.random.default_rng(sampler_seed)
         sampled = rng.choice(
             np.asarray(values, dtype=np.float32),
@@ -40,23 +41,22 @@ def build_parameter_values(
         )
         return np.asarray(sampled, dtype=np.float32)
 
-    if parameter_type == "sampled_discrete_range":
-        range_spec = cast(Mapping[str, object], payload)
-        values = np.arange(
-            int(range_spec["min"]),
-            int(range_spec["max"]) + 1,
-            int(range_spec.get("step", 1)),
+    if kind == "sampled_discrete_range":
+        range_values = np.arange(
+            int(cast(Any, spec["min"])),
+            int(cast(Any, spec["max"])) + 1,
+            int(cast(Any, spec.get("step", 1))),
             dtype=np.float32,
         )
         rng = np.random.default_rng(sampler_seed)
-        sampled = rng.choice(values, size=sample_budget, replace=True)
+        sampled = rng.choice(range_values, size=sample_budget, replace=True)
         return np.asarray(sampled, dtype=np.float32)
 
-    raise ValueError(f"Unsupported parameter type {parameter_type!r}")
+    raise ValueError(f"Unsupported parameter kind {kind!r}")
 
 
 def build_continuous_parameter_values(
-    continuous_parameters: Sequence[tuple[str, object]],
+    continuous_parameters: Sequence[tuple[str, ParameterSpec]],
     *,
     sample_budget: int,
     sampler_seed: int,
@@ -64,7 +64,7 @@ def build_continuous_parameter_values(
     if not continuous_parameters:
         return (), np.zeros((sample_budget, 0), dtype=np.float32)
 
-    from scipy.stats import qmc
+    from scipy.stats import qmc  # type: ignore[import-untyped]
 
     sampler = qmc.Sobol(
         d=len(continuous_parameters),
@@ -78,10 +78,9 @@ def build_continuous_parameter_values(
     )
     continuous_parameter_values = np.empty_like(unit_samples)
 
-    for column_index, (_, payload) in enumerate(continuous_parameters):
-        continuous_range = cast(Mapping[str, object], payload)
-        minimum = float(continuous_range["min"])
-        maximum = float(continuous_range["max"])
+    for column_index, (_, spec) in enumerate(continuous_parameters):
+        minimum = float(cast(Any, spec["min"]))
+        maximum = float(cast(Any, spec["max"]))
         continuous_parameter_values[:, column_index] = minimum + (
             unit_samples[:, column_index] * (maximum - minimum)
         )
@@ -99,28 +98,26 @@ def generate_parameter_space(
     sampler_seed: int,
 ) -> tuple[tuple[str, ...], NDArray[np.float32]]:
     parameter_names = tuple(parameters)
-    continuous_parameters: list[tuple[str, object]] = []
+    continuous_parameters: list[tuple[str, ParameterSpec]] = []
     non_continuous_parameter_names: list[str] = []
     non_continuous_parameter_columns: list[NDArray[np.float32]] = []
     effective_sample_budget = (
         sample_budget
         if any(
-            str(spec["type"]) not in {"fixed", "scaled_inverse_n_agents"}
+            str(spec["kind"]) not in {"fixed", "scaled_inverse_agents"}
             for spec in parameters.values()
         )
         else 1
     )
 
     for parameter_index, (name, spec) in enumerate(parameters.items()):
-        parameter_type = str(spec["type"])
-        payload = spec["payload"]
-        if parameter_type == "continuous":
-            continuous_parameters.append((name, payload))
+        kind = str(spec["kind"])
+        if kind == "continuous":
+            continuous_parameters.append((name, spec))
             continue
 
         column_values = build_parameter_values(
-            parameter_type,
-            payload,
+            spec,
             sample_budget=effective_sample_budget,
             sampler_seed=sampler_seed + parameter_index,
         )

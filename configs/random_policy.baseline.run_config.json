@@ -1,0 +1,71 @@
+{
+  "execution": {
+    "scheduler_address": "tcp://127.0.0.1:8786",
+    "output_dir": "../artifacts",
+    "write_batch_size": 4
+  },
+  "sampling": {
+    "log2_budget": 0,
+    "seed": 123
+  },
+  "simulator": {
+    "seed": 11,
+    "max_steps": 5,
+    "n_episodes": 3,
+    "stagnation_patience": null,
+    "actor_scheduler": {
+      "n_actors": 4
+    },
+    "initial_graph": {
+      "kind": "empty"
+    }
+  },
+  "game": {
+    "benefit_to_cost_ratio": {
+      "kind": "scaled_inverse_agents",
+      "numerator": 10.0,
+      "factor": 2.0
+    },
+    "distance_discount": {
+      "kind": "fixed",
+      "value": 0.5
+    }
+  },
+  "population": {
+    "n_agents": 5,
+    "visibility_distance": {
+      "kind": "fixed",
+      "value": 4
+    },
+    "policies": [
+      {
+        "id": "random",
+        "kind": "random",
+        "parameters": {}
+      }
+    ],
+    "policy_proportions": {
+      "policy": "random",
+      "values": [1.0]
+    }
+  },
+  "observers": {
+    "defaults": {
+      "sampling": {
+        "kind": "periodic",
+        "every": 1
+      },
+      "aggregations": ["mean"]
+    },
+    "outputs": [
+      {
+        "name": "density",
+        "output": "mean"
+      },
+      {
+        "name": "centered_mean_welfare",
+        "output": "mean"
+      }
+    ]
+  }
+}

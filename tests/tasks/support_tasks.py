@@ -7,7 +7,7 @@ from typing import Any, ClassVar
 
 import numpy as np
 
-from tasks.dispatch.runtime import OutputField, OutputSchema, PreparedTask
+from tasks.execution.schema import OutputArraySpec, OutputSpec, PreparedRun
 
 
 def _load_int_inputs(inputs_json: str) -> list[int]:
@@ -20,13 +20,13 @@ def _load_int_inputs(inputs_json: str) -> list[int]:
 class VectorTask:
     name: ClassVar[str] = "vector"
 
-    def prepare(self, config: Mapping[str, Any]) -> PreparedTask[int]:
+    def prepare(self, config: Mapping[str, Any]) -> PreparedRun[int]:
         inputs_json = str(config["inputs_json"])
         inputs = _load_int_inputs(inputs_json)
-        return PreparedTask(
+        return PreparedRun(
             inputs=inputs,
-            output_schema=OutputSchema(
-                fields=(OutputField(name="vector", shape=(2,), dtype=np.int64),)
+            output_schema=OutputSpec(
+                fields=(OutputArraySpec(name="vector", shape=(2,), dtype=np.int64),)
             ),
             run=self.run,
         )
@@ -47,15 +47,15 @@ class RuntimeFailureTask(VectorTask):
 class StructuredTask:
     name: ClassVar[str] = "structured"
 
-    def prepare(self, config: Mapping[str, Any]) -> PreparedTask[int]:
+    def prepare(self, config: Mapping[str, Any]) -> PreparedRun[int]:
         inputs_json = str(config["inputs_json"])
         inputs = _load_int_inputs(inputs_json)
-        return PreparedTask(
+        return PreparedRun(
             inputs=inputs,
-            output_schema=OutputSchema(
+            output_schema=OutputSpec(
                 fields=(
-                    OutputField(name="vector", shape=(2,), dtype=np.int64),
-                    OutputField(name="parity", shape=(), dtype=np.int8),
+                    OutputArraySpec(name="vector", shape=(2,), dtype=np.int64),
+                    OutputArraySpec(name="parity", shape=(), dtype=np.int8),
                 )
             ),
             run=self.run,
@@ -71,16 +71,16 @@ class StructuredTask:
 class GeneratedTask:
     name: ClassVar[str] = "generated"
 
-    def prepare(self, config: Mapping[str, Any]) -> PreparedTask[int]:
+    def prepare(self, config: Mapping[str, Any]) -> PreparedRun[int]:
         raw_spec = config["input_spec"]
         if not isinstance(raw_spec, Mapping):
             raise ValueError(f"Expected input_spec to be a mapping, got {type(raw_spec)!r}")
         start = int(raw_spec.get("start", 0))
         count = int(raw_spec["count"])
-        return PreparedTask(
+        return PreparedRun(
             inputs=[start + offset for offset in range(count)],
-            output_schema=OutputSchema(
-                fields=(OutputField(name="vector", shape=(2,), dtype=np.int64),)
+            output_schema=OutputSpec(
+                fields=(OutputArraySpec(name="vector", shape=(2,), dtype=np.int64),)
             ),
             run=self.run,
         )
@@ -89,7 +89,7 @@ class GeneratedTask:
         return {"vector": np.asarray([task_input, task_input + 1], dtype=np.int64)}
 
 
-TEST_TASK_REGISTRY = {
+TEST_POLICY_REGISTRY = {
     VectorTask.name: VectorTask,
     RuntimeFailureTask.name: RuntimeFailureTask,
     StructuredTask.name: StructuredTask,

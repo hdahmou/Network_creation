@@ -1,1 +1,1 @@
-"""Task package split into dispatch infrastructure, task catalog, and policy logic."""
+"""Execution infrastructure and policy runs."""

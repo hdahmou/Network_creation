@@ -9,40 +9,38 @@ from pathlib import Path
 import numpy as np
 import zarr
 
-from tasks.dispatch.result_store import ResultStore, load_result_zarr
-from tasks.dispatch.runtime import OutputField, OutputSchema
+from tasks.execution.zarr_store import ZarrResultStore, load_zarr_results
+from tasks.execution.schema import OutputArraySpec, OutputSpec
 
 
-class ResultStoreTest(unittest.TestCase):
+class ZarrResultStoreTest(unittest.TestCase):
     @staticmethod
-    def _output_schema() -> OutputSchema:
-        return OutputSchema(
-            fields=(OutputField(name="vector", shape=(2,), dtype=np.int64),)
+    def _output_schema() -> OutputSpec:
+        return OutputSpec(
+            fields=(OutputArraySpec(name="vector", shape=(2,), dtype=np.int64),)
         )
 
-    def test_load_result_zarr_raises_for_missing_store(self) -> None:
+    def test_load_zarr_results_raises_for_missing_store(self) -> None:
         missing_path = Path(tempfile.gettempdir()) / "missing-network-creation-store.zarr"
 
         with self.assertRaisesRegex(FileNotFoundError, "Result store not found"):
-            load_result_zarr(missing_path)
+            load_zarr_results(missing_path)
 
     def test_result_store_rejects_invalid_constructor_arguments(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             store_path = Path(tmp_dir) / "results.zarr"
 
             with self.assertRaisesRegex(ValueError, "batch_size must be > 0"):
-                ResultStore(
+                ZarrResultStore(
                     str(store_path),
-                    task_name="vector",
                     output_schema=self._output_schema(),
                     batch_size=0,
                     total_inputs=1,
                 )
 
             with self.assertRaisesRegex(ValueError, "total_inputs must be >= 0"):
-                ResultStore(
+                ZarrResultStore(
                     str(store_path),
-                    task_name="vector",
                     output_schema=self._output_schema(),
                     batch_size=1,
                     total_inputs=-1,
@@ -51,9 +49,8 @@ class ResultStoreTest(unittest.TestCase):
     def test_result_store_rejects_shape_mismatch(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             store_path = Path(tmp_dir) / "results.zarr"
-            writer = ResultStore(
+            writer = ZarrResultStore(
                 str(store_path),
-                task_name="vector",
                 output_schema=self._output_schema(),
                 batch_size=2,
                 total_inputs=1,
@@ -69,9 +66,8 @@ class ResultStoreTest(unittest.TestCase):
     def test_result_store_records_failure_flag_and_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             store_path = Path(tmp_dir) / "results.zarr"
-            writer = ResultStore(
+            writer = ZarrResultStore(
                 str(store_path),
-                task_name="vector",
                 output_schema=self._output_schema(),
                 batch_size=2,
                 total_inputs=3,

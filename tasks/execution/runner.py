@@ -1,4 +1,4 @@
-"""Repo-owned dispatcher for running tasks on a Dask cluster."""
+"""Run policy simulations on a Dask cluster."""
 
 from __future__ import annotations
 
@@ -17,25 +17,24 @@ from dask.distributed import Client, as_completed
 
 from network_creation.io import read_json, write_json
 
-from tasks.catalog import load_task
-from .result_store import ResultStore
-from .runtime import PreparedTask, TaskOutput
+from tasks.policies import prepare_policy_run
+from .schema import PreparedRun, RunOutput
+from .zarr_store import ZarrResultStore
 
 
 @dataclass(frozen=True)
-class DispatchPlan:
+class RunPlan:
     config: dict[str, Any]
     scheduler_address: str
-    task_name: str
     batch_size: int
-    prepared: PreparedTask[Any]
-    task_inputs: tuple[Any, ...]
+    prepared: PreparedRun[Any]
+    run_inputs: tuple[Any, ...]
     started_slug: str
     output_zarr: Path
     config_copy_path: Path
 
 
-def configure_logging(logger_name: str, level: str = "INFO") -> logging.Logger:
+def configure_run_logging(logger_name: str, level: str = "INFO") -> logging.Logger:
     logger = logging.getLogger(logger_name)
     logger.handlers.clear()
     logger.setLevel(getattr(logging, level.upper(), logging.INFO))
@@ -57,88 +56,93 @@ def _load_config(config_path: Path) -> dict[str, Any]:
 
     config = dict(data)
     config_dir = config_path.parent
-    for key in ("inputs_json", "output_dir"):
+    for key in ("inputs_json",):
         if key not in config:
             continue
         path = Path(str(config[key]))
         if not path.is_absolute():
             path = (config_dir / path).resolve()
         config[key] = str(path)
+    execution = config.get("execution")
+    if isinstance(execution, Mapping) and "output_dir" in execution:
+        path = Path(str(execution["output_dir"]))
+        if not path.is_absolute():
+            path = (config_dir / path).resolve()
+        normalized_execution = dict(execution)
+        normalized_execution["output_dir"] = str(path)
+        config["execution"] = normalized_execution
     return config
 
 
-def _build_dispatch_plan(
+def _build_run_plan(
     config_path: Path,
     *,
     logger: logging.Logger,
-) -> DispatchPlan:
+) -> RunPlan:
     config = _load_config(config_path)
 
-    task_key = str(config["task"])
-    task = load_task(task_key)
-    task_name = str(task.name)
-    logger.info("Preparing task %s", task_name)
-    prepared = task.prepare(config)
-    task_inputs = tuple(prepared.inputs)
-    if not task_inputs:
-        raise ValueError("No tasks found")
+    policy_run = prepare_policy_run(config)
+    logger.info("Preparing run")
+    prepared = policy_run.prepared
+    run_inputs = tuple(prepared.inputs)
+    if not run_inputs:
+        raise ValueError("No run inputs found")
 
     started_slug = datetime.now().astimezone().strftime("%Y%m%dT%H%M%S")
     output_zarr = (
-        Path(str(config["output_dir"])) / f"{task_name}-{started_slug}.zarr"
+        Path(str(config["execution"]["output_dir"])) / f"run-{started_slug}.zarr"
     ).resolve()
-    config_copy_path = output_zarr.parent / f"{output_zarr.stem}.dispatch_config.json"
+    config_copy_path = output_zarr.parent / f"{output_zarr.stem}.run_config.json"
 
-    return DispatchPlan(
+    return RunPlan(
         config=config,
-        scheduler_address=str(config["scheduler_address"]),
-        task_name=task_name,
-        batch_size=int(config.get("write_batch_size", 16)),
+        scheduler_address=str(config["execution"]["scheduler_address"]),
+        batch_size=int(config["execution"].get("write_batch_size", 16)),
         prepared=prepared,
-        task_inputs=task_inputs,
+        run_inputs=run_inputs,
         started_slug=started_slug,
         output_zarr=output_zarr,
         config_copy_path=config_copy_path,
     )
 
 
-def run_tasks(
+def execute_inputs(
     scheduler_address: str,
-    task_name: str,
-    task_fn: Callable[[Any], TaskOutput],
-    task_inputs: Sequence[Any],
-    on_result: Callable[[int, Any, TaskOutput, float], None],
+    run_key: str,
+    run_fn: Callable[[Any], RunOutput],
+    run_inputs: Sequence[Any],
+    on_result: Callable[[int, Any, RunOutput, float], None],
     on_failure: Callable[[int, Any, float, BaseException], None],
     *,
     logger: logging.Logger,
 ) -> dict[str, int]:
-    task_inputs_list = list(task_inputs)
-    if not task_inputs_list:
-        raise ValueError("No tasks found")
+    run_inputs_list = list(run_inputs)
+    if not run_inputs_list:
+        raise ValueError("No run inputs found")
 
     with Client(scheduler_address) as client:
         logger.info("Connected to scheduler %s", scheduler_address)
 
-        futures = client.map(task_fn, task_inputs_list, key=task_name, pure=False)
+        futures = client.map(run_fn, run_inputs_list, key=run_key, pure=False)
         submitted_time = time.perf_counter()
         future_context = {
-            future.key: (input_index, task_input)
-            for input_index, (future, task_input) in enumerate(
-                zip(futures, task_inputs_list, strict=True)
+            future.key: (input_index, run_input)
+            for input_index, (future, run_input) in enumerate(
+                zip(futures, run_inputs_list, strict=True)
             )
         }
 
         success_count = 0
         failure_count = 0
         for future in as_completed(futures):
-            input_index, task_input = future_context.pop(future.key)
+            input_index, run_input = future_context.pop(future.key)
             duration_ms = (time.perf_counter() - submitted_time) * 1000.0
             try:
-                task_output = future.result()
-                on_result(input_index, task_input, task_output, duration_ms)
+                run_output = future.result()
+                on_result(input_index, run_input, run_output, duration_ms)
             except Exception as exc:
                 failure_count += 1
-                on_failure(input_index, task_input, duration_ms, exc)
+                on_failure(input_index, run_input, duration_ms, exc)
             else:
                 success_count += 1
             finally:
@@ -150,7 +154,7 @@ def run_tasks(
     }
 
 
-def _write_runtime_config_copy(
+def _write_config_copy(
     config: Mapping[str, Any], config_copy_path: Path
 ) -> Path:
     config_copy_path.parent.mkdir(parents=True, exist_ok=True)
@@ -158,17 +162,16 @@ def _write_runtime_config_copy(
     return config_copy_path
 
 
-def dispatch_from_config(config_path: str, log_level: str = "INFO") -> dict[str, Any]:
-    logger = configure_logging("dispatcher", log_level)
-    plan = _build_dispatch_plan(Path(config_path).resolve(), logger=logger)
-    config_copy_path = _write_runtime_config_copy(plan.config, plan.config_copy_path)
+def run_from_config(config_path: str, log_level: str = "INFO") -> dict[str, Any]:
+    logger = configure_run_logging("runner", log_level)
+    plan = _build_run_plan(Path(config_path).resolve(), logger=logger)
+    config_copy_path = _write_config_copy(plan.config, plan.config_copy_path)
 
-    writer = ResultStore(
+    writer = ZarrResultStore(
         str(plan.output_zarr),
-        task_name=plan.task_name,
         output_schema=plan.prepared.output_schema,
         batch_size=plan.batch_size,
-        total_inputs=len(plan.task_inputs),
+        total_inputs=len(plan.run_inputs),
         metadata_attrs={
             **dict(plan.prepared.result_attrs),
             "config_path": str(config_copy_path),
@@ -179,19 +182,19 @@ def dispatch_from_config(config_path: str, log_level: str = "INFO") -> dict[str,
 
     def handle_result(
         input_index: int,
-        _task_input: Any,
-        task_output: TaskOutput,
+        _run_input: Any,
+        run_output: RunOutput,
         duration_ms: float,
     ) -> None:
         writer.add_success(
             input_index=input_index,
-            output=task_output,
+            output=run_output,
             duration_ms=duration_ms,
         )
 
     def handle_failure(
         input_index: int,
-        task_input: Any,
+        run_input: Any,
         duration_ms: float,
         error: BaseException,
     ) -> None:
@@ -200,19 +203,19 @@ def dispatch_from_config(config_path: str, log_level: str = "INFO") -> dict[str,
         ).strip()
         writer.add_failure()
         logger.error(
-            "Task failed for input %s at index %s after %.3f ms: %s",
-            task_input,
+            "Run failed for input %s at index %s after %.3f ms: %s",
+            run_input,
             input_index,
             duration_ms,
             error_text,
         )
 
     try:
-        stats = run_tasks(
+        stats = execute_inputs(
             scheduler_address=plan.scheduler_address,
-            task_name=plan.task_name,
-            task_fn=plan.prepared.run,
-            task_inputs=plan.task_inputs,
+            run_key="run",
+            run_fn=plan.prepared.run,
+            run_inputs=plan.run_inputs,
             on_result=handle_result,
             on_failure=handle_failure,
             logger=logger,
@@ -222,7 +225,6 @@ def dispatch_from_config(config_path: str, log_level: str = "INFO") -> dict[str,
 
     summary = {
         **stats,
-        "task_name": plan.task_name,
         "started_at": plan.started_slug,
         "success_rows_written": writer.success_count,
         "has_failures": writer.has_failures,
@@ -230,8 +232,7 @@ def dispatch_from_config(config_path: str, log_level: str = "INFO") -> dict[str,
         "config_copy_path": str(config_copy_path),
     }
     logger.info(
-        "Run finished for %s: %s successes, %s failures",
-        plan.task_name,
+        "Run finished: %s successes, %s failures",
         summary["success_count"],
         summary["failure_count"],
     )
@@ -239,7 +240,7 @@ def dispatch_from_config(config_path: str, log_level: str = "INFO") -> dict[str,
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Network creation task dispatcher")
+    parser = argparse.ArgumentParser(description="Network creation run executor")
     parser.add_argument(
         "--config",
         type=str,
@@ -253,7 +254,7 @@ def main() -> None:
         help="Logging level (DEBUG, INFO, WARNING, ERROR)",
     )
     args = parser.parse_args()
-    dispatch_from_config(args.config, args.log_level)
+    run_from_config(args.config, args.log_level)
 
 
 if __name__ == "__main__":

@@ -1,1 +1,1 @@
-"""Tests for random-policy tasks."""
+"""Tests for random policy behavior."""

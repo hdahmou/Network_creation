@@ -50,6 +50,7 @@ class BestResponsePolicy(Policy):
         distance_discount: float,
         exploration: float,
         outside_optimism: float,
+        **_: object,
     ) -> None:
         if not 0.0 < benefit_to_cost_ratio <= 1.0:
             raise ValueError("benefit_to_cost_ratio must be in (0,1]")

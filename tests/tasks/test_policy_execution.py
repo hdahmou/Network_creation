@@ -1,4 +1,4 @@
-"""Tests for policy result dispatch."""
+"""Tests for policy result execution."""
 
 from __future__ import annotations
 
@@ -11,9 +11,10 @@ from unittest.mock import patch
 import numpy as np
 import zarr
 
-from tasks.dispatch.dispatcher import dispatch_from_config
+from tasks.execution.runner import run_from_config
 from tasks.policies import load_policy_results
-from .policy_result_support import build_random_config, write_result_store
+from tests.tasks.config_support import execution_config
+from tests.tasks.policy_result_support import build_random_config
 
 
 class _FakeFuture:
@@ -54,68 +55,29 @@ class _FakeClient:
         ]
 
 
-class PolicyDispatchTest(unittest.TestCase):
-    def test_load_policy_results_rejects_unknown_task_name(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            store_path = write_result_store(
-                Path(tmpdir),
-                task_name="unsupported-policy",
-                config=build_random_config(),
-                outputs_by_index=[
-                    (
-                        0,
-                        {
-                            "density.mean": np.asarray([0.0, 1.0, 2.0], dtype=np.float32)
-                        },
-                    )
-                ],
-                total_inputs=1,
-            )
-
-            with self.assertRaisesRegex(ValueError, "Unsupported policy task"):
-                load_policy_results(store_path)
-
-    def test_dispatch_from_config_writes_dense_policy_results(self) -> None:
+class PolicyExecutionTest(unittest.TestCase):
+    def test_run_from_config_writes_dense_policy_results(self) -> None:
         config = build_random_config()
-        config["simulation"]["n_agents"] = [2, 4]
-        config["observers"] = [
-            {
-                "name": "density",
-                "output": "mean",
-                "kwargs": {
-                    "observation_sampling": {"kind": "periodic", "every": 1},
-                    "aggregations": ["mean"],
-                },
-            },
-            {
-                "name": "centered_mean_welfare",
-                "output": "mean",
-                "kwargs": {
-                    "observation_sampling": {"kind": "periodic", "every": 1},
-                    "aggregations": ["mean"],
-                    "benefit_to_cost_ratio": 2.0,
-                    "distance_discount": 0.5,
-                },
-            },
-        ]
-        config.update(
-            {
-                "scheduler_address": "inproc://tests",
-                "write_batch_size": 2,
-                "output_dir": "artifacts",
-            }
+        config["population"]["n_agents"] = [2, 4]
+        config = execution_config(
+            n_agents=[2, 4],
+            n_actors=2,
+            game=config["game"],
+            visibility_distance=config["population"]["visibility_distance"],
+            policies=config["population"]["policies"],
+            observers=config["observers"],
         )
 
         with tempfile.TemporaryDirectory() as tmpdir:
             config_path = Path(tmpdir) / "config.json"
             config_path.write_text(json.dumps(config), encoding="utf-8")
 
-            with patch("tasks.dispatch.dispatcher.Client", new=_FakeClient):
+            with patch("tasks.execution.runner.Client", new=_FakeClient):
                 with patch(
-                    "tasks.dispatch.dispatcher.as_completed",
+                    "tasks.execution.runner.as_completed",
                     new=lambda futures: iter(futures),
                 ):
-                    summary = dispatch_from_config(str(config_path))
+                    summary = run_from_config(str(config_path))
 
             root = zarr.open_group(summary["output_zarr"], mode="r")
             self.assertEqual(
@@ -123,10 +85,19 @@ class PolicyDispatchTest(unittest.TestCase):
                 (2, 4),
             )
             self.assertEqual(root["results"]["input_index"][:].tolist(), [0, 1])
-            self.assertEqual(root.attrs["parameter_names"], ["visibility_distance"])
+            self.assertEqual(
+                root.attrs["parameter_names"],
+                [
+                    "random_proportion",
+                    "random_count",
+                    "benefit_to_cost_ratio",
+                    "distance_discount",
+                    "visibility_distance",
+                ],
+            )
             np.testing.assert_array_equal(
                 root["metadata"]["input_coordinates"][:],
-                np.asarray([[0, 0], [1, 0]], dtype=np.int64),
+                np.asarray([[0, 0, 0], [1, 0, 0]], dtype=np.int64),
             )
 
             ds = load_policy_results(summary["output_zarr"])

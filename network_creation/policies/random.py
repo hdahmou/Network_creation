@@ -17,7 +17,7 @@ from .base import Policy
 class RandomPolicy(Policy):
     """Uniform random choice over all currently available actions."""
 
-    def __init__(self, seed: int) -> None:
+    def __init__(self, seed: int, **_: object) -> None:
         self._rng = np.random.default_rng(seed)
 
     def reset(self, seed: int) -> None:

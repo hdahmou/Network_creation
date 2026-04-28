@@ -26,6 +26,7 @@ class MyopicPayoffPolicy(Policy):
         benefit_to_cost_ratio: float,
         distance_discount: float,
         bridge_probability: float,
+        **_: object,
     ) -> None:
         if not 0.0 <= distance_discount < 1.0:
             raise ValueError(

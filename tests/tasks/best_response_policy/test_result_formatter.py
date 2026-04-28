@@ -9,15 +9,18 @@ from pathlib import Path
 import numpy as np
 
 from tasks.policies import load_policy_results
-from tasks.policies.support import generate_parameter_table
 
-from ..policy_result_support import build_best_response_config, write_result_store
+from tests.tasks.policy_result_support import (
+    build_best_response_config,
+    build_policy_parameter_samples,
+    write_result_store,
+)
 
 
 class BestResponsePolicyResultFormatterTest(unittest.TestCase):
     def test_from_zarr_reconstructs_parameters_and_sorts_rows(self) -> None:
         config = build_best_response_config(log2_budget=2)
-        parameter_table = generate_parameter_table(config["input_spec"])
+        parameter_samples = build_policy_parameter_samples(config)
 
         outputs_by_index = [
             (
@@ -51,9 +54,7 @@ class BestResponsePolicyResultFormatterTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             store_path = write_result_store(
-                Path(tmpdir),
-                task_name="best-response-policy",
-                config=config,
+                Path(tmpdir),                config=config,
                 outputs_by_index=outputs_by_index,
                 total_inputs=4,
             )
@@ -72,7 +73,9 @@ class BestResponsePolicyResultFormatterTest(unittest.TestCase):
             np.column_stack(
                 [
                     np.full(3, 4.0, dtype=np.float32),
-                    parameter_table.parameter_values[:3, :],
+                    np.full(3, 1.0, dtype=np.float32),
+                    np.full(3, 4.0, dtype=np.float32),
+                    parameter_samples.parameter_values[:3, :],
                 ]
             ),
         )
@@ -80,11 +83,13 @@ class BestResponsePolicyResultFormatterTest(unittest.TestCase):
             tuple(ds.coords["theta_parameter"].values),
             (
                 "n_agents",
+                "best_response_proportion",
+                "best_response_count",
                 "benefit_to_cost_ratio",
                 "distance_discount",
+                "visibility_distance",
                 "outside_optimism",
                 "exploration",
-                "visibility_distance",
             ),
         )
         self.assertEqual(

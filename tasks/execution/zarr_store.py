@@ -1,4 +1,4 @@
-"""Zarr-backed task result writer and reader."""
+"""Zarr-backed run result writer and reader."""
 
 from __future__ import annotations
 
@@ -10,11 +10,11 @@ import numpy as np
 import zarr
 import xarray as xr
 
-from .runtime import OutputSchema, TaskOutput
+from .schema import OutputSpec, RunOutput
 
 
-def load_result_zarr(path: str | Path) -> xr.Dataset:
-    """Load one task result Zarr store into an in-memory xarray dataset."""
+def load_zarr_results(path: str | Path) -> xr.Dataset:
+    """Load one run result Zarr store into an in-memory xarray dataset."""
     store_path = Path(path).expanduser()
     if not store_path.exists():
         raise FileNotFoundError(f"Result store not found: {store_path}")
@@ -69,13 +69,12 @@ def load_result_zarr(path: str | Path) -> xr.Dataset:
     )
 
 
-class ResultStore:
+class ZarrResultStore:
     def __init__(
         self,
         output_path: str,
         *,
-        task_name: str,
-        output_schema: OutputSchema,
+        output_schema: OutputSpec,
         batch_size: int,
         total_inputs: int,
         metadata_attrs: Mapping[str, Any] | None = None,
@@ -99,7 +98,6 @@ class ResultStore:
         root = cast(Any, zarr.open_group(output_path, mode="w", zarr_format=2))
         self._root = root
         attrs = {
-            "task_name": task_name,
             "output_schema": output_schema.metadata(),
             "total_inputs": int(total_inputs),
             "has_failures": False,
@@ -147,7 +145,7 @@ class ResultStore:
     def add_success(
         self,
         input_index: int,
-        output: TaskOutput,
+        output: RunOutput,
         duration_ms: float,
     ) -> None:
         normalized_output: dict[str, np.ndarray[Any, Any]] = {}

@@ -1,4 +1,4 @@
-"""Tests for myopic-policy task preparation."""
+"""Tests for policy task preparation."""
 
 from __future__ import annotations
 
@@ -7,198 +7,105 @@ import unittest
 import numpy as np
 from scipy.stats import qmc
 
-from tasks.policies import MyopicPolicyRun
-from tasks.policies.support import (
-    generate_parameter_table,
-    load_simulation_sweep,
+from tasks.policies import prepare_policy_run
+from tasks.policies.sweep import (
+    collect_parameter_specs,
+    sample_parameters,
+    build_sweep,
+)
+from tests.tasks.config_support import (
+    continuous,
+    fixed,
+    policy,
+    sampled_discrete_range,
+    scaled_inverse_agents,
+    task_config,
 )
 
 
 class MyopicPolicyPreparationTest(unittest.TestCase):
     @staticmethod
     def _base_config() -> dict[str, object]:
-        return {
-            "input_spec": {
-                "log2_budget": 0,
-                "sampler_seed": 123,
-                "parameters": {
-                    "benefit_to_cost_ratio": {"type": "fixed", "payload": 0.05},
-                    "distance_discount": {"type": "fixed", "payload": 0.5},
-                    "bridge_probability": {"type": "fixed", "payload": 0.0},
-                    "visibility_distance": {"type": "fixed", "payload": 4},
-                },
+        return task_config(            n_agents=4,
+            game={
+                "benefit_to_cost_ratio": fixed(0.05),
+                "distance_discount": fixed(0.5),
             },
-            "simulation": {
-                "n_agents": 4,
-                "actor_scheduler": {"n_actors": 4},
-                "seed": 11,
-                "max_steps": 3,
-                "n_episodes": 2,
-                "stagnation_patience": None,
-                "initial_graph": {"kind": "empty"},
-            },
-            "observers": [
-                {
-                    "name": "density",
-                    "output": "mean",
-                    "kwargs": {
-                        "observation_sampling": {"kind": "periodic", "every": 1},
-                        "aggregations": ["mean"],
-                    },
-                },
-                {
-                    "name": "centered_mean_welfare",
-                    "output": "mean",
-                    "kwargs": {
-                        "observation_sampling": {"kind": "periodic", "every": 1},
-                        "aggregations": ["mean"],
-                        "benefit_to_cost_ratio": 2.0,
-                        "distance_discount": 0.5,
-                    },
-                },
+            policies=[
+                policy("myopic", "myopic", {"bridge_probability": fixed(0.0)})
             ],
-        }
-
-    def test_load_simulation_sweep_supports_scalar_n_agents(self) -> None:
-        config = self._base_config()
-        parameter_table = generate_parameter_table(config["input_spec"])
-        sweep = load_simulation_sweep(
-            config["simulation"],
-            parameter_table,
-            parameter_specs=config["input_spec"]["parameters"],
+            observers={
+                "defaults": {
+                    "sampling": {"kind": "periodic", "every": 1},
+                    "aggregations": ["mean"],
+                },
+                "outputs": [{"name": "density", "output": "mean"}],
+            },
         )
 
-        self.assertEqual(sweep.n_agents_values, (4,))
-        self.assertEqual(sweep.configuration_names[0], "n_agents")
-        self.assertEqual(sweep.configuration_values.shape, (1, 1, 5))
-        self.assertEqual(sweep.n_actors, 4)
-        self.assertEqual(sweep.seed, 11)
-        self.assertEqual(sweep.max_steps, 3)
-        self.assertEqual(sweep.n_episodes, 2)
-        self.assertIsNone(sweep.stagnation_patience)
-        self.assertEqual(sweep.initial_graph_kind, "empty")
+    def test_collect_parameter_specs_collects_game_population_and_policy_parameters(self) -> None:
+        input_spec = collect_parameter_specs(self._base_config())
+        self.assertEqual(input_spec["log2_budget"], 0)
+        self.assertEqual(input_spec["seed"], 123)
+        self.assertEqual(
+            tuple(input_spec["parameters"]),
+            (
+                "benefit_to_cost_ratio",
+                "distance_discount",
+                "visibility_distance",
+                "bridge_probability",
+            ),
+        )
 
-    def test_load_simulation_sweep_supports_n_agents_lists(self) -> None:
+    def test_build_sweep_supports_scalar_and_list_n_agents(self) -> None:
         config = self._base_config()
-        simulation = dict(self._base_config()["simulation"])
-        simulation["n_agents"] = [2, 4]
-        parameter_table = generate_parameter_table(config["input_spec"])
-
-        sweep = load_simulation_sweep(
-            simulation,
-            parameter_table,
-            parameter_specs=config["input_spec"]["parameters"],
+        config["population"]["n_agents"] = [2, 4]
+        input_spec = collect_parameter_specs(config)
+        parameter_samples = sample_parameters(input_spec)
+        sweep = build_sweep(
+            config,
+            parameter_samples,
+            parameter_specs=input_spec["parameters"],
+            policy_ids=("myopic",),
         )
 
         self.assertEqual(sweep.n_agents_values, (2, 4))
-        self.assertEqual(
-            tuple(sweep.configuration_values[:, 0, 0].astype(np.int64)),
-            (2, 4),
-        )
-        self.assertEqual(sweep.resolve(sweep.configuration_values[0, 0]).n_actors, 2)
-        self.assertEqual(sweep.resolve(sweep.configuration_values[1, 0]).n_actors, 4)
+        self.assertEqual(sweep.configuration_names[0], "n_agents")
+        self.assertEqual(sweep.configuration_values.shape, (2, 1, 1, 7))
+        self.assertEqual(sweep.resolve(sweep.configuration_at(0)).n_actors, 2)
+        self.assertEqual(sweep.resolve(sweep.configuration_at(1)).n_actors, 4)
 
     def test_prepare_resolves_scaled_inverse_benefit_to_cost_ratio_from_n_agents(
         self,
     ) -> None:
         config = self._base_config()
-        config["simulation"]["n_agents"] = [5, 10]
-        config["input_spec"] = {
-            "log2_budget": 0,
-            "sampler_seed": 123,
-            "parameters": {
-                "benefit_to_cost_ratio": {
-                    "type": "scaled_inverse_n_agents",
-                    "payload": {
-                        "numerator": 10.0,
-                        "factor": 2.0,
-                    },
-                },
-                "distance_discount": {"type": "fixed", "payload": 0.5},
-                "bridge_probability": {"type": "fixed", "payload": 0.0},
-                "visibility_distance": {"type": "fixed", "payload": 4},
-            },
-        }
+        config["population"]["n_agents"] = [5, 10]
+        config["game"]["benefit_to_cost_ratio"] = scaled_inverse_agents(
+            10.0, 2.0
+        )
 
-        task = MyopicPolicyRun()
-        task.prepare(config)
+        task = prepare_policy_run(config)
 
-        benefit_to_cost_ratio_index = task.simulation_sweep.column_index_by_name[
+        column = task.sweep.column_index_by_name[
             "benefit_to_cost_ratio"
         ]
         np.testing.assert_allclose(
-            task.simulation_sweep.configuration_values[:, :, benefit_to_cost_ratio_index],
-            np.asarray([[1.0], [0.5]], dtype=np.float32),
+            task.sweep.configuration_values[:, 0, 0, column],
+            np.asarray([1.0, 0.5], dtype=np.float32),
         )
 
-    def test_generate_parameter_table_preserves_order_and_repeats_fixed_columns(self) -> None:
+    def test_sample_parameters_samples_continuous_parameters_jointly(self) -> None:
         input_spec = {
             "log2_budget": 2,
-            "sampler_seed": 123,
+            "seed": 123,
             "parameters": {
-                "benefit_to_cost_ratio": {"type": "fixed", "payload": 0.05},
-                "distance_discount": {
-                    "type": "continuous",
-                    "payload": {
-                        "min": 0.2,
-                        "max": 0.8,
-                    },
-                },
-                "bridge_probability": {
-                    "type": "continuous",
-                    "payload": {
-                        "min": 0.0,
-                        "max": 1.0,
-                    },
-                },
-                "visibility_distance": {"type": "fixed", "payload": 4},
-            },
-        }
-        parameter_table = generate_parameter_table(input_spec)
-
-        self.assertEqual(
-            parameter_table.parameter_names,
-            (
-                "benefit_to_cost_ratio",
-                "distance_discount",
-                "bridge_probability",
-                "visibility_distance",
-            ),
-        )
-        self.assertEqual(parameter_table.parameter_values.shape, (4, 4))
-        np.testing.assert_allclose(parameter_table.parameter_values[:, 0], 0.05)
-        np.testing.assert_allclose(parameter_table.parameter_values[:, 3], 4.0)
-        self.assertTrue(np.all(parameter_table.parameter_values[:, 1] >= 0.2))
-        self.assertTrue(np.all(parameter_table.parameter_values[:, 1] <= 0.8))
-        self.assertTrue(np.all(parameter_table.parameter_values[:, 2] >= 0.0))
-        self.assertTrue(np.all(parameter_table.parameter_values[:, 2] <= 1.0))
-        self.assertGreater(
-            np.unique(parameter_table.parameter_values[:, 1]).size,
-            1,
-        )
-        self.assertGreater(
-            np.unique(parameter_table.parameter_values[:, 2]).size,
-            1,
-        )
-
-    def test_generate_parameter_table_samples_continuous_parameters_jointly(self) -> None:
-        input_spec = {
-            "log2_budget": 2,
-            "sampler_seed": 123,
-            "parameters": {
-                "distance_discount": {
-                    "type": "continuous",
-                    "payload": {"min": 0.2, "max": 0.8},
-                },
-                "bridge_probability": {
-                    "type": "continuous",
-                    "payload": {"min": 0.0, "max": 1.0},
-                },
-                "visibility_distance": {"type": "fixed", "payload": 4},
+                "distance_discount": continuous(0.2, 0.8),
+                "bridge_probability": continuous(0.0, 1.0),
+                "visibility_distance": fixed(4),
             },
         }
 
-        parameter_table = generate_parameter_table(input_spec)
+        parameter_samples = sample_parameters(input_spec)
         sampler = qmc.Sobol(
             d=2,
             scramble=True,
@@ -215,74 +122,41 @@ class MyopicPolicyPreparationTest(unittest.TestCase):
         ).astype(np.float32, copy=False)
 
         self.assertEqual(
-            parameter_table.parameter_names,
-            ("distance_discount", "bridge_probability", "visibility_distance"),
-        )
-        np.testing.assert_allclose(parameter_table.parameter_values, expected)
-
-    def test_generate_parameter_table_collapses_all_fixed_parameters_to_one_row(self) -> None:
-        input_spec = {
-            "log2_budget": 3,
-            "sampler_seed": 123,
-            "parameters": {
-                "benefit_to_cost_ratio": {"type": "fixed", "payload": 0.05},
-                "distance_discount": {"type": "fixed", "payload": 0.5},
-                "bridge_probability": {"type": "fixed", "payload": 0.0},
-                "visibility_distance": {"type": "fixed", "payload": 4},
-            },
-        }
-
-        parameter_table = generate_parameter_table(input_spec)
-
-        self.assertEqual(parameter_table.parameter_values.shape, (1, 4))
-        np.testing.assert_allclose(
-            parameter_table.parameter_values,
-            np.array([[0.05, 0.5, 0.0, 4.0]], dtype=np.float32),
-        )
-
-    def test_prepare_generates_row_index_inputs_from_input_spec(self) -> None:
-        task = MyopicPolicyRun()
-        prepared = task.prepare(self._base_config())
-
-        self.assertEqual(prepared.inputs, (0,))
-        self.assertEqual(
-            task.parameter_table.parameter_names,
+            parameter_samples.parameter_names,
             (
-                "benefit_to_cost_ratio",
                 "distance_discount",
                 "bridge_probability",
                 "visibility_distance",
             ),
         )
+        np.testing.assert_allclose(parameter_samples.parameter_values, expected)
+
+    def test_sample_parameters_collapses_all_fixed_parameters_to_one_row(self) -> None:
+        input_spec = collect_parameter_specs(self._base_config())
+
+        parameter_samples = sample_parameters(input_spec)
+
+        self.assertEqual(parameter_samples.parameter_values.shape, (1, 4))
         np.testing.assert_allclose(
-            task.parameter_table.parameter_values,
-            np.array([[0.05, 0.5, 0.0, 4.0]], dtype=np.float32),
+            parameter_samples.parameter_values,
+            np.array([[0.05, 0.5, 4.0, 0.0]], dtype=np.float32),
         )
 
     def test_prepare_expands_n_agents_sweeps_cartesian_product(self) -> None:
         config = self._base_config()
-        config["simulation"]["n_agents"] = [2, 5, 7]
-        config["input_spec"] = {
-            "log2_budget": 1,
-            "sampler_seed": 123,
-            "parameters": {
-                "benefit_to_cost_ratio": {"type": "fixed", "payload": 0.05},
-                "distance_discount": {"type": "fixed", "payload": 0.5},
-                "bridge_probability": {
-                    "type": "continuous",
-                    "payload": {"min": 0.0, "max": 1.0},
-                },
-                "visibility_distance": {"type": "fixed", "payload": 4},
-            },
-        }
+        config["population"]["n_agents"] = [2, 5, 7]
+        config["sampling"]["log2_budget"] = 1
+        config["population"]["policies"][0]["parameters"][
+            "bridge_probability"
+        ] = continuous(0.0, 1.0)
 
-        task = MyopicPolicyRun()
-        prepared = task.prepare(config)
+        task = prepare_policy_run(config)
+        prepared = task
 
         self.assertEqual(prepared.inputs, (0, 1, 2, 3, 4, 5))
-        self.assertEqual(task.simulation_sweep.configuration_values.shape, (3, 2, 5))
+        self.assertEqual(task.sweep.configuration_values.shape, (3, 1, 2, 7))
         np.testing.assert_allclose(
-            task.simulation_sweep.configuration_values[:, :, 0],
+            task.sweep.configuration_values[:, 0, :, 0],
             np.array(
                 [
                     [2.0, 2.0],
@@ -293,111 +167,38 @@ class MyopicPolicyPreparationTest(unittest.TestCase):
             ),
         )
 
-    def test_prepare_rejects_missing_visibility_distance(self) -> None:
-        config = self._base_config()
-        parameters = dict(config["input_spec"]["parameters"])
-        del parameters["visibility_distance"]
-        config["input_spec"] = {
-            "log2_budget": 0,
-            "sampler_seed": 123,
-            "parameters": parameters,
-        }
-
-        with self.assertRaisesRegex(ValueError, "visibility_distance is required"):
-            MyopicPolicyRun().prepare(config)
-
-    def test_generate_parameter_table_supports_sampled_discrete_visibility_distance_ranges(
-        self,
-    ) -> None:
+    def test_sample_parameters_supports_sampled_discrete_ranges(self) -> None:
         input_spec = {
             "log2_budget": 2,
-            "sampler_seed": 123,
+            "seed": 123,
             "parameters": {
-                "benefit_to_cost_ratio": {"type": "fixed", "payload": 0.05},
-                "distance_discount": {"type": "fixed", "payload": 0.5},
-                "bridge_probability": {"type": "fixed", "payload": 0.0},
-                "visibility_distance": {
-                    "type": "sampled_discrete_range",
-                    "payload": {"min": 1, "max": 4, "step": 1},
-                },
+                "benefit_to_cost_ratio": continuous(0.2, 0.8),
+                "distance_discount": fixed(0.5),
+                "bridge_probability": fixed(0.0),
+                "visibility_distance": sampled_discrete_range(1, 4),
             },
         }
 
-        parameter_table = generate_parameter_table(input_spec)
-        sampled_visibility_distance = parameter_table.parameter_values[:, 3]
+        parameter_samples = sample_parameters(input_spec)
         expected_visibility_distance = np.random.default_rng(123 + 3).choice(
             np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32),
             size=4,
             replace=True,
         )
 
-        self.assertEqual(parameter_table.parameter_values.shape, (4, 4))
-        self.assertTrue(np.all(sampled_visibility_distance >= 1.0))
-        self.assertTrue(np.all(sampled_visibility_distance <= 4.0))
-        self.assertTrue(
-            np.all(sampled_visibility_distance == np.floor(sampled_visibility_distance))
-        )
+        self.assertEqual(parameter_samples.parameter_values.shape, (4, 4))
         np.testing.assert_allclose(
-            sampled_visibility_distance,
+            parameter_samples.parameter_values[:, 3],
             expected_visibility_distance,
         )
 
-    def test_generate_parameter_table_samples_float_and_integer_ranges_rowwise(self) -> None:
-        input_spec = {
-            "log2_budget": 2,
-            "sampler_seed": 123,
-            "parameters": {
-                "benefit_to_cost_ratio": {
-                    "type": "continuous",
-                    "payload": {"min": 0.2, "max": 0.8},
-                },
-                "distance_discount": {"type": "fixed", "payload": 0.5},
-                "bridge_probability": {"type": "fixed", "payload": 0.0},
-                "visibility_distance": {
-                    "type": "sampled_discrete_range",
-                    "payload": {"min": 1, "max": 4, "step": 1},
-                },
-            },
-        }
-
-        parameter_table = generate_parameter_table(input_spec)
-        unit_samples = np.asarray(
-            qmc.Sobol(
-                d=1,
-                scramble=True,
-                optimization="random-cd",
-                rng=123,
-            ).random(n=4),
-            dtype=np.float32,
-        )
-        expected_visibility_distance = np.random.default_rng(123 + 3).choice(
-            np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32),
-            size=4,
-            replace=True,
-        )
-        expected = np.column_stack(
-            (
-                0.2 + (unit_samples[:, 0] * 0.6),
-                np.full(4, 0.5, dtype=np.float32),
-                np.full(4, 0.0, dtype=np.float32),
-                expected_visibility_distance,
-            )
-        ).astype(np.float32, copy=False)
-
-        self.assertEqual(parameter_table.parameter_values.shape, (4, 4))
-        np.testing.assert_allclose(parameter_table.parameter_values, expected)
-
-    def test_generate_parameter_table_rejects_negative_log2_budget(self) -> None:
-        input_spec = {
-            "log2_budget": -1,
-            "sampler_seed": 123,
-            "parameters": {
-                "benefit_to_cost_ratio": {"type": "fixed", "payload": 0.05},
-                "distance_discount": {"type": "fixed", "payload": 0.5},
-                "bridge_probability": {"type": "fixed", "payload": 0.0},
-                "visibility_distance": {"type": "fixed", "payload": 4},
-            },
-        }
+    def test_sample_parameters_rejects_negative_log2_budget(self) -> None:
+        input_spec = collect_parameter_specs(self._base_config())
+        input_spec["log2_budget"] = -1
 
         with self.assertRaisesRegex(ValueError, "log2_budget"):
-            generate_parameter_table(input_spec)
+            sample_parameters(input_spec)
+
+
+if __name__ == "__main__":
+    unittest.main()

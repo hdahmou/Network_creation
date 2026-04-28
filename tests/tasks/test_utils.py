@@ -1,4 +1,4 @@
-"""Tests for dispatch result loading."""
+"""Tests for execution result loading."""
 
 from __future__ import annotations
 
@@ -8,16 +8,16 @@ from pathlib import Path
 
 import numpy as np
 
-from tasks.dispatch.result_store import ResultStore, load_result_zarr
-from tasks.dispatch.runtime import OutputField, OutputSchema
+from tasks.execution.zarr_store import ZarrResultStore, load_zarr_results
+from tasks.execution.schema import OutputArraySpec, OutputSpec
 
 
 class TaskUtilsTest(unittest.TestCase):
-    def test_load_result_zarr_returns_sorted_xarray_content(self) -> None:
-        output_schema = OutputSchema(
+    def test_load_zarr_results_returns_sorted_xarray_content(self) -> None:
+        output_schema = OutputSpec(
             fields=(
-                OutputField(name="density.mean", shape=(3,), dtype=np.float32),
-                OutputField(
+                OutputArraySpec(name="density.mean", shape=(3,), dtype=np.float32),
+                OutputArraySpec(
                     name="centered_mean_welfare.mean",
                     shape=(3,),
                     dtype=np.float32,
@@ -27,9 +27,8 @@ class TaskUtilsTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             store_path = Path(tmpdir) / "run.zarr"
-            writer = ResultStore(
+            writer = ZarrResultStore(
                 str(store_path),
-                task_name="myopic-policy",
                 output_schema=output_schema,
                 batch_size=2,
                 total_inputs=3,
@@ -57,10 +56,9 @@ class TaskUtilsTest(unittest.TestCase):
             writer.add_failure()
             writer.flush()
 
-            result = load_result_zarr(store_path)
+            result = load_zarr_results(store_path)
 
         self.assertEqual(result.attrs["path"], store_path.resolve())
-        self.assertEqual(result.attrs["task_name"], "myopic-policy")
         self.assertEqual(result.attrs["average_completion_duration_ms"], 2.0)
         self.assertEqual(result.attrs["total_inputs"], 3)
         self.assertEqual(result.attrs["stored_results"], 3)

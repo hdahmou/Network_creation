@@ -45,6 +45,7 @@ class SweepPlan:
     n_episodes: int
     stagnation_patience: int | None
     initial_graph_kind: str = "empty"
+    initial_graph_p: float | None = None
 
     @property
     def n_parameter_rows(self) -> int:
@@ -98,6 +99,7 @@ class SweepPlan:
             n_episodes=self.n_episodes,
             stagnation_patience=self.stagnation_patience,
             initial_graph_kind=self.initial_graph_kind,
+            initial_graph_p=self.initial_graph_p,
         )
 
 
@@ -215,6 +217,33 @@ def _load_policy_proportions(
     return policy_id, proportions
 
 
+def _load_initial_graph(raw: Mapping[str, Any]) -> tuple[str, float | None]:
+    raw_initial_graph = raw.get("initial_graph")
+    initial_graph = {} if raw_initial_graph is None else raw_initial_graph
+    if not isinstance(initial_graph, Mapping):
+        raise ValueError("simulator.initial_graph must be an object")
+
+    kind = str(initial_graph.get("kind", "empty"))
+    if kind == "empty":
+        return kind, None
+
+    if kind != "erdos_renyi":
+        return kind, None
+
+    if "p" not in initial_graph:
+        raise ValueError("simulator.initial_graph.p is required for erdos_renyi")
+
+    raw_p = initial_graph["p"]
+    if isinstance(raw_p, bool) or not isinstance(raw_p, Real):
+        raise ValueError("simulator.initial_graph.p must be a number in [0, 1]")
+
+    p = float(raw_p)
+    if not 0.0 <= p <= 1.0:
+        raise ValueError("simulator.initial_graph.p must be a number in [0, 1]")
+
+    return kind, p
+
+
 def build_sweep(
     config: Mapping[str, Any],
     parameter_samples: ParameterSamples,
@@ -224,7 +253,7 @@ def build_sweep(
 ) -> SweepPlan:
     population = cast(Mapping[str, Any], config["population"])
     simulator = cast(Mapping[str, Any], config["simulator"])
-    initial_graph = simulator.get("initial_graph") or {}
+    initial_graph_kind, initial_graph_p = _load_initial_graph(simulator)
     stagnation_patience = simulator.get("stagnation_patience")
     raw_n_agents = population["n_agents"]
     values = raw_n_agents if isinstance(raw_n_agents, list) else [raw_n_agents]
@@ -255,7 +284,7 @@ def build_sweep(
         *parameter_samples.parameter_names,
     )
     n_parameter_rows = int(parameter_samples.parameter_values.shape[0])
-    configuration_values = np.empty(
+    configuration_values: NDArray[np.float32] = np.empty(
         (
             len(n_agents_values),
             len(proportions),
@@ -308,7 +337,8 @@ def build_sweep(
         stagnation_patience=(
             None if stagnation_patience is None else int(stagnation_patience)
         ),
-        initial_graph_kind=initial_graph.get("kind", "empty"),
+        initial_graph_kind=initial_graph_kind,
+        initial_graph_p=initial_graph_p,
     )
 
 

@@ -9,7 +9,7 @@ import numpy as np
 
 from .agent import Agent
 from .environment import Environment
-from .graph import create_empty_graph
+from .graph import create_empty_graph, create_erdos_renyi_graph
 from .model import ActorScheduler
 from .observability import SimulationObserver
 from .simulator import Simulator
@@ -26,6 +26,7 @@ class SimulationSettings:
     n_episodes: int
     stagnation_patience: int | None
     initial_graph_kind: str = "empty"
+    initial_graph_p: float | None = None
 
 
 def create_environment(
@@ -33,15 +34,33 @@ def create_environment(
     simulation_settings: SimulationSettings,
     seed: int,
 ) -> Environment:
-    if simulation_settings.initial_graph_kind != "empty":
-        raise ValueError(
-            f"unsupported initial graph kind {simulation_settings.initial_graph_kind!r}; "
-            "only 'empty' is supported"
+    if simulation_settings.initial_graph_kind == "empty":
+        return Environment(
+            create_empty_graph(simulation_settings.n_agents),
+            seed=seed,
         )
 
-    return Environment(
-        create_empty_graph(simulation_settings.n_agents),
-        seed=seed,
+    if simulation_settings.initial_graph_kind == "erdos_renyi":
+        initial_graph_p = simulation_settings.initial_graph_p
+        if initial_graph_p is None:
+            raise ValueError("erdos_renyi initial graph requires initial_graph_p")
+
+        def build_initial_graph(graph_seed: int):
+            return create_erdos_renyi_graph(
+                simulation_settings.n_agents,
+                initial_graph_p,
+                graph_seed,
+            )
+
+        return Environment(
+            build_initial_graph(seed),
+            seed=seed,
+            initial_graph_factory=build_initial_graph,
+        )
+
+    raise ValueError(
+        f"unsupported initial graph kind {simulation_settings.initial_graph_kind!r}; "
+        "supported kinds are 'empty' and 'erdos_renyi'"
     )
 
 

@@ -11,6 +11,7 @@ from network_creation.core.graph import (
     apply_actions,
     build_observation_from_state,
     build_state_from_graph,
+    create_erdos_renyi_graph,
     get_action_space,
 )
 from network_creation.core.local_global_map import LocalGlobalMap
@@ -69,7 +70,36 @@ class GraphOpsTest(unittest.TestCase):
         )
 
         self.assertEqual(sorted(state.graph.get_edgelist()), [(0, 1), (1, 0)])
-        self.assertEqual({frozenset(edge) for edge in state.graph.get_edgelist()}, {frozenset((0, 1))})
+        self.assertEqual(
+            {frozenset(edge) for edge in state.graph.get_edgelist()},
+            {frozenset((0, 1))},
+        )
+
+    def test_create_erdos_renyi_graph_supports_empty_probability(self) -> None:
+        graph = create_erdos_renyi_graph(n_agents=4, p=0.0, seed=11)
+
+        self.assertTrue(graph.is_directed())
+        self.assertEqual(graph.vs["name"], [0, 1, 2, 3])
+        self.assertEqual(graph.ecount(), 0)
+
+    def test_create_erdos_renyi_graph_supports_full_directed_probability(self) -> None:
+        graph = create_erdos_renyi_graph(n_agents=3, p=1.0, seed=13)
+
+        self.assertTrue(graph.is_directed())
+        self.assertEqual(graph.vs["name"], [0, 1, 2])
+        self.assertEqual(
+            sorted(graph.get_edgelist()),
+            [(0, 1), (0, 2), (1, 0), (1, 2), (2, 0), (2, 1)],
+        )
+        self.assertFalse(
+            any(source == target for source, target in graph.get_edgelist())
+        )
+
+    def test_create_erdos_renyi_graph_is_deterministic_for_seed(self) -> None:
+        first = create_erdos_renyi_graph(n_agents=5, p=0.4, seed=17)
+        second = create_erdos_renyi_graph(n_agents=5, p=0.4, seed=17)
+
+        self.assertEqual(sorted(first.get_edgelist()), sorted(second.get_edgelist()))
 
     def test_observation_keeps_original_node_ids_in_mapping(self) -> None:
         adjacency = np.array(

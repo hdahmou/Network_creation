@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from numbers import Real
+import random
+from threading import Lock
 
 import igraph as ig
 import numpy as np
 
 from .model import Action, ActionSpace, ActionType, EnvironmentState, Observation
+
+_IGRAPH_RNG_LOCK = Lock()
 
 
 def build_state_from_graph(graph: ig.Graph) -> EnvironmentState:
@@ -21,6 +26,28 @@ def create_empty_graph(n_agents: int) -> ig.Graph:
     """Create the empty directed graph for a fixed node set."""
 
     graph = ig.Graph(n=n_agents, directed=True)
+    graph.vs["name"] = list(range(n_agents))
+    return graph
+
+
+def create_erdos_renyi_graph(n_agents: int, p: float, seed: int) -> ig.Graph:
+    """Create a directed Erdős-Rényi graph for a fixed node set."""
+
+    if isinstance(p, bool) or not isinstance(p, Real) or not 0.0 <= float(p) <= 1.0:
+        raise ValueError("p must be a number in [0, 1]")
+
+    with _IGRAPH_RNG_LOCK:
+        ig.set_random_number_generator(random.Random(int(seed)))
+        try:
+            graph = ig.Graph.Erdos_Renyi(
+                n=n_agents,
+                p=float(p),
+                directed=True,
+                loops=False,
+            )
+        finally:
+            ig.set_random_number_generator(random)
+
     graph.vs["name"] = list(range(n_agents))
     return graph
 

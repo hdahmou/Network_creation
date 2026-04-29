@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from typing import Any, cast
 import unittest
 
 from tasks.policies import prepare_policy_run
+from tests.tasks.config_support import task_config
 
 
 class PolicyTaskConfigTest(unittest.TestCase):
@@ -45,6 +47,42 @@ class PolicyTaskConfigTest(unittest.TestCase):
         )
 
         self.assertEqual(policy_task.inputs, (0,))
+
+    def test_prepare_policy_run_accepts_erdos_renyi_initial_graph(self) -> None:
+        config = cast(dict[str, Any], task_config())
+        simulator = cast(dict[str, Any], config["simulator"])
+        simulator["initial_graph"] = {
+            "kind": "erdos_renyi",
+            "p": 0.25,
+        }
+
+        policy_task = prepare_policy_run(config)
+        settings = policy_task.sweep.resolve(policy_task.sweep.configuration_at(0))
+
+        self.assertEqual(policy_task.inputs, (0,))
+        self.assertEqual(policy_task.sweep.initial_graph_kind, "erdos_renyi")
+        self.assertEqual(policy_task.sweep.initial_graph_p, 0.25)
+        self.assertEqual(settings.initial_graph_kind, "erdos_renyi")
+        self.assertEqual(settings.initial_graph_p, 0.25)
+
+    def test_prepare_policy_run_rejects_invalid_erdos_renyi_probability(self) -> None:
+        invalid_initial_graphs = (
+            {"kind": "erdos_renyi"},
+            {"kind": "erdos_renyi", "p": None},
+            {"kind": "erdos_renyi", "p": -0.1},
+            {"kind": "erdos_renyi", "p": 1.1},
+            {"kind": "erdos_renyi", "p": True},
+            {"kind": "erdos_renyi", "p": "0.1"},
+        )
+
+        for initial_graph in invalid_initial_graphs:
+            with self.subTest(initial_graph=initial_graph):
+                config = cast(dict[str, Any], task_config())
+                simulator = cast(dict[str, Any], config["simulator"])
+                simulator["initial_graph"] = initial_graph
+
+                with self.assertRaisesRegex(ValueError, "simulator.initial_graph.p"):
+                    prepare_policy_run(config)
 
 
 if __name__ == "__main__":

@@ -214,7 +214,7 @@ class Simulator:
 
     def _reset_for_episode(self) -> int:
         episode_seed = self._next_seed()
-        self.env.reset()
+        self.env.reset(seed=episode_seed)
         for agent in self.agents:
             agent_seed = self._next_seed()
             agent.reset(seed=agent_seed)

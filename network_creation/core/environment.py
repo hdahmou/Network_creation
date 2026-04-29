@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 
 import igraph as ig
 
@@ -15,19 +15,30 @@ from .graph import (
 )
 from .model import Action, ActionSpace, EnvironmentState, Observation
 
+type InitialGraphFactory = Callable[[int], ig.Graph]
+
 
 class Environment:
     """Thin stateful shell around the graph helpers."""
 
-    def __init__(self, graph: ig.Graph, seed: int) -> None:
+    def __init__(
+        self,
+        graph: ig.Graph,
+        seed: int,
+        initial_graph_factory: InitialGraphFactory | None = None,
+    ) -> None:
         self.seed = seed
+        self._initial_graph_factory = initial_graph_factory
         self._initial_graph = graph.copy()
         self.state = build_state_from_graph(self._initial_graph)
         self.node_ids = [int(node_id) for node_id in self.state.graph.vs["name"]]
 
-    def reset(self) -> EnvironmentState:
+    def reset(self, seed: int | None = None) -> EnvironmentState:
         """Restore the initial graph state."""
 
+        if self._initial_graph_factory is not None:
+            graph_seed = self.seed if seed is None else seed
+            self._initial_graph = self._initial_graph_factory(graph_seed)
         self.state = build_state_from_graph(self._initial_graph)
         return self.state
 

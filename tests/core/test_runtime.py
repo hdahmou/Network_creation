@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from typing import cast
 import unittest
 
 import numpy as np
 
 from network_creation.core.agent import Agent
+from network_creation.core.graph import create_erdos_renyi_graph
 from network_creation.core.model import (
     Action,
     ActionSpace,
@@ -14,7 +16,6 @@ from network_creation.core.model import (
     Observation,
     PolicyDecision,
 )
-from network_creation.core.observability import ObservationSampling
 from network_creation.core.runtime import (
     SimulationSettings,
     create_agents,
@@ -22,8 +23,13 @@ from network_creation.core.runtime import (
     create_simulation_runtime,
     create_simulator,
 )
+from network_creation.core.observability import SimulationObserver
 from network_creation.policies.base import Policy
-from tests.core.simulation_support import ConstantPolicy, RecordingObserver
+from tests.core.simulation_support import (
+    BatchRecordingObserver,
+    ConstantPolicy,
+    RecordingObserver,
+)
 
 
 class SeedRecordingPolicy(Policy):
@@ -61,6 +67,42 @@ class RuntimeAssemblyTest(unittest.TestCase):
                     n_episodes=1,
                     stagnation_patience=None,
                     initial_graph_kind="cycle",
+                ),
+                seed=13,
+            )
+
+    def test_create_environment_supports_erdos_renyi_initial_graph(self) -> None:
+        environment = create_environment(
+            simulation_settings=SimulationSettings(
+                n_agents=3,
+                n_actors=1,
+                seed=7,
+                max_steps=3,
+                n_episodes=1,
+                stagnation_patience=None,
+                initial_graph_kind="erdos_renyi",
+                initial_graph_p=1.0,
+            ),
+            seed=13,
+        )
+
+        self.assertEqual(environment.state.graph.vs["name"], [0, 1, 2])
+        self.assertEqual(
+            sorted(environment.state.graph.get_edgelist()),
+            [(0, 1), (0, 2), (1, 0), (1, 2), (2, 0), (2, 1)],
+        )
+
+    def test_create_environment_rejects_missing_erdos_renyi_probability(self) -> None:
+        with self.assertRaisesRegex(ValueError, "initial_graph_p"):
+            create_environment(
+                simulation_settings=SimulationSettings(
+                    n_agents=3,
+                    n_actors=1,
+                    seed=7,
+                    max_steps=3,
+                    n_episodes=1,
+                    stagnation_patience=None,
+                    initial_graph_kind="erdos_renyi",
                 ),
                 seed=13,
             )
@@ -117,7 +159,7 @@ class RuntimeAssemblyTest(unittest.TestCase):
             simulation_settings=settings,
             environment=environment,
             agents=agents,
-            observers=(observer,),
+            observers=(cast(SimulationObserver, observer),),
             seed=31,
         )
 
@@ -155,7 +197,7 @@ class RuntimeAssemblyTest(unittest.TestCase):
         environment, agents, simulator = create_simulation_runtime(
             simulation_settings=settings,
             build_agent=build_agent,
-            observers=(observer,),
+            observers=(cast(SimulationObserver, observer),),
             seed=37,
         )
 
@@ -171,11 +213,67 @@ class RuntimeAssemblyTest(unittest.TestCase):
         self.assertIs(simulator.env, environment)
         self.assertIs(simulator.agents, agents)
         self.assertEqual(simulator.observers, (observer,))
-        self.assertIsNotNone(observer.episode_start_event)
-        self.assertEqual(observer.episode_start_event.seed, expected_episode_seed)
+        episode_start_event = observer.episode_start_event
+        self.assertIsNotNone(episode_start_event)
+        assert episode_start_event is not None
+        self.assertEqual(episode_start_event.seed, expected_episode_seed)
         self.assertEqual(
             [policies[node_id].reset_seeds for node_id in range(len(agents))],
             [[expected_agent_seeds[0]], [expected_agent_seeds[1]]],
+        )
+
+    def test_erdos_renyi_initial_graph_resamples_from_episode_seed(self) -> None:
+        settings = SimulationSettings(
+            n_agents=5,
+            n_actors=1,
+            seed=7,
+            max_steps=0,
+            n_episodes=2,
+            stagnation_patience=None,
+            initial_graph_kind="erdos_renyi",
+            initial_graph_p=0.4,
+        )
+        observer = BatchRecordingObserver()
+
+        def build_agent(node_id: int) -> Agent:
+            return Agent(
+                id=node_id,
+                visibility_distance=2,
+                policy=ConstantPolicy(Action(ActionType.PASS, source=node_id)),
+                seed=41 + node_id,
+            )
+
+        _, _, simulator = create_simulation_runtime(
+            simulation_settings=settings,
+            build_agent=build_agent,
+            observers=(cast(SimulationObserver, observer),),
+            seed=37,
+        )
+
+        simulator.run(n_episodes=2, reset_observers=True)
+
+        expected_rng = np.random.default_rng(37)
+        expected_edges: list[list[tuple[int, int]]] = []
+        for _ in range(2):
+            episode_seed = int(expected_rng.bit_generator.random_raw())
+            expected_edges.append(
+                sorted(
+                    create_erdos_renyi_graph(
+                        n_agents=5,
+                        p=0.4,
+                        seed=episode_seed,
+                    ).get_edgelist()
+                )
+            )
+            for _ in range(settings.n_agents):
+                expected_rng.bit_generator.random_raw()
+
+        self.assertEqual(
+            [
+                sorted(event.initial_state.graph.get_edgelist())
+                for event in observer.episode_start_events
+            ],
+            expected_edges,
         )
 
 

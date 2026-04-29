@@ -256,7 +256,20 @@ def build_sweep(
     initial_graph_kind, initial_graph_p = _load_initial_graph(simulator)
     stagnation_patience = simulator.get("stagnation_patience")
     raw_n_agents = population["n_agents"]
-    values = raw_n_agents if isinstance(raw_n_agents, list) else [raw_n_agents]
+    if isinstance(raw_n_agents, Mapping):
+        if str(raw_n_agents["kind"]) != "sampled_discrete_range":
+            raise ValueError(
+                "population.n_agents object must use kind "
+                "'sampled_discrete_range'"
+            )
+        values = np.arange(
+            int(cast(Any, raw_n_agents["min"])),
+            int(cast(Any, raw_n_agents["max"])) + 1,
+            int(cast(Any, raw_n_agents.get("step", 1))),
+            dtype=np.int64,
+        ).tolist()
+    else:
+        values = raw_n_agents if isinstance(raw_n_agents, list) else [raw_n_agents]
     if not values:
         raise ValueError("population.n_agents must contain at least one value")
 

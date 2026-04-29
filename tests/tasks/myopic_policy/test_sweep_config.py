@@ -75,6 +75,30 @@ class MyopicPolicyPreparationTest(unittest.TestCase):
         self.assertEqual(sweep.resolve(sweep.configuration_at(0)).n_actors, 2)
         self.assertEqual(sweep.resolve(sweep.configuration_at(1)).n_actors, 4)
 
+    def test_build_sweep_supports_discrete_range_n_agents(self) -> None:
+        config = self._base_config()
+        config["population"]["n_agents"] = {
+            "kind": "sampled_discrete_range",
+            "min": 10,
+            "max": 40,
+            "step": 10,
+        }
+        input_spec = collect_parameter_specs(config)
+        parameter_samples = sample_parameters(input_spec)
+        sweep = build_sweep(
+            config,
+            parameter_samples,
+            parameter_specs=input_spec["parameters"],
+            policy_ids=("myopic",),
+        )
+
+        self.assertEqual(sweep.n_agents_values, (10, 20, 30, 40))
+        self.assertEqual(sweep.configuration_values.shape, (4, 1, 1, 7))
+        np.testing.assert_allclose(
+            sweep.configuration_values[:, 0, 0, 0],
+            np.asarray([10.0, 20.0, 30.0, 40.0], dtype=np.float32),
+        )
+
     def test_prepare_resolves_scaled_inverse_benefit_to_cost_ratio_from_n_agents(
         self,
     ) -> None:

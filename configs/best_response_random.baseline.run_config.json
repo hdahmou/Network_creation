@@ -62,7 +62,7 @@
     ],
     "policy_proportions": {
       "policy": "best_response",
-      "values": [0.0, 0.1, 0.2, 0.3, 0.9]
+      "values": [0.0, 0.1, 0.9]
     }
   },
   "observers": {
@@ -75,15 +75,19 @@
     },
     "outputs": [
       {
-        "name": "density",
-        "output": "mean"
-      },
-      {
-        "name": "centered_mean_welfare",
+        "name": "central_point_of_dominance",
         "output": "mean"
       },
       {
         "name": "indegree",
+        "output": "mean"
+      },
+      {
+        "name": "distance",
+        "output": "mean"
+      },
+      {
+        "name": "centered_mean_welfare",
         "output": "mean"
       }
     ]

@@ -5,7 +5,7 @@
     "write_batch_size": 64
   },
   "sampling": {
-    "log2_budget": 14,
+    "log2_budget": 13,
     "seed": 123
   },
   "simulator": {
@@ -32,11 +32,7 @@
     }
   },
   "population": {
-    "n_agents": {
-      "kind": "sampled_discrete_range",
-      "min": 10,
-      "max": 25
-    },
+    "n_agents": [10, 20],
     "visibility_distance": {
       "kind": "sampled_choice",
       "values": [3]

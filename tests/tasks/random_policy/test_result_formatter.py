@@ -39,30 +39,28 @@ class RandomPolicyResultFormatterTest(unittest.TestCase):
         self.assertNotIn("final", ds)
         self.assertNotIn("parameters", ds)
         self.assertNotIn("timeseries", ds)
-        self.assertEqual(ds["theta"].shape, (1, 6))
-        np.testing.assert_array_equal(
-            ds.coords["input_index"].values,
-            np.asarray([0], dtype=np.int64),
-        )
-        self.assertEqual(ds.attrs["average_completion_duration_ms"], 1.0)
+        self.assertEqual(ds["theta"].shape, (1, 1, 1, 4))
+        self.assertEqual(ds["x"].dims, ("n_agents", "random_proportion", "parameter_row", "step", "observable"))
+        np.testing.assert_array_equal(ds.coords["n_agents"].values, np.asarray([4]))
+        np.testing.assert_allclose(ds.coords["random_proportion"].values, [1.0])
+        np.testing.assert_array_equal(ds.coords["parameter_row"].values, np.asarray([0]))
+        np.testing.assert_array_equal(ds.coords["input_index"].values, np.asarray([[[0]]], dtype=np.int64))
         self.assertFalse(ds.attrs["has_failures"])
         self.assertEqual(
             tuple(ds.coords["theta_parameter"].values),
             (
                 "n_agents",
-                "random_proportion",
-                "random_count",
                 "benefit_to_cost_ratio",
                 "distance_discount",
                 "visibility_distance",
             ),
         )
-        np.testing.assert_allclose(ds["prior_low"].values, [4.0, 1.0, 4.0, 0.5, 0.5, 4.0])
-        np.testing.assert_allclose(ds["prior_high"].values, [4.0, 1.0, 4.0, 0.5, 0.5, 4.0])
-        self.assertEqual(ds["x"].shape, (1, 3, 2))
+        np.testing.assert_allclose(ds["prior_low"].values, [4.0, 0.5, 0.5, 4.0])
+        np.testing.assert_allclose(ds["prior_high"].values, [4.0, 0.5, 0.5, 4.0])
+        self.assertEqual(ds["x"].shape, (1, 1, 1, 3, 2))
         np.testing.assert_allclose(
             ds["x"].isel(step=-1).values,
-            np.asarray([[2.0, 12.0]], dtype=np.float32),
+            np.asarray([[[[2.0, 12.0]]]], dtype=np.float32),
         )
 
     def test_from_zarr_supports_scalar_outputs_without_timeseries(self) -> None:
@@ -88,14 +86,11 @@ class RandomPolicyResultFormatterTest(unittest.TestCase):
             ds = load_policy_results(store_path)
 
         self.assertNotIn("final", ds)
-        self.assertEqual(ds["x"].shape, (1, 1, 2))
-        self.assertEqual(ds.attrs["average_completion_duration_ms"], 1.0)
+        self.assertEqual(ds["x"].shape, (1, 1, 1, 1, 2))
         self.assertEqual(
             tuple(ds.coords["theta_parameter"].values),
             (
                 "n_agents",
-                "random_proportion",
-                "random_count",
                 "benefit_to_cost_ratio",
                 "distance_discount",
                 "visibility_distance",
@@ -103,7 +98,7 @@ class RandomPolicyResultFormatterTest(unittest.TestCase):
         )
         np.testing.assert_allclose(
             ds["x"].values,
-            np.asarray([[[0.25, 12.5]]], dtype=np.float32),
+            np.asarray([[[[[0.25, 12.5]]]]], dtype=np.float32),
         )
         self.assertEqual(
             tuple(ds.coords["observable"].values),

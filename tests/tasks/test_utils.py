@@ -51,7 +51,6 @@ class TaskUtilsTest(unittest.TestCase):
                             dtype=np.float32,
                         ),
                     },
-                    duration_ms=float(input_index + 1),
                 )
             writer.add_failure()
             writer.flush()
@@ -59,7 +58,6 @@ class TaskUtilsTest(unittest.TestCase):
             result = load_zarr_results(store_path)
 
         self.assertEqual(result.attrs["path"], store_path.resolve())
-        self.assertEqual(result.attrs["average_completion_duration_ms"], 2.0)
         self.assertEqual(result.attrs["total_inputs"], 3)
         self.assertEqual(result.attrs["stored_results"], 3)
         self.assertTrue(result.attrs["has_failures"])

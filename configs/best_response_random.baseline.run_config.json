@@ -1,11 +1,11 @@
 {
   "execution": {
     "scheduler_address": "tcp://127.0.0.1:8786",
-    "output_dir": "../artifacts",
+    "output_dir": "../artifacts/simulation_runs",
     "write_batch_size": 64
   },
   "sampling": {
-    "log2_budget": 8,
+    "log2_budget": 12,
     "seed": 123
   },
   "simulator": {
@@ -32,10 +32,10 @@
     }
   },
   "population": {
-    "n_agents": [10, 12],
+    "n_agents": [10, 20],
     "visibility_distance": {
       "kind": "fixed",
-      "value": 5
+      "value": 20
     },
     "policies": [
       {
@@ -62,7 +62,7 @@
     ],
     "policy_proportions": {
       "policy": "best_response",
-      "values": [0.25, 0.5, 0.75]
+      "values": [0.0, 0.1, 0.2, 0.3, 0.9]
     }
   },
   "observers": {

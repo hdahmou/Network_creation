@@ -116,7 +116,6 @@ def write_result_store(
         writer.add_success(
             input_index=input_index,
             output=output,
-            duration_ms=float(input_index + 1),
         )
     writer.flush()
 

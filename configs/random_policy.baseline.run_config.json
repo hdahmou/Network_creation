@@ -1,7 +1,7 @@
 {
   "execution": {
     "scheduler_address": "tcp://127.0.0.1:8786",
-    "output_dir": "../artifacts",
+    "output_dir": "../artifacts/simulation_runs",
     "write_batch_size": 4
   },
   "sampling": {

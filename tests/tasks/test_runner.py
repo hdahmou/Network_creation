@@ -100,7 +100,7 @@ class RunnerTests(unittest.TestCase):
         policy: str,
         inputs_path: Path | None = None,
         batch_size: int = 2,
-        output_dir: str = "artifacts",
+        output_dir: str = "artifacts/simulation_runs",
         extra_config: Mapping[str, Any] | None = None,
     ) -> Path:
         config_path = self.workdir / "config.json"
@@ -148,9 +148,8 @@ class RunnerTests(unittest.TestCase):
             input_index: int,
             task_input: int,
             task_output: int,
-            duration_ms: float,
         ) -> None:
-            del task_input, task_output, duration_ms
+            del task_input, task_output
             futures = _FakeClient.instances[-1].futures
             release_snapshots.append(("result", [future.release_calls for future in futures]))
             if input_index == 0:
@@ -161,10 +160,9 @@ class RunnerTests(unittest.TestCase):
         def on_failure(
             input_index: int,
             task_input: int,
-            duration_ms: float,
             error: BaseException,
         ) -> None:
-            del task_input, duration_ms, error
+            del task_input, error
             futures = _FakeClient.instances[-1].futures
             release_snapshots.append(("failure", [future.release_calls for future in futures]))
             if input_index == 1:
@@ -206,12 +204,13 @@ class RunnerTests(unittest.TestCase):
         summary = self.execution_with_fake_client(config_path)
         self.assertTrue(
             summary["output_zarr"].endswith(
-                f"artifacts/run-{summary['started_at']}.zarr"
+                f"artifacts/simulation_runs/run-{summary['started_at']}.zarr"
             )
         )
         self.assertTrue(
             summary["config_copy_path"].endswith(
-                f"artifacts/run-{summary['started_at']}.run_config.json"
+                "artifacts/simulation_runs/"
+                f"run-{summary['started_at']}.zarr/run_config.json"
             )
         )
         self.assertTrue(Path(summary["output_zarr"]).exists())
@@ -228,7 +227,7 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(config_copy["inputs_json"], str(inputs_path.resolve()))
         self.assertEqual(
             config_copy["execution"]["output_dir"],
-            str((self.workdir / "artifacts").resolve()),
+            str((self.workdir / "artifacts" / "simulation_runs").resolve()),
         )
 
         root = self.open_store(summary["output_zarr"])
@@ -244,7 +243,7 @@ class RunnerTests(unittest.TestCase):
             root["results"]["outputs"]["vector"][:].tolist(),
             [[3, 4], [7, 8], [11, 12]],
         )
-        self.assertEqual(len(root["results"]["durations_ms"][:].tolist()), 3)
+        self.assertNotIn("durations_ms", root["results"])
         self.assertNotIn("failures", root)
 
     def test_runner_writes_results_to_configured_output_dir(self) -> None:
@@ -264,7 +263,8 @@ class RunnerTests(unittest.TestCase):
             self.workdir
             / "artifacts"
             / "custom"
-            / f"run-{summary['started_at']}.run_config.json"
+            / f"run-{summary['started_at']}.zarr"
+            / "run_config.json"
         )
 
         self.assertEqual(Path(summary["output_zarr"]), expected_output.resolve())

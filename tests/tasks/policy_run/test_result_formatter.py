@@ -42,7 +42,7 @@ class PolicyRunResultFormatterTest(unittest.TestCase):
             },
         )
 
-    def test_from_zarr_reconstructs_policy_proportion_axis_in_theta(self) -> None:
+    def test_from_zarr_reconstructs_policy_proportion_axis(self) -> None:
         task = prepare_policy_run(self._config())
         prepared = task
 
@@ -64,7 +64,6 @@ class PolicyRunResultFormatterTest(unittest.TestCase):
                 output={
                     "density.mean": np.asarray([0.0, 1.0, 2.0, 3.0], dtype=np.float32)
                 },
-                duration_ms=1.0,
             )
             writer.add_success(
                 input_index=2,
@@ -74,7 +73,6 @@ class PolicyRunResultFormatterTest(unittest.TestCase):
                         dtype=np.float32,
                     )
                 },
-                duration_ms=3.0,
             )
             writer.add_success(
                 input_index=3,
@@ -84,7 +82,6 @@ class PolicyRunResultFormatterTest(unittest.TestCase):
                         dtype=np.float32,
                     )
                 },
-                duration_ms=4.0,
             )
             writer.flush()
 
@@ -94,39 +91,22 @@ class PolicyRunResultFormatterTest(unittest.TestCase):
             tuple(ds.coords["theta_parameter"].values),
             (
                 "n_agents",
-                "myopic_proportion",
-                "myopic_count",
-                "random_count",
                 "benefit_to_cost_ratio",
                 "distance_discount",
                 "visibility_distance",
                 "myopic.bridge_probability",
             ),
         )
-        np.testing.assert_array_equal(
-            ds.coords["policy_proportion_index"].values,
-            np.asarray([0, 1, 1], dtype=np.int64),
-        )
+        np.testing.assert_allclose(ds.coords["myopic_proportion"].values, [0.25, 0.75])
         np.testing.assert_array_equal(
             ds.coords["parameter_row"].values,
-            np.asarray([0, 0, 1], dtype=np.int64),
+            np.asarray([0, 1], dtype=np.int64),
         )
-        np.testing.assert_allclose(
-            ds["theta"].sel(theta_parameter="myopic_proportion").values,
-            np.asarray([0.25, 0.75, 0.75], dtype=np.float32),
-        )
-        np.testing.assert_allclose(
-            ds["theta"].sel(theta_parameter="myopic_count").values,
-            np.asarray([1.0, 3.0, 3.0], dtype=np.float32),
-        )
-        np.testing.assert_allclose(
-            ds["theta"].sel(theta_parameter="random_count").values,
-            np.asarray([3.0, 1.0, 1.0], dtype=np.float32),
-        )
-        self.assertEqual(ds["x"].shape, (3, 4, 1))
+        self.assertEqual(ds["x"].shape, (1, 2, 2, 4, 1))
         np.testing.assert_allclose(
             ds["x"].isel(step=-1, observable=0).values,
-            np.asarray([3.0, 23.0, 33.0], dtype=np.float32),
+            np.asarray([[[3.0, np.nan], [23.0, 33.0]]], dtype=np.float32),
+            equal_nan=True,
         )
 
 

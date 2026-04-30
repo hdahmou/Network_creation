@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
 
@@ -10,7 +10,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from network_creation.core.agent import Agent
-from ..execution.schema import OutputSpec, PreparedRun
+from ..execution.schema import OutputSpec, RunOutput
 from .registry import POLICY_REGISTRY
 from .observers import ObserverOutputSpec, build_observer_specs
 from .sweep import (
@@ -30,24 +30,12 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class PreparedPolicyRun:
-    prepared: PreparedRun[int]
+    inputs: Sequence[int]
+    output_schema: OutputSpec
+    run: Callable[[int], RunOutput]
+    result_attrs: Mapping[str, Any]
+    result_arrays: Mapping[str, Any]
     runtime: PolicyRunContext
-
-    @property
-    def inputs(self) -> Any:
-        return self.prepared.inputs
-
-    @property
-    def output_schema(self) -> OutputSpec:
-        return self.prepared.output_schema
-
-    @property
-    def result_attrs(self) -> Mapping[str, Any]:
-        return self.prepared.result_attrs
-
-    @property
-    def result_arrays(self) -> Mapping[str, Any]:
-        return self.prepared.result_arrays
 
     @property
     def parameter_samples(self) -> ParameterSamples:
@@ -64,9 +52,6 @@ class PreparedPolicyRun:
         simulation_settings: SimulationSettings,
     ) -> Agent:
         return self.runtime.build_agent(node_id, configuration, simulation_settings)
-
-    def run(self, sample_idx: int) -> Mapping[str, Any]:
-        return self.prepared.run(sample_idx)
 
 
 @dataclass(frozen=True)
@@ -237,15 +222,12 @@ def prepare_policy_run(config: Mapping[str, Any]) -> PreparedPolicyRun:
         parameter_specs=parameter_specs,
     )
 
-    prepared = PreparedRun(
+    return PreparedPolicyRun(
         inputs=tuple(range(sweep.total_inputs)),
         output_schema=OutputSpec(fields=tuple(spec.field for spec in observer_specs)),
         run=runtime.run,
         result_attrs=result_attrs,
         result_arrays=result_arrays,
-    )
-    return PreparedPolicyRun(
-        prepared=prepared,
         runtime=runtime,
     )
 

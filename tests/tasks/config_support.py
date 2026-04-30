@@ -92,7 +92,7 @@ def task_config(
 def execution_config(
     *,
     scheduler_address: str = "inproc://tests",
-    output_dir: str = "artifacts",
+    output_dir: str = "artifacts/simulation_runs",
     write_batch_size: int = 2,
     **task_kwargs: Any,
 ) -> dict[str, object]:

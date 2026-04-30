@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from datetime import datetime
 import logging
 import sys
-import time
 import traceback
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
@@ -17,7 +16,7 @@ from dask.distributed import Client, as_completed
 
 from network_creation.io import read_json, write_json
 
-from tasks.policies import prepare_policy_run
+from tasks.policies import PreparedPolicyRun, prepare_policy_run
 from .schema import PreparedRun, RunOutput
 from .zarr_store import ZarrResultStore
 
@@ -27,7 +26,7 @@ class RunPlan:
     config: dict[str, Any]
     scheduler_address: str
     batch_size: int
-    prepared: PreparedRun[Any]
+    prepared: PreparedPolicyRun | PreparedRun[Any]
     run_inputs: tuple[Any, ...]
     started_slug: str
     output_zarr: Path
@@ -49,6 +48,13 @@ def configure_run_logging(logger_name: str, level: str = "INFO") -> logging.Logg
     return logger
 
 
+def _resolve_config_path(raw_path: Any, config_dir: Path) -> str:
+    path = Path(str(raw_path))
+    if not path.is_absolute():
+        path = (config_dir / path).resolve()
+    return str(path)
+
+
 def _load_config(config_path: Path) -> dict[str, Any]:
     data = read_json(config_path)
     if not isinstance(data, dict):
@@ -57,19 +63,15 @@ def _load_config(config_path: Path) -> dict[str, Any]:
     config = dict(data)
     config_dir = config_path.parent
     for key in ("inputs_json",):
-        if key not in config:
-            continue
-        path = Path(str(config[key]))
-        if not path.is_absolute():
-            path = (config_dir / path).resolve()
-        config[key] = str(path)
+        if key in config:
+            config[key] = _resolve_config_path(config[key], config_dir)
     execution = config.get("execution")
     if isinstance(execution, Mapping) and "output_dir" in execution:
-        path = Path(str(execution["output_dir"]))
-        if not path.is_absolute():
-            path = (config_dir / path).resolve()
         normalized_execution = dict(execution)
-        normalized_execution["output_dir"] = str(path)
+        normalized_execution["output_dir"] = _resolve_config_path(
+            execution["output_dir"],
+            config_dir,
+        )
         config["execution"] = normalized_execution
     return config
 
@@ -83,7 +85,7 @@ def _build_run_plan(
 
     policy_run = prepare_policy_run(config)
     logger.info("Preparing run")
-    prepared = policy_run.prepared
+    prepared = getattr(policy_run, "prepared", policy_run)
     run_inputs = tuple(prepared.inputs)
     if not run_inputs:
         raise ValueError("No run inputs found")
@@ -92,7 +94,7 @@ def _build_run_plan(
     output_zarr = (
         Path(str(config["execution"]["output_dir"])) / f"run-{started_slug}.zarr"
     ).resolve()
-    config_copy_path = output_zarr.parent / f"{output_zarr.stem}.run_config.json"
+    config_copy_path = output_zarr / "run_config.json"
 
     return RunPlan(
         config=config,
@@ -111,8 +113,8 @@ def execute_inputs(
     run_key: str,
     run_fn: Callable[[Any], RunOutput],
     run_inputs: Sequence[Any],
-    on_result: Callable[[int, Any, RunOutput, float], None],
-    on_failure: Callable[[int, Any, float, BaseException], None],
+    on_result: Callable[[int, Any, RunOutput], None],
+    on_failure: Callable[[int, Any, BaseException], None],
     *,
     logger: logging.Logger,
 ) -> dict[str, int]:
@@ -124,7 +126,6 @@ def execute_inputs(
         logger.info("Connected to scheduler %s", scheduler_address)
 
         futures = client.map(run_fn, run_inputs_list, key=run_key, pure=False)
-        submitted_time = time.perf_counter()
         future_context = {
             future.key: (input_index, run_input)
             for input_index, (future, run_input) in enumerate(
@@ -136,13 +137,12 @@ def execute_inputs(
         failure_count = 0
         for future in as_completed(futures):
             input_index, run_input = future_context.pop(future.key)
-            duration_ms = (time.perf_counter() - submitted_time) * 1000.0
             try:
                 run_output = future.result()
-                on_result(input_index, run_input, run_output, duration_ms)
+                on_result(input_index, run_input, run_output)
             except Exception as exc:
                 failure_count += 1
-                on_failure(input_index, run_input, duration_ms, exc)
+                on_failure(input_index, run_input, exc)
             else:
                 success_count += 1
             finally:
@@ -165,7 +165,7 @@ def _write_config_copy(
 def run_from_config(config_path: str, log_level: str = "INFO") -> dict[str, Any]:
     logger = configure_run_logging("runner", log_level)
     plan = _build_run_plan(Path(config_path).resolve(), logger=logger)
-    config_copy_path = _write_config_copy(plan.config, plan.config_copy_path)
+    config_copy_path = plan.config_copy_path
 
     writer = ZarrResultStore(
         str(plan.output_zarr),
@@ -178,24 +178,22 @@ def run_from_config(config_path: str, log_level: str = "INFO") -> dict[str, Any]
         },
         metadata_arrays=plan.prepared.result_arrays,
     )
+    config_copy_path = _write_config_copy(plan.config, config_copy_path)
     logger.info("Initialized output %s", plan.output_zarr)
 
     def handle_result(
         input_index: int,
         _run_input: Any,
         run_output: RunOutput,
-        duration_ms: float,
     ) -> None:
         writer.add_success(
             input_index=input_index,
             output=run_output,
-            duration_ms=duration_ms,
         )
 
     def handle_failure(
         input_index: int,
         run_input: Any,
-        duration_ms: float,
         error: BaseException,
     ) -> None:
         error_text = "".join(
@@ -203,10 +201,9 @@ def run_from_config(config_path: str, log_level: str = "INFO") -> dict[str, Any]
         ).strip()
         writer.add_failure()
         logger.error(
-            "Run failed for input %s at index %s after %.3f ms: %s",
+            "Run failed for input %s at index %s: %s",
             run_input,
             input_index,
-            duration_ms,
             error_text,
         )
 

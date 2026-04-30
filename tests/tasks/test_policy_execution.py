@@ -104,10 +104,10 @@ class PolicyExecutionTest(unittest.TestCase):
 
         np.testing.assert_array_equal(
             ds.coords["input_index"].values,
-            np.asarray([0, 1], dtype=np.int64),
+            np.asarray([[[0]], [[1]]], dtype=np.int64),
         )
-        self.assertEqual(ds["x"].shape, (2, 4, 2))
+        self.assertEqual(ds["x"].shape, (2, 1, 1, 4, 2))
         np.testing.assert_array_equal(
             ds["theta"].sel(theta_parameter="n_agents").values,
-            np.asarray([2, 4], dtype=np.float32),
+            np.asarray([[[2]], [[4]]], dtype=np.float32),
         )

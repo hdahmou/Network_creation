@@ -60,7 +60,6 @@ class ZarrResultStoreTest(unittest.TestCase):
                 writer.add_success(
                     input_index=0,
                     output={"vector": np.asarray([1, 2, 3], dtype=np.int64)},
-                    duration_ms=1.0,
                 )
 
     def test_result_store_records_failure_flag_and_metadata(self) -> None:

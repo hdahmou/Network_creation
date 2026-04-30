@@ -31,6 +31,19 @@ class ParameterSamples:
     column_index_by_name: Mapping[str, int]
 
 
+def _input_coordinates(
+    input_index: int,
+    *,
+    n_policy_proportions: int,
+    n_parameter_rows: int,
+) -> tuple[int, int, int]:
+    parameter_row_index = input_index % n_parameter_rows
+    outer_index = input_index // n_parameter_rows
+    policy_proportion_index = outer_index % n_policy_proportions
+    n_agents_index = outer_index // n_policy_proportions
+    return n_agents_index, policy_proportion_index, parameter_row_index
+
+
 @dataclass(frozen=True)
 class SweepPlan:
     parameter_samples: ParameterSamples
@@ -65,22 +78,14 @@ class SweepPlan:
         )
 
     def coordinates(self, input_index: int) -> tuple[int, int, int]:
-        parameter_row_index = input_index % self.n_parameter_rows
-        outer_index = input_index // self.n_parameter_rows
-        policy_proportion_index = outer_index % self.n_policy_proportions
-        n_agents_index = outer_index // self.n_policy_proportions
-        return n_agents_index, policy_proportion_index, parameter_row_index
+        return _input_coordinates(
+            input_index,
+            n_policy_proportions=self.n_policy_proportions,
+            n_parameter_rows=self.n_parameter_rows,
+        )
 
     def configuration_at(self, input_index: int) -> NDArray[np.float32]:
-        parameter_row_index = input_index % self.n_parameter_rows
-        outer_index = input_index // self.n_parameter_rows
-        policy_proportion_index = outer_index % self.n_policy_proportions
-        n_agents_index = outer_index // self.n_policy_proportions
-        return self.configuration_values[
-            n_agents_index,
-            policy_proportion_index,
-            parameter_row_index,
-        ]
+        return self.configuration_values[self.coordinates(input_index)]
 
     def parameter_values_for_results(self) -> NDArray[np.float32]:
         return np.asarray(self.configuration_values[..., 1:], dtype=np.float32)
@@ -244,18 +249,7 @@ def _load_initial_graph(raw: Mapping[str, Any]) -> tuple[str, float | None]:
     return kind, p
 
 
-def build_sweep(
-    config: Mapping[str, Any],
-    parameter_samples: ParameterSamples,
-    *,
-    parameter_specs: ParameterConfig,
-    policy_ids: Sequence[str] = (),
-) -> SweepPlan:
-    population = cast(Mapping[str, Any], config["population"])
-    simulator = cast(Mapping[str, Any], config["simulator"])
-    initial_graph_kind, initial_graph_p = _load_initial_graph(simulator)
-    stagnation_patience = simulator.get("stagnation_patience")
-    raw_n_agents = population["n_agents"]
+def _load_n_agents_values(raw_n_agents: Any) -> tuple[int, ...]:
     if isinstance(raw_n_agents, Mapping):
         if str(raw_n_agents["kind"]) != "sampled_discrete_range":
             raise ValueError(
@@ -283,12 +277,17 @@ def build_sweep(
             )
             raise ValueError(f"{field_name} must be a positive integer")
         n_agents_values.append(int(value))
+    return tuple(n_agents_values)
 
-    policy_proportions = _load_policy_proportions(
-        population,
-        policy_ids=policy_ids,
-    )
-    target_id, proportions = policy_proportions
+
+def _build_configuration_grid(
+    *,
+    n_agents_values: Sequence[int],
+    target_id: str,
+    proportions: Sequence[float],
+    policy_ids: Sequence[str],
+    parameter_samples: ParameterSamples,
+) -> tuple[tuple[str, ...], NDArray[np.float32]]:
     count_names = tuple(f"{policy_id}_count" for policy_id in policy_ids)
     configuration_names = (
         "n_agents",
@@ -313,6 +312,7 @@ def build_sweep(
     ).astype(np.float32)
     configuration_values[:, :, :, 0] = n_agents_array[:, None, None]
     configuration_values[:, :, :, 1] = proportions_array[None, :, None]
+
     count_start = 2
     for offset, policy_id in enumerate(policy_ids):
         if len(policy_ids) == 1 or policy_id == target_id:
@@ -320,6 +320,7 @@ def build_sweep(
         else:
             counts = n_agents_array[:, None] - target_counts
         configuration_values[:, :, :, count_start + offset] = counts[:, :, None]
+
     parameter_start = count_start + len(count_names)
     configuration_values[:, :, :, parameter_start:] = parameter_samples.parameter_values[
         None,
@@ -327,6 +328,34 @@ def build_sweep(
         :,
         :,
     ]
+    return configuration_names, configuration_values
+
+
+def build_sweep(
+    config: Mapping[str, Any],
+    parameter_samples: ParameterSamples,
+    *,
+    parameter_specs: ParameterConfig,
+    policy_ids: Sequence[str] = (),
+) -> SweepPlan:
+    population = cast(Mapping[str, Any], config["population"])
+    simulator = cast(Mapping[str, Any], config["simulator"])
+    initial_graph_kind, initial_graph_p = _load_initial_graph(simulator)
+    stagnation_patience = simulator.get("stagnation_patience")
+    n_agents_values = _load_n_agents_values(population["n_agents"])
+
+    policy_proportions = _load_policy_proportions(
+        population,
+        policy_ids=policy_ids,
+    )
+    target_id, proportions = policy_proportions
+    configuration_names, configuration_values = _build_configuration_grid(
+        n_agents_values=n_agents_values,
+        target_id=target_id,
+        proportions=proportions,
+        policy_ids=policy_ids,
+        parameter_samples=parameter_samples,
+    )
     _resolve_scaled_inverse_agents(
         configuration_values,
         configuration_names=configuration_names,
@@ -341,7 +370,7 @@ def build_sweep(
         column_index_by_name={
             name: index for index, name in enumerate(configuration_names)
         },
-        n_agents_values=tuple(n_agents_values),
+        n_agents_values=n_agents_values,
         policy_proportions=policy_proportions,
         n_actors=int(simulator["actor_scheduler"]["n_actors"]),
         seed=int(simulator["seed"]),

@@ -54,7 +54,8 @@ class BestResponsePolicyResultFormatterTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             store_path = write_result_store(
-                Path(tmpdir),                config=config,
+                Path(tmpdir),
+                config=config,
                 outputs_by_index=outputs_by_index,
                 total_inputs=4,
             )
@@ -66,25 +67,22 @@ class BestResponsePolicyResultFormatterTest(unittest.TestCase):
         self.assertNotIn("timeseries", ds)
         np.testing.assert_array_equal(
             ds.coords["input_index"].values,
-            np.asarray([0, 1, 2], dtype=np.int64),
+            np.asarray([[[0, 1, 2, 3]]], dtype=np.int64),
         )
         np.testing.assert_allclose(
             ds["theta"].values,
-            np.column_stack(
+            np.concatenate(
                 [
-                    np.full(3, 4.0, dtype=np.float32),
-                    np.full(3, 1.0, dtype=np.float32),
-                    np.full(3, 4.0, dtype=np.float32),
-                    parameter_samples.parameter_values[:3, :],
-                ]
+                    np.full((1, 1, 4, 1), 4.0, dtype=np.float32),
+                    parameter_samples.parameter_values[None, None, :, :],
+                ],
+                axis=-1,
             ),
         )
         self.assertEqual(
             tuple(ds.coords["theta_parameter"].values),
             (
                 "n_agents",
-                "best_response_proportion",
-                "best_response_count",
                 "benefit_to_cost_ratio",
                 "distance_discount",
                 "visibility_distance",
@@ -96,15 +94,17 @@ class BestResponsePolicyResultFormatterTest(unittest.TestCase):
             tuple(ds.coords["observable"].values),
             ("density.mean", "centered_mean_welfare.mean"),
         )
-        self.assertEqual(ds["x"].shape, (3, 4, 2))
+        self.assertEqual(ds["x"].shape, (1, 1, 4, 4, 2))
         np.testing.assert_allclose(
             ds["x"].isel(step=-1).values,
             np.asarray(
-                [
+                [[[
                     [3.0, 103.0],
                     [13.0, 113.0],
                     [23.0, 203.0],
-                ],
+                    [np.nan, np.nan],
+                ]]],
                 dtype=np.float32,
             ),
+            equal_nan=True,
         )

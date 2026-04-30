@@ -3,18 +3,22 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import TYPE_CHECKING
+from dataclasses import dataclass
 
 import numpy as np
 from numpy.typing import NDArray
 
-if TYPE_CHECKING:
-    from .results import PolicyOutput
+
+@dataclass(frozen=True)
+class PolicyOutput:
+    timeseries: NDArray[np.float32]
+    observable_names: tuple[str, ...]
+    step_labels: NDArray[np.int64]
 
 
-def _collect_timeseries_outputs(
+def stack_result_tensors(
     outputs: Mapping[str, NDArray[np.generic]],
-) -> tuple[tuple[str, ...], list[NDArray[np.float32]]]:
+) -> tuple[NDArray[np.float32], tuple[str, ...]]:
     series_names: list[str] = []
     series_arrays: list[NDArray[np.float32]] = []
     expected_steps: int | None = None
@@ -30,17 +34,10 @@ def _collect_timeseries_outputs(
         series_names.append(name)
         series_arrays.append(np.asarray(array, dtype=np.float32))
 
-    return tuple(series_names), series_arrays
-
-
-def stack_result_tensors(
-    outputs: Mapping[str, NDArray[np.generic]],
-) -> tuple[NDArray[np.float32], tuple[str, ...]]:
-    series_names, series_arrays = _collect_timeseries_outputs(outputs)
     if series_arrays:
         return (
             np.stack(series_arrays, axis=2).astype(np.float32, copy=False),
-            series_names,
+            tuple(series_names),
         )
 
     scalar_names: list[str] = []
@@ -62,8 +59,6 @@ def stack_result_tensors(
 
 
 def build_policy_outputs(outputs: dict[str, NDArray[np.generic]]) -> PolicyOutput:
-    from .results import PolicyOutput
-
     timeseries, observable_names = stack_result_tensors(outputs)
     return PolicyOutput(
         timeseries=timeseries,

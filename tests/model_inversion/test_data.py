@@ -176,6 +176,85 @@ class ModelDatasetTests(unittest.TestCase):
         self.assertEqual(metadata["step_labels"], [0, 5])
         self.assertEqual(metadata["n_simulations"], 5)
 
+    def test_filter_inversion_dataset_flattens_dense_policy_axes(self) -> None:
+        theta = np.asarray(
+            [
+                [[[10.0, 0.1], [10.0, 0.2]]],
+                [[[20.0, 0.3], [20.0, 0.4]]],
+            ],
+            dtype=np.float32,
+        )
+        x = np.arange(16, dtype=np.float32).reshape(2, 1, 2, 2, 2)
+        x[1, 0, 1, -1, 0] = np.nan
+        dense_results = xr.Dataset(
+            data_vars={
+                "theta": (
+                    (
+                        "n_agents",
+                        "best_response_proportion",
+                        "parameter_row",
+                        "theta_parameter",
+                    ),
+                    theta,
+                ),
+                "prior_low": (("theta_parameter",), np.asarray([10.0, 0.0])),
+                "prior_high": (("theta_parameter",), np.asarray([20.0, 1.0])),
+                "x": (
+                    (
+                        "n_agents",
+                        "best_response_proportion",
+                        "parameter_row",
+                        "step",
+                        "observable",
+                    ),
+                    x,
+                ),
+            },
+            coords={
+                "n_agents": ("n_agents", [10, 20]),
+                "best_response_proportion": ("best_response_proportion", [0.5]),
+                "parameter_row": ("parameter_row", [0, 1]),
+                "theta_parameter": ("theta_parameter", ["n_agents", "alpha"]),
+                "observable": ("observable", ["density.mean", "distance.mean"]),
+                "step": ("step", [0, 5]),
+            },
+            attrs={
+                "result_store_path": str(self.workdir / "dense.zarr"),
+                "config_path": str(self.config_path),
+                "has_failures": True,
+            },
+        )
+
+        dataset = filter_inversion_dataset(
+            dense_results,
+            observers=("density.mean",),
+        )
+
+        np.testing.assert_allclose(
+            dataset["theta"].values,
+            np.asarray(
+                [[10.0, 0.1], [10.0, 0.2], [20.0, 0.3]],
+                dtype=np.float32,
+            ),
+        )
+        np.testing.assert_allclose(
+            dataset["x"].values,
+            np.asarray([[2.0], [6.0], [10.0]], dtype=np.float32),
+        )
+        np.testing.assert_array_equal(
+            dataset.coords["n_agents"].values,
+            np.asarray([10, 10, 20]),
+        )
+        np.testing.assert_allclose(
+            dataset.coords["best_response_proportion"].values,
+            np.asarray([0.5, 0.5, 0.5], dtype=np.float32),
+        )
+        np.testing.assert_array_equal(
+            dataset.coords["parameter_row"].values,
+            np.asarray([0, 1, 0]),
+        )
+        self.assertEqual(dataset.attrs["has_failures"], True)
+
 
 if __name__ == "__main__":
     unittest.main()

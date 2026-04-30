@@ -1,0 +1,40 @@
+{
+  "dataset": {
+    "zarr_path": "../artifacts/simulation_runs/run-20260430T133102.zarr",
+    "observers": [
+      "central_point_of_dominance.mean",
+      "indegree.mean",
+      "distance.mean"
+    ],
+    "theta_parameters": ["n_agents", "outside_optimism", "exploration"],
+    "drop_constant_theta": true,
+    "x_representation": "final"
+  },
+  "artifact": {
+    "output_root": "../artifacts/model_inversion",
+    "run_name": null,
+    "save_training_data": false
+  },
+  "density_estimator": {
+    "model": "nsf",
+    "hidden_features": 50,
+    "num_transforms": 5,
+    "num_bins": 10,
+    "z_score_theta": "independent",
+    "z_score_x": "independent"
+  },
+  "embedding": {
+    "kind": "identity"
+  },
+  "training": {
+    "seed": 0,
+    "device": "cpu",
+    "training_batch_size": 200,
+    "learning_rate": 0.0005,
+    "validation_fraction": 0.1,
+    "stop_after_epochs": 20,
+    "max_num_epochs": 500,
+    "clip_max_norm": 5.0,
+    "show_progress_bars": true
+  }
+}

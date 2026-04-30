@@ -7,6 +7,10 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import ModuleType
+from unittest.mock import patch
+
+import numpy as np
+import xarray as xr
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -112,16 +116,13 @@ class TrainNPEConfigTests(unittest.TestCase):
             / "configs"
             / "model_inversion.baseline.train_npe_config.json"
         )
+        payload = json.loads(baseline_path.read_text(encoding="utf-8"))
 
         config = self.script.load_train_config(baseline_path)
 
         self.assertEqual(
             config.zarr_path,
-            (
-                PROJECT_ROOT
-                / "artifacts"
-                / "policy-run-20260424T205304.zarr"
-            ).resolve(),
+            (baseline_path.parent / payload["dataset"]["zarr_path"]).resolve(),
         )
         self.assertEqual(
             config.output_root,
@@ -135,9 +136,109 @@ class TrainNPEConfigTests(unittest.TestCase):
                 "distance.mean",
             ),
         )
+        self.assertEqual(
+            config.theta_parameters,
+            ("n_agents", "outside_optimism", "exploration"),
+        )
+        self.assertEqual(config.x_representation, "final")
         self.assertEqual(config.density.model, "nsf")
         self.assertEqual(config.embedding.kind, "identity")
+        self.assertEqual(payload["embedding"], {"kind": "identity"})
+        self.assertNotIn("rnn_hidden_size", payload["embedding"])
+        self.assertNotIn("rnn_num_layers", payload["embedding"])
+        self.assertNotIn("rnn_type", payload["embedding"])
+        self.assertNotIn("rnn_bidirectional", payload["embedding"])
         self.assertEqual(config.training.training_batch_size, 200)
+
+    def test_train_from_config_logs_progress_stages(self) -> None:
+        zarr_path = self.config_dir / "../artifacts/run.zarr"
+        output_root = Path(self.temp_dir.name) / "model_inversion"
+        config = self.script.TrainNPEConfig(
+            zarr_path=zarr_path.resolve(),
+            observers=("density.mean",),
+            theta_parameters=("alpha",),
+            drop_constant_theta=False,
+            x_representation="final",
+            output_root=output_root,
+            run_name="logging-run",
+            save_training_data=False,
+            density=self.script.DensityEstimatorConfig(model="nsf"),
+            embedding=self.script.EmbeddingConfig(kind="identity"),
+            training=self.script.NPETrainingConfig(
+                seed=1,
+                device="cpu",
+                training_batch_size=2,
+                max_num_epochs=3,
+            ),
+        )
+
+        raw_results = xr.Dataset(
+            data_vars={
+                "theta": (
+                    ("sample", "theta_parameter"),
+                    np.asarray([[0.1], [0.2]], dtype=np.float32),
+                ),
+                "prior_low": ("theta_parameter", np.asarray([0.0], dtype=np.float32)),
+                "prior_high": ("theta_parameter", np.asarray([1.0], dtype=np.float32)),
+                "x": (
+                    ("sample", "step", "observable"),
+                    np.asarray([[[1.0], [2.0]], [[3.0], [4.0]]], dtype=np.float32),
+                ),
+            },
+            coords={
+                "sample": np.asarray([0, 1], dtype=np.int64),
+                "theta_parameter": ("theta_parameter", ["alpha"]),
+                "observable": ("observable", ["density.mean"]),
+                "step": np.asarray([0, 1], dtype=np.int64),
+            },
+            attrs={
+                "result_store_path": str(config.zarr_path),
+                "config_path": str(self.config_dir / "run_config.json"),
+                "has_failures": False,
+            },
+        )
+
+        with (
+            patch.object(self.script, "load_policy_results", return_value=raw_results),
+            patch.object(
+                self.script,
+                "train_amortized_npe",
+                return_value={"posterior": True},
+            ) as train_amortized_npe,
+            self.assertLogs(self.script.LOGGER.name, level="INFO") as captured,
+        ):
+            result = self.script.train_from_config(config)
+
+        artifact_dir = output_root / "logging-run"
+        tensorboard_log_dir = artifact_dir / "sbi_logs"
+        logs = "\n".join(captured.output)
+        self.assertIn("[stage 2/10] Loading zarr dataset", logs)
+        self.assertIn("[stage 3/10] Filtering inversion dataset", logs)
+        self.assertIn("[stage 4/10] Creating artifact directory", logs)
+        self.assertIn("[stage 5/10] Starting NPE training", logs)
+        self.assertIn("[stage 6/10] Finished NPE training", logs)
+        self.assertIn("[stage 7/10] Writing metadata", logs)
+        self.assertIn("[stage 8/10] Writing posterior", logs)
+        self.assertIn("[stage 9/10] Skipping training data write", logs)
+        self.assertIn("[stage 10/10] Training run complete", logs)
+        self.assertIn(str(config.zarr_path), logs)
+        self.assertIn("theta_shape=(2, 1)", logs)
+        self.assertIn("x_shape=(2, 1)", logs)
+        self.assertIn("device=cpu", logs)
+        self.assertIn("batch_size=2", logs)
+        self.assertIn("max_num_epochs=3", logs)
+        self.assertIn(f"tensorboard_log_dir={tensorboard_log_dir}", logs)
+        train_amortized_npe.assert_called_once()
+        self.assertEqual(
+            train_amortized_npe.call_args.kwargs["tensorboard_log_dir"],
+            tensorboard_log_dir,
+        )
+        self.assertEqual(result["artifact_dir"], str(artifact_dir))
+        self.assertEqual(result["tensorboard_log_dir"], str(tensorboard_log_dir))
+        metadata = json.loads(
+            (artifact_dir / "metadata.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(metadata["sbi"]["tensorboard_log_dir"], "sbi_logs")
 
 
 if __name__ == "__main__":

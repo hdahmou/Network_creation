@@ -6,6 +6,7 @@ import csv
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 
@@ -34,7 +35,21 @@ from network_creation.data.choi_2020 import (
     load_choi_2020_replay_data,
     run_choi_2020_replay_batch,
 )
+from network_creation.data.choi_2020_references import (
+    ChoiReferenceParameters,
+    ReferenceRequest,
+    available_reference_observer_names,
+    build_choi_observers,
+    build_reference_cache,
+    load_reference_parameters,
+    load_reference_cache,
+    lookup_reference_value,
+    reference_requests,
+    save_reference_cache,
+    sigmoid_reference_key,
+)
 from network_creation.observers.density_observer import DensityObserver
+from network_creation.observers.grimoire import OBSERVER_GRIMOIRE
 from network_creation.policies.replay import ReplayPolicy
 
 
@@ -879,6 +894,176 @@ class ReplayTest(unittest.TestCase):
         np.testing.assert_allclose(
             result_group_three.outputs["mean"],
             np.array([0.0, 0.0, 0.0], dtype=np.float32),
+        )
+
+    def test_build_choi_observers_uses_grimoire_with_shared_settings(self) -> None:
+        observers = build_choi_observers(
+            n_agents=3,
+            observer_names=(
+                "density",
+                "hub_persistence",
+                "centered_mean_welfare",
+            ),
+            observation_sampling=ObservationSampling.terminal(),
+            aggregations={"*": ("mean",), "density": ("mean", "std")},
+            benefit_to_cost_ratio=0.5,
+            distance_discount=0.9,
+            settings_by_observer={"hub_persistence": {"window_size": 4}},
+        )
+
+        self.assertIs(observers["density"].__class__, OBSERVER_GRIMOIRE["density"])
+        self.assertEqual(observers["density"].aggregations, ("mean", "std"))
+        self.assertIs(
+            observers["hub_persistence"].__class__,
+            OBSERVER_GRIMOIRE["hub_persistence"],
+        )
+        self.assertEqual(observers["hub_persistence"].aggregations, ("mean",))
+        self.assertEqual(getattr(observers["hub_persistence"], "_window_size"), 4)
+        self.assertIs(
+            observers["centered_mean_welfare"].__class__,
+            OBSERVER_GRIMOIRE["centered_mean_welfare"],
+        )
+        self.assertEqual(
+            getattr(observers["centered_mean_welfare"], "benefit_to_cost_ratio"),
+            0.5,
+        )
+        self.assertEqual(
+            getattr(observers["centered_mean_welfare"], "distance_discount"),
+            0.9,
+        )
+
+    def test_reference_requests_cover_available_grimoire_statistics(self) -> None:
+        observer_names = available_reference_observer_names()
+        parameters = (ChoiReferenceParameters(3, 0.5, 0.9),)
+
+        self.assertIn("triad_census", observer_names)
+        self.assertIn("centered_mean_welfare", observer_names)
+        self.assertNotIn("hub_persistence", observer_names)
+        self.assertNotIn("action_print", observer_names)
+        self.assertNotIn("state_history", observer_names)
+        self.assertIn(
+            ReferenceRequest("triad_census", 3, dimension_name="003"),
+            reference_requests(parameters),
+        )
+        self.assertIn(
+            ReferenceRequest("centered_mean_welfare", 3, 0.5, 0.9),
+            reference_requests(parameters),
+        )
+
+    def test_load_reference_parameters_reads_choi_parameter_json(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "parameters.json"
+            path.write_text(
+                (
+                    '[{"group_size": 4, "benefit_to_cost_ratio": 0.25, '
+                    '"distance_discount": 0.75}]'
+                ),
+                encoding="utf-8",
+            )
+
+            parameters = load_reference_parameters(path)
+
+        self.assertEqual(parameters, (ChoiReferenceParameters(4, 0.25, 0.75),))
+
+    def test_build_choi_reference_cache_can_save_load_and_lookup_values(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            self._write_csv(
+                tmp_path,
+                rows=[
+                    {
+                        "id": "1",
+                        "id_subj": "1000",
+                        "time": "1",
+                        "session": "1",
+                        "id_grp": "1",
+                        "grp": "1",
+                        "round": "2",
+                        "period": "1",
+                        "effort": "NULL",
+                        "links": "[2]",
+                    },
+                    {
+                        "id": "2",
+                        "id_subj": "1001",
+                        "time": "1",
+                        "session": "1",
+                        "id_grp": "2",
+                        "grp": "1",
+                        "round": "2",
+                        "period": "1",
+                        "effort": "NULL",
+                        "links": "[1]",
+                    },
+                ],
+                scenario_name="Linking_2_1",
+            )
+            density_request = ReferenceRequest(
+                observer_name="density",
+                n_agents=2,
+            )
+            triad_request = ReferenceRequest(
+                observer_name="triad_census",
+                n_agents=2,
+                dimension_name="003",
+            )
+            welfare_request = ReferenceRequest(
+                observer_name="centered_mean_welfare",
+                n_agents=2,
+                benefit_to_cost_ratio=0.5,
+                distance_discount=0.9,
+            )
+
+            def fake_fit_sigmoid(Y, *, t=None, **kwargs):
+                del kwargs
+                self.assertIsNotNone(t)
+                np.testing.assert_array_equal(t, np.array([0, 1]))
+                self.assertEqual(Y.shape[0], 1)
+                params = np.tile(
+                    np.array([[0.5, 0.25, 1.0]], dtype=np.float32),
+                    (Y.shape[0], 1),
+                )
+                return params, np.zeros(Y.shape[0], dtype=bool)
+
+            with patch(
+                "network_creation.data.choi_2020_references.fit_zero_start_sigmoids",
+                side_effect=fake_fit_sigmoid,
+            ):
+                cache = build_reference_cache(
+                    data_root=tmp_path,
+                    requests=(density_request, triad_request, welfare_request),
+                )
+            cache_path = tmp_path / "choi_reference_stats.pkl"
+            save_reference_cache(cache, cache_path)
+            loaded_cache = load_reference_cache(cache_path)
+
+        self.assertIsNotNone(loaded_cache)
+        self.assertEqual(
+            lookup_reference_value(loaded_cache, density_request),
+            1.0,
+        )
+        self.assertEqual(lookup_reference_value(loaded_cache, triad_request), 0.0)
+        self.assertIsNotNone(lookup_reference_value(loaded_cache, welfare_request))
+        assert loaded_cache is not None
+        self.assertNotIn(
+            sigmoid_reference_key(density_request, "A"),
+            loaded_cache["sigmoid_values"],
+        )
+        self.assertNotIn(
+            sigmoid_reference_key(triad_request, "A"),
+            loaded_cache["sigmoid_values"],
+        )
+        self.assertEqual(
+            loaded_cache["sigmoid_values"][sigmoid_reference_key(welfare_request, "A")],
+            0.5,
+        )
+        self.assertEqual(
+            loaded_cache["sigmoid_values"][sigmoid_reference_key(welfare_request, "k")],
+            0.25,
+        )
+        self.assertEqual(
+            loaded_cache["sigmoid_values"][sigmoid_reference_key(welfare_request, "t0")],
+            1.0,
         )
 
 

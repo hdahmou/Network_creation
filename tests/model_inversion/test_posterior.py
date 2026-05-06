@@ -1,85 +1,97 @@
 from __future__ import annotations
 
-import json
-import pickle
-import tempfile
 import unittest
-from pathlib import Path
 
 import numpy as np
-import torch
 
-from network_creation.model_inversion import load_posterior_artifact
+from network_creation.model_inversion.posterior import (
+    PosteriorWithPriorSamples,
+    attach_prior_samples_to_posterior,
+    category_probabilities,
+    decode_discrete_theta_samples,
+    select_prior_samples,
+)
 
 
-class FakePosterior:
-    def __init__(self) -> None:
-        self.calls: list[dict[str, object]] = []
+class PosteriorArtifactHelpersTest(unittest.TestCase):
+    def test_select_prior_samples_keeps_deterministic_training_theta_subset(self) -> None:
+        theta = np.arange(20, dtype=np.float32).reshape(10, 2)
 
-    def sample(self, sample_shape: tuple[int, ...], *, x: torch.Tensor) -> torch.Tensor:
-        self.calls.append(
-            {
-                "sample_shape": sample_shape,
-                "x_shape": tuple(x.shape),
-                "x_values": x.detach().cpu().numpy().copy(),
-            }
+        samples_a, indices_a = select_prior_samples(theta, max_samples=4, seed=3)
+        samples_b, indices_b = select_prior_samples(theta, max_samples=4, seed=3)
+
+        self.assertEqual(samples_a.shape, (4, 2))
+        np.testing.assert_array_equal(indices_a, indices_b)
+        np.testing.assert_array_equal(samples_a, samples_b)
+        np.testing.assert_array_equal(samples_a, theta[indices_a])
+
+    def test_attach_prior_samples_supports_mock_posterior_dicts(self) -> None:
+        posterior: dict[str, object] = {}
+        samples = np.asarray([[0.1, 10.0], [0.2, 20.0]], dtype=np.float32)
+
+        returned = attach_prior_samples_to_posterior(
+            posterior,
+            prior_samples=samples,
+            prior_sample_indices=np.asarray([2, 5]),
+            theta_names=("alpha", "n_agents"),
+            seed=7,
         )
-        num_samples = sample_shape[0]
-        return torch.arange(num_samples * 2, dtype=torch.float32).reshape(
-            num_samples,
-            2,
-        )
 
-
-class PosteriorArtifactTests(unittest.TestCase):
-    def setUp(self) -> None:
-        self.temp_dir = tempfile.TemporaryDirectory()
-        self.addCleanup(self.temp_dir.cleanup)
-        self.artifact_dir = Path(self.temp_dir.name)
-        self.metadata = {
-            "sbi": {
-                "posterior_file": "posterior.pkl",
-                "tensorboard_log_dir": "sbi_logs",
-            },
-            "dataset": {
-                "x_event_shape": [2, 2],
-                "x_names": ["density.mean", "distance.mean"],
-                "theta_names": ["n_agents", "alpha"],
-            },
-        }
-        (self.artifact_dir / "metadata.json").write_text(
-            json.dumps(self.metadata),
-            encoding="utf-8",
-        )
-        with (self.artifact_dir / "posterior.pkl").open("wb") as handle:
-            pickle.dump(FakePosterior(), handle)
-
-    def test_loads_metadata_and_samples_with_dataset_shape(self) -> None:
-        artifact = load_posterior_artifact(self.artifact_dir)
-
-        self.assertEqual(artifact.metadata, self.metadata)
-        self.assertEqual(artifact.observation_order, ["density.mean", "distance.mean"])
-        self.assertEqual(artifact.theta_order, ["n_agents", "alpha"])
+        self.assertIs(returned, posterior)
+        np.testing.assert_array_equal(posterior["prior_samples"], samples)
+        np.testing.assert_array_equal(posterior["prior_sample_indices"], [2, 5])
         self.assertEqual(
-            artifact.tensorboard_log_dir,
-            self.artifact_dir / "sbi_logs",
+            posterior["prior_sample_metadata"],
+            {
+                "source": "training_theta_rows",
+                "count": 2,
+                "theta_order": ["alpha", "n_agents"],
+                "selection_seed": 7,
+            },
         )
 
-        samples, theta_names = artifact.sample([1.0, 2.0, 3.0, 4.0], num_samples=3)
+
+    def test_attach_prior_samples_wraps_posterior_when_attributes_are_disallowed(self) -> None:
+        class SlottedPosterior:
+            __slots__ = ()
+
+            def sample(self, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003
+                return (args, kwargs)
+
+        samples = np.asarray([[0.1, 10.0]], dtype=np.float32)
+
+        wrapped = attach_prior_samples_to_posterior(
+            SlottedPosterior(),
+            prior_samples=samples,
+            prior_sample_indices=None,
+            theta_names=("alpha", "n_agents"),
+            seed=11,
+        )
+
+        self.assertIsInstance(wrapped, PosteriorWithPriorSamples)
+        np.testing.assert_array_equal(wrapped.prior_samples, samples)
+        self.assertIsNone(wrapped.prior_sample_indices)
+
+    def test_decode_discrete_theta_samples_maps_indices_back_to_categories(self) -> None:
+        metadata = {
+            "dataset": {
+                "theta_names": ["alpha", "n_agents"],
+                "discrete_theta_names": ["n_agents"],
+                "discrete_theta_values": [[10, 20]],
+            }
+        }
+        raw_samples = np.asarray([[0.1, 0.0], [0.2, 1.0]], dtype=np.float32)
+
+        decoded = decode_discrete_theta_samples(raw_samples, metadata)
 
         np.testing.assert_allclose(
-            samples,
-            np.asarray([[0.0, 1.0], [2.0, 3.0], [4.0, 5.0]], dtype=np.float32),
+            decoded,
+            np.asarray([[0.1, 10.0], [0.2, 20.0]], dtype=np.float32),
         )
-        self.assertEqual(theta_names, ["n_agents", "alpha"])
-        self.assertEqual(len(artifact.posterior.calls), 1)
-        call = artifact.posterior.calls[0]
-        self.assertEqual(call["sample_shape"], (3,))
-        self.assertEqual(call["x_shape"], (2, 2))
-        np.testing.assert_allclose(
-            call["x_values"],
-            np.asarray([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32),
-        )
+
+    def test_category_probabilities_uses_stored_category_values(self) -> None:
+        probs = category_probabilities([10.0, 20.0, 20.0], [10, 20])
+        np.testing.assert_allclose(probs, [1 / 3, 2 / 3])
 
 
 if __name__ == "__main__":

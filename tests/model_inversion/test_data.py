@@ -11,6 +11,8 @@ import xarray as xr
 from network_creation.model_inversion.data import (
     filter_inversion_dataset,
     inversion_dataset_metadata,
+    move_discrete_theta_to_end,
+    resolve_discrete_theta_parameters,
 )
 
 
@@ -254,6 +256,52 @@ class ModelDatasetTests(unittest.TestCase):
             np.asarray([0, 1, 0]),
         )
         self.assertEqual(dataset.attrs["has_failures"], True)
+
+    def test_move_discrete_theta_to_end_reorders_and_records_metadata(self) -> None:
+        dataset = self.filter_results(
+            observers=("density.mean",),
+            theta_parameters=("n_agents", "alpha"),
+            drop_constant_theta=False,
+        )
+
+        mixed_dataset = move_discrete_theta_to_end(
+            dataset,
+            discrete_theta_parameters=("n_agents",),
+        )
+        metadata = inversion_dataset_metadata(mixed_dataset)
+
+        self.assertEqual(
+            list(mixed_dataset.coords["theta_parameter"].values),
+            ["alpha", "n_agents"],
+        )
+        np.testing.assert_allclose(
+            mixed_dataset["theta"].values,
+            np.asarray(
+                [
+                    [0.1, 10.0],
+                    [0.3, 10.0],
+                    [0.4, 20.0],
+                    [0.5, 20.0],
+                    [0.6, 20.0],
+                ],
+                dtype=np.float32,
+            ),
+        )
+        self.assertEqual(metadata["continuous_theta_names"], ["alpha"])
+        self.assertEqual(metadata["discrete_theta_names"], ["n_agents"])
+        self.assertEqual(metadata["theta_original_order"], ["n_agents", "alpha"])
+        self.assertEqual(metadata["discrete_theta_values"], [[10, 20]])
+        self.assertEqual(metadata["num_categories_per_discrete_theta"], [2])
+
+    def test_resolve_discrete_theta_parameters_auto_detects_n_agents(self) -> None:
+        self.assertEqual(
+            resolve_discrete_theta_parameters(("alpha", "n_agents")),
+            ("n_agents",),
+        )
+
+    def test_resolve_discrete_theta_parameters_rejects_unknown_name(self) -> None:
+        with self.assertRaisesRegex(ValueError, "unknown discrete theta parameter"):
+            resolve_discrete_theta_parameters(("alpha", "n_agents"), ("agent_count",))
 
 
 if __name__ == "__main__":

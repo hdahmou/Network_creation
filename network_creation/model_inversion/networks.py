@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from typing import Literal
 
 import torch
-from sbi.neural_nets import posterior_nn
 from torch import nn
 
 EmbeddingKind = Literal["identity", "rnn"]
-DensityEstimatorName = Literal["nsf", "maf", "maf_rqs", "mdn", "made"]
+ContinuousDensityEstimatorName = Literal["nsf", "maf", "maf_rqs", "mdn", "made"]
+DensityEstimatorName = Literal["nsf", "maf", "maf_rqs", "mdn", "made", "mnpe"]
 RNNKind = Literal["gru", "lstm"]
 
 
@@ -30,9 +31,13 @@ class EmbeddingConfig:
 @dataclass(frozen=True)
 class DensityEstimatorConfig:
     model: DensityEstimatorName = "nsf"
+    flow_model: ContinuousDensityEstimatorName = "nsf"
     hidden_features: int = 50
     num_transforms: int = 5
     num_bins: int = 10
+    discrete_hidden_features: int | None = None
+    discrete_hidden_layers: int = 2
+    continuous_hidden_features: int | None = None
     z_score_theta: str = "independent"
     z_score_x: str = "independent"
 
@@ -107,8 +112,33 @@ def build_density_estimator(
     embedding: EmbeddingConfig,
     *,
     x_event_shape: tuple[int, ...],
+    num_categories_per_discrete_theta: Sequence[int] | None = None,
 ):
+    from sbi.neural_nets import posterior_nn
+
     embedding_net = build_embedding_net(embedding, x_event_shape=x_event_shape)
+    category_counts = tuple(int(value) for value in (num_categories_per_discrete_theta or ()))
+
+    if category_counts:
+        flow_model = density.flow_model if density.model == "mnpe" else density.model
+        return posterior_nn(
+            model="mnpe",
+            embedding_net=embedding_net,
+            flow_model=flow_model,
+            num_categories_per_variable=torch.as_tensor(category_counts, dtype=torch.long),
+            hidden_features=density.hidden_features,
+            discrete_hidden_features=density.discrete_hidden_features,
+            discrete_hidden_layers=density.discrete_hidden_layers,
+            continuous_hidden_features=density.continuous_hidden_features,
+            num_transforms=density.num_transforms,
+            num_bins=density.num_bins,
+            z_score_theta=density.z_score_theta,
+            z_score_x=density.z_score_x,
+        )
+
+    if density.model == "mnpe":
+        raise ValueError("density model 'mnpe' requires at least one discrete theta parameter")
+
     return posterior_nn(
         model=density.model,
         embedding_net=embedding_net,

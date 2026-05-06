@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import pickle
 import sys
 import tempfile
 import unittest
@@ -55,6 +56,9 @@ class TrainNPEConfigTests(unittest.TestCase):
                     "run_name": "manual-run",
                     "save_training_data": True,
                 },
+                "diagnostics": {
+                    "reserve_count": 7,
+                },
                 "density_estimator": {
                     "model": "maf",
                     "hidden_features": 12,
@@ -101,7 +105,11 @@ class TrainNPEConfigTests(unittest.TestCase):
         self.assertEqual(config.x_representation, "timeseries")
         self.assertEqual(config.run_name, "manual-run")
         self.assertTrue(config.save_training_data)
+        self.assertEqual(config.diagnostics.reserve_count, 7)
+        self.assertIsNone(config.discrete_theta_parameters)
+        self.assertEqual(config.prior_sample_count, 4096)
         self.assertEqual(config.density.model, "maf")
+        self.assertEqual(config.density.flow_model, "nsf")
         self.assertEqual(config.density.hidden_features, 12)
         self.assertEqual(config.embedding.kind, "rnn")
         self.assertEqual(config.embedding.rnn_type, "lstm")
@@ -141,7 +149,11 @@ class TrainNPEConfigTests(unittest.TestCase):
             ("n_agents", "outside_optimism", "exploration"),
         )
         self.assertEqual(config.x_representation, "final")
-        self.assertEqual(config.density.model, "nsf")
+        self.assertEqual(config.discrete_theta_parameters, ("n_agents",))
+        self.assertEqual(config.prior_sample_count, 4096)
+        self.assertEqual(config.diagnostics.reserve_count, 200)
+        self.assertEqual(config.density.model, "mnpe")
+        self.assertEqual(config.density.flow_model, "nsf")
         self.assertEqual(config.embedding.kind, "identity")
         self.assertEqual(payload["embedding"], {"kind": "identity"})
         self.assertNotIn("rnn_hidden_size", payload["embedding"])
@@ -149,6 +161,57 @@ class TrainNPEConfigTests(unittest.TestCase):
         self.assertNotIn("rnn_type", payload["embedding"])
         self.assertNotIn("rnn_bidirectional", payload["embedding"])
         self.assertEqual(config.training.training_batch_size, 200)
+
+    def test_load_train_config_requires_diagnostics_reserve_count(self) -> None:
+        config_path = self.write_config(
+            {
+                "dataset": {
+                    "zarr_path": "../artifacts/run.zarr",
+                    "observers": ["density.mean"],
+                },
+                "artifact": {
+                    "output_root": "../artifacts/model_inversion",
+                },
+                "density_estimator": {},
+                "embedding": {"kind": "identity"},
+                "training": {},
+            }
+        )
+
+        with self.assertRaisesRegex(ValueError, "diagnostics.reserve_count is required"):
+            self.script.load_train_config(config_path)
+
+    def test_load_train_config_rejects_non_positive_diagnostics_reserve_count(self) -> None:
+        payload = {
+            "dataset": {
+                "zarr_path": "../artifacts/run.zarr",
+                "observers": ["density.mean"],
+            },
+            "artifact": {
+                "output_root": "../artifacts/model_inversion",
+            },
+            "diagnostics": {
+                "reserve_count": 0,
+            },
+            "density_estimator": {},
+            "embedding": {"kind": "identity"},
+            "training": {},
+        }
+        config_path = self.write_config(payload)
+
+        with self.assertRaisesRegex(ValueError, "diagnostics.reserve_count must be > 0"):
+            self.script.load_train_config(config_path)
+
+    def test_split_diagnostic_holdout_rejects_reserve_count_too_large(self) -> None:
+        with self.assertRaisesRegex(
+            ValueError,
+            "diagnostics.reserve_count must be < n_simulations",
+        ):
+            self.script.split_diagnostic_holdout(
+                n_simulations=3,
+                reserve_count=3,
+                seed=1,
+            )
 
     def test_train_from_config_logs_progress_stages(self) -> None:
         zarr_path = self.config_dir / "../artifacts/run.zarr"
@@ -170,23 +233,32 @@ class TrainNPEConfigTests(unittest.TestCase):
                 training_batch_size=2,
                 max_num_epochs=3,
             ),
+            diagnostics=self.script.DiagnosticsConfig(reserve_count=1),
         )
 
         raw_results = xr.Dataset(
             data_vars={
                 "theta": (
                     ("sample", "theta_parameter"),
-                    np.asarray([[0.1], [0.2]], dtype=np.float32),
+                    np.asarray([[0.1], [0.2], [0.3], [0.4]], dtype=np.float32),
                 ),
                 "prior_low": ("theta_parameter", np.asarray([0.0], dtype=np.float32)),
                 "prior_high": ("theta_parameter", np.asarray([1.0], dtype=np.float32)),
                 "x": (
                     ("sample", "step", "observable"),
-                    np.asarray([[[1.0], [2.0]], [[3.0], [4.0]]], dtype=np.float32),
+                    np.asarray(
+                        [
+                            [[1.0], [2.0]],
+                            [[3.0], [4.0]],
+                            [[5.0], [6.0]],
+                            [[7.0], [8.0]],
+                        ],
+                        dtype=np.float32,
+                    ),
                 ),
             },
             coords={
-                "sample": np.asarray([0, 1], dtype=np.int64),
+                "sample": np.asarray([0, 1, 2, 3], dtype=np.int64),
                 "theta_parameter": ("theta_parameter", ["alpha"]),
                 "observable": ("observable", ["density.mean"]),
                 "step": np.asarray([0, 1], dtype=np.int64),
@@ -222,8 +294,10 @@ class TrainNPEConfigTests(unittest.TestCase):
         self.assertIn("[stage 9/10] Skipping training data write", logs)
         self.assertIn("[stage 10/10] Training run complete", logs)
         self.assertIn(str(config.zarr_path), logs)
-        self.assertIn("theta_shape=(2, 1)", logs)
-        self.assertIn("x_shape=(2, 1)", logs)
+        self.assertIn("theta_shape=(4, 1)", logs)
+        self.assertIn("x_shape=(4, 1)", logs)
+        self.assertIn("train_count=3", logs)
+        self.assertIn("diagnostic_count=1", logs)
         self.assertIn("device=cpu", logs)
         self.assertIn("batch_size=2", logs)
         self.assertIn("max_num_epochs=3", logs)
@@ -233,12 +307,202 @@ class TrainNPEConfigTests(unittest.TestCase):
             train_amortized_npe.call_args.kwargs["tensorboard_log_dir"],
             tensorboard_log_dir,
         )
+        self.assertEqual(
+            train_amortized_npe.call_args.kwargs["num_categories_per_discrete_theta"],
+            (),
+        )
+        train_indices, diagnostic_indices = self.script.split_diagnostic_holdout(
+            n_simulations=4,
+            reserve_count=1,
+            seed=1,
+        )
+        expected_theta = np.asarray([[0.1], [0.2], [0.3], [0.4]], dtype=np.float32)
+        expected_x = np.asarray([[2.0], [4.0], [6.0], [8.0]], dtype=np.float32)
+        np.testing.assert_allclose(
+            train_amortized_npe.call_args.kwargs["theta"],
+            expected_theta[train_indices],
+        )
+        np.testing.assert_allclose(
+            train_amortized_npe.call_args.kwargs["x"],
+            expected_x[train_indices],
+        )
         self.assertEqual(result["artifact_dir"], str(artifact_dir))
         self.assertEqual(result["tensorboard_log_dir"], str(tensorboard_log_dir))
+        self.assertEqual(result["train_count"], 3)
+        self.assertEqual(result["diagnostic_count"], 1)
+        self.assertEqual(result["diagnostic_data_file"], "diagnostic_data.npz")
         metadata = json.loads(
             (artifact_dir / "metadata.json").read_text(encoding="utf-8")
         )
         self.assertEqual(metadata["sbi"]["tensorboard_log_dir"], "sbi_logs")
+        self.assertEqual(metadata["sbi"]["method"], "NPE")
+        self.assertEqual(metadata["sbi"]["prior_samples"]["count"], 3)
+        self.assertEqual(metadata["diagnostics"]["file"], "diagnostic_data.npz")
+        self.assertEqual(metadata["diagnostics"]["reserve_count"], 1)
+        self.assertEqual(metadata["diagnostics"]["train_count"], 3)
+        self.assertEqual(metadata["diagnostics"]["diagnostic_count"], 1)
+        self.assertEqual(metadata["dataset"]["train_count"], 3)
+        self.assertEqual(metadata["dataset"]["diagnostic_count"], 1)
+        with np.load(artifact_dir / "diagnostic_data.npz") as diagnostic_data:
+            np.testing.assert_allclose(
+                diagnostic_data["theta"],
+                expected_theta[diagnostic_indices],
+            )
+            np.testing.assert_allclose(
+                diagnostic_data["x"],
+                expected_x[diagnostic_indices],
+            )
+            np.testing.assert_array_equal(
+                diagnostic_data["source_sample"],
+                np.asarray([0, 1, 2, 3], dtype=np.int64)[diagnostic_indices],
+            )
+        with (artifact_dir / "posterior.pkl").open("rb") as handle:
+            saved_posterior = pickle.load(handle)
+        np.testing.assert_allclose(
+            saved_posterior["prior_samples"],
+            expected_theta[train_indices],
+        )
+
+    def test_train_from_config_uses_mnpe_for_agent_count(self) -> None:
+        output_root = Path(self.temp_dir.name) / "model_inversion_mixed"
+        config = self.script.TrainNPEConfig(
+            zarr_path=(self.config_dir / "../artifacts/run.zarr").resolve(),
+            observers=("density.mean",),
+            theta_parameters=("n_agents", "alpha"),
+            drop_constant_theta=False,
+            x_representation="final",
+            output_root=output_root,
+            run_name="mixed-run",
+            save_training_data=True,
+            density=self.script.DensityEstimatorConfig(model="mnpe", flow_model="nsf"),
+            embedding=self.script.EmbeddingConfig(kind="identity"),
+            training=self.script.NPETrainingConfig(
+                seed=1,
+                device="cpu",
+                training_batch_size=2,
+                max_num_epochs=3,
+            ),
+            diagnostics=self.script.DiagnosticsConfig(reserve_count=1),
+            discrete_theta_parameters=("n_agents",),
+        )
+
+        raw_results = xr.Dataset(
+            data_vars={
+                "theta": (
+                    ("sample", "theta_parameter"),
+                    np.asarray(
+                        [
+                            [10.0, 0.1],
+                            [20.0, 0.2],
+                            [10.0, 0.3],
+                            [20.0, 0.4],
+                        ],
+                        dtype=np.float32,
+                    ),
+                ),
+                "prior_low": (
+                    "theta_parameter",
+                    np.asarray([10.0, 0.0], dtype=np.float32),
+                ),
+                "prior_high": (
+                    "theta_parameter",
+                    np.asarray([20.0, 1.0], dtype=np.float32),
+                ),
+                "x": (
+                    ("sample", "step", "observable"),
+                    np.asarray(
+                        [
+                            [[1.0], [2.0]],
+                            [[3.0], [4.0]],
+                            [[5.0], [6.0]],
+                            [[7.0], [8.0]],
+                        ],
+                        dtype=np.float32,
+                    ),
+                ),
+            },
+            coords={
+                "sample": np.asarray([0, 1, 2, 3], dtype=np.int64),
+                "theta_parameter": ("theta_parameter", ["n_agents", "alpha"]),
+                "observable": ("observable", ["density.mean"]),
+                "step": np.asarray([0, 1], dtype=np.int64),
+            },
+            attrs={
+                "result_store_path": str(config.zarr_path),
+                "config_path": str(self.config_dir / "run_config.json"),
+                "has_failures": False,
+            },
+        )
+
+        with (
+            patch.object(self.script, "load_policy_results", return_value=raw_results),
+            patch.object(
+                self.script,
+                "train_amortized_npe",
+                return_value={"posterior": True},
+            ) as train_amortized_npe,
+            self.assertLogs(self.script.LOGGER.name, level="INFO") as captured,
+        ):
+            result = self.script.train_from_config(config)
+
+        logs = "\n".join(captured.output)
+        self.assertIn("[stage 5/10] Starting MNPE training", logs)
+        train_indices, diagnostic_indices = self.script.split_diagnostic_holdout(
+            n_simulations=4,
+            reserve_count=1,
+            seed=1,
+        )
+        expected_reordered_theta = np.asarray(
+            [[0.1, 10.0], [0.2, 20.0], [0.3, 10.0], [0.4, 20.0]],
+            dtype=np.float32,
+        )
+        expected_x = np.asarray([[2.0], [4.0], [6.0], [8.0]], dtype=np.float32)
+        np.testing.assert_allclose(
+            train_amortized_npe.call_args.kwargs["theta"],
+            expected_reordered_theta[train_indices],
+        )
+        np.testing.assert_allclose(
+            train_amortized_npe.call_args.kwargs["x"],
+            expected_x[train_indices],
+        )
+        self.assertEqual(
+            train_amortized_npe.call_args.kwargs["num_categories_per_discrete_theta"],
+            (2,),
+        )
+        self.assertEqual(result["sbi_method"], "MNPE")
+        self.assertEqual(result["theta_names"], ["alpha", "n_agents"])
+        self.assertEqual(result["discrete_theta_names"], ["n_agents"])
+        self.assertEqual(result["train_count"], 3)
+        self.assertEqual(result["diagnostic_count"], 1)
+
+        metadata = json.loads(
+            (output_root / "mixed-run" / "metadata.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(metadata["sbi"]["method"], "MNPE")
+        self.assertEqual(metadata["sbi"]["prior_samples"]["count"], 3)
+        with np.load(output_root / "mixed-run" / "diagnostic_data.npz") as diagnostic_data:
+            np.testing.assert_allclose(
+                diagnostic_data["theta"],
+                expected_reordered_theta[diagnostic_indices],
+            )
+            np.testing.assert_allclose(
+                diagnostic_data["x"],
+                expected_x[diagnostic_indices],
+            )
+        with (output_root / "mixed-run" / "posterior.pkl").open("rb") as handle:
+            saved_posterior = pickle.load(handle)
+        np.testing.assert_allclose(
+            saved_posterior["prior_samples"],
+            expected_reordered_theta[train_indices],
+        )
+        self.assertEqual(metadata["dataset"]["theta_names"], ["alpha", "n_agents"])
+        self.assertEqual(metadata["dataset"]["continuous_theta_names"], ["alpha"])
+        self.assertEqual(metadata["dataset"]["discrete_theta_names"], ["n_agents"])
+        self.assertEqual(metadata["dataset"]["discrete_theta_values"], [[10, 20]])
+        self.assertEqual(
+            metadata["dataset"]["num_categories_per_discrete_theta"],
+            [2],
+        )
 
 
 if __name__ == "__main__":

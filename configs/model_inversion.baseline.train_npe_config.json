@@ -6,22 +6,34 @@
       "indegree.mean",
       "distance.mean"
     ],
-    "theta_parameters": ["n_agents", "outside_optimism", "exploration"],
+    "theta_parameters": [
+      "n_agents",
+      "outside_optimism",
+      "exploration"
+    ],
     "drop_constant_theta": true,
-    "x_representation": "final"
+    "x_representation": "final",
+    "discrete_theta_parameters": [
+      "n_agents"
+    ]
   },
   "artifact": {
     "output_root": "../artifacts/model_inversion",
     "run_name": null,
-    "save_training_data": false
+    "save_training_data": false,
+    "prior_sample_count": 4096
+  },
+  "diagnostics": {
+    "reserve_count": 200
   },
   "density_estimator": {
-    "model": "nsf",
+    "model": "mnpe",
     "hidden_features": 50,
     "num_transforms": 5,
     "num_bins": 10,
     "z_score_theta": "independent",
-    "z_score_x": "independent"
+    "z_score_x": "independent",
+    "flow_model": "nsf"
   },
   "embedding": {
     "kind": "identity"

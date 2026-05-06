@@ -11,6 +11,8 @@ import xarray as xr
 
 ObservationRepresentation = Literal["final", "timeseries"]
 
+DEFAULT_DISCRETE_THETA_CANDIDATES = ("n_agents",)
+
 
 def filter_inversion_dataset(
     ds: xr.Dataset,
@@ -110,6 +112,95 @@ def filter_inversion_dataset(
     )
 
 
+def resolve_discrete_theta_parameters(
+    theta_names: Sequence[str],
+    requested: Sequence[str] | None = None,
+    *,
+    default_candidates: Sequence[str] = DEFAULT_DISCRETE_THETA_CANDIDATES,
+) -> tuple[str, ...]:
+    """Resolve theta names that should be modelled categorically by MNPE.
+
+    ``requested=None`` auto-detects ``n_agents`` when present. Passing an empty
+    sequence explicitly disables mixed-parameter inference.
+    """
+
+    available = tuple(str(value) for value in theta_names)
+    names_to_resolve = tuple(default_candidates) if requested is None else tuple(requested)
+
+    resolved: list[str] = []
+    for raw_name in names_to_resolve:
+        name = str(raw_name).strip()
+        if name in available:
+            if name not in resolved:
+                resolved.append(name)
+            continue
+
+        matches = [
+            available_name
+            for available_name in available
+            if available_name.startswith(f"{name}.")
+        ]
+        if len(matches) == 1:
+            match = matches[0]
+            if match not in resolved:
+                resolved.append(match)
+            continue
+        if len(matches) > 1:
+            raise ValueError(
+                f"ambiguous discrete theta parameter {name!r}; "
+                f"choose one of {matches}"
+            )
+
+        if requested is None:
+            continue
+        raise ValueError(
+            f"unknown discrete theta parameter {name!r}; "
+            f"available values are {list(available)}"
+        )
+
+    return tuple(resolved)
+
+
+def move_discrete_theta_to_end(
+    dataset: xr.Dataset,
+    *,
+    discrete_theta_parameters: Sequence[str] | None,
+) -> xr.Dataset:
+    """Return a dataset ordered as ``continuous theta..., discrete theta...``.
+
+    SBI's MNPE builder expects categorical/discrete theta columns to be the last
+    columns.  This helper validates integer-valued discrete columns, reorders the
+    theta coordinate, and stores mixed-parameter metadata in the returned dataset.
+    """
+
+    theta_names = tuple(str(value) for value in dataset.coords["theta_parameter"].values)
+    discrete_names = resolve_discrete_theta_parameters(
+        theta_names,
+        requested=discrete_theta_parameters,
+    )
+    continuous_names = tuple(name for name in theta_names if name not in discrete_names)
+    ordered_names = continuous_names + discrete_names
+
+    reordered = dataset.sel(theta_parameter=list(ordered_names))
+    attrs = dict(reordered.attrs)
+    attrs["theta_original_order"] = list(theta_names)
+    attrs["continuous_theta_parameters"] = list(continuous_names)
+    attrs["discrete_theta_parameters"] = list(discrete_names)
+
+    category_values: list[list[int]] = []
+    category_counts: list[int] = []
+    if discrete_names:
+        category_values = _validate_and_collect_discrete_values(
+            reordered,
+            discrete_theta_parameters=discrete_names,
+        )
+        category_counts = [len(values) for values in category_values]
+
+    attrs["discrete_theta_values"] = category_values
+    attrs["num_categories_per_discrete_theta"] = category_counts
+    return reordered.assign_attrs(attrs)
+
+
 def inversion_dataset_metadata(dataset: xr.Dataset) -> dict[str, Any]:
     metadata = {
         "result_store_path": str(dataset.attrs["result_store_path"]),
@@ -128,6 +219,25 @@ def inversion_dataset_metadata(dataset: xr.Dataset) -> dict[str, Any]:
     if "step" in dataset.coords:
         metadata["step_labels"] = [
             int(value) for value in dataset.coords["step"].values
+        ]
+
+    if "discrete_theta_parameters" in dataset.attrs:
+        metadata["continuous_theta_names"] = [
+            str(value) for value in dataset.attrs.get("continuous_theta_parameters", [])
+        ]
+        metadata["discrete_theta_names"] = [
+            str(value) for value in dataset.attrs.get("discrete_theta_parameters", [])
+        ]
+        metadata["theta_original_order"] = [
+            str(value) for value in dataset.attrs.get("theta_original_order", [])
+        ]
+        metadata["discrete_theta_values"] = [
+            [int(item) for item in values]
+            for values in dataset.attrs.get("discrete_theta_values", [])
+        ]
+        metadata["num_categories_per_discrete_theta"] = [
+            int(value)
+            for value in dataset.attrs.get("num_categories_per_discrete_theta", [])
         ]
 
     return metadata
@@ -216,3 +326,33 @@ def _resolve_names(
         )
 
     return tuple(resolved)
+
+
+def _validate_and_collect_discrete_values(
+    dataset: xr.Dataset,
+    *,
+    discrete_theta_parameters: Sequence[str],
+) -> list[list[int]]:
+    values = np.asarray(
+        dataset["theta"].sel(theta_parameter=list(discrete_theta_parameters)).values,
+        dtype=np.float32,
+    )
+    if values.ndim == 1:
+        values = values.reshape((-1, 1))
+
+    if not np.isfinite(values).all():
+        raise ValueError("discrete theta parameters must be finite")
+
+    rounded = np.rint(values)
+    if not np.allclose(values, rounded, rtol=0.0, atol=1e-6):
+        bad_column = int(np.where(~np.isclose(values, rounded, rtol=0.0, atol=1e-6))[1][0])
+        bad_name = str(discrete_theta_parameters[bad_column])
+        raise ValueError(
+            f"discrete theta parameter {bad_name!r} contains non-integer values"
+        )
+
+    categories: list[list[int]] = []
+    for index in range(len(discrete_theta_parameters)):
+        unique_values = np.unique(rounded[:, index].astype(np.int64))
+        categories.append([int(value) for value in unique_values.tolist()])
+    return categories

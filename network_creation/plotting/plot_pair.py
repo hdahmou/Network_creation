@@ -1,11 +1,9 @@
 from dataclasses import dataclass
 
-import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.axes import Axes
 from matplotlib.colors import Normalize
-from matplotlib.ticker import FormatStrFormatter, NullLocator
-from mpl_toolkits.axes_grid1.inset_locator import inset_axes
+from matplotlib.ticker import NullLocator
 from scipy.ndimage import gaussian_filter
 from scipy.stats import binned_statistic_2d
 
@@ -158,7 +156,7 @@ def _render_descriptor(
             cmap=cmap,
             norm=norm,
             origin="lower",
-            extent=[*x_spec.limits, *y_spec.limits],
+            extent=(*x_spec.limits, *y_spec.limits),
             interpolation="nearest",
             aspect="auto",
         )
@@ -238,11 +236,12 @@ def plot_2d_descriptor(
 def plot_pair(
     X: np.ndarray,
     y: np.ndarray,
+    *,
+    fig,
+    axes: np.ndarray,
     labels=None,
     ordered_discrete_keys: list[str] | None = None,
-    base_fig_size=2.4,
     cmap="Greys",
-    label_y="y",
     atol=0.0,
     method="points",
     resolution=100,
@@ -251,6 +250,7 @@ def plot_pair(
     sigma=1.5,
     norm: Normalize | None = None,
 ):
+    """Draw a lower-triangular pair plot."""
     d = X.shape[1]
     if labels is None:
         labels = [f"x{i}" for i in range(d)]
@@ -287,13 +287,11 @@ def plot_pair(
         _build_axis_spec(X[:, i], discrete_flags[i]) for i in range(X.shape[1])
     ]
     n = X.shape[1] - 1
-    fig, axes = plt.subplots(
-        n,
-        n,
-        figsize=(base_fig_size * n, base_fig_size * n),
-        layout="constrained",
-    )
-    axes = np.array([[axes]]) if n == 1 else axes
+    axes = np.asarray(axes, dtype=object)
+    if axes.shape != (n, n):
+        raise ValueError(f"`axes` must have shape {(n, n)}, got {axes.shape}")
+    if axes[0, 0].figure is not fig:
+        raise ValueError("`fig` must match the figure containing `axes`")
 
     for i in range(n):
         for j in range(n):
@@ -330,14 +328,4 @@ def plot_pair(
                     axis="y", which="both", left=False, right=False, labelleft=False
                 )
 
-    cax = (
-        inset_axes(
-            axes[0, -1], width="4%", height="90%", loc="center right", borderpad=-2.5
-        )
-        if n > 1
-        else fig.add_axes([1.02, 0.2, 0.02, 0.7])
-    )
-    cbar = fig.colorbar(plt.cm.ScalarMappable(cmap=cmap, norm=resolved_norm), cax=cax)
-    cbar.set_label(label_y)
-    cbar.ax.yaxis.set_major_formatter(FormatStrFormatter("%.2f"))
     return fig, axes

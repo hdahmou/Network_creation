@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 import igraph as ig
 import numpy as np
 
@@ -43,3 +45,14 @@ class GlobalClosenessCentralityObserver(EpisodeSeriesStatisticObserver):
 
     def compute_step_value(self, event: StepEvent) -> float:
         return _compute_global_closeness_centrality(event.post_state.graph)
+
+    @classmethod
+    def reference_values(
+        cls,
+        context: Mapping[str, object],
+        references: Mapping[str, float | None] | None = None,
+    ) -> dict[str, float | None]:
+        del cls, context
+        result = dict(references or {})
+        result.update({"empty": 0.0, "star": 1.0})
+        return result

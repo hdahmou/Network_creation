@@ -689,10 +689,10 @@ class PlotPairTest(unittest.TestCase):
             cache_path=Path("/tmp/missing-choi-reference-cache.pkl"),
         )
 
-        self.assertEqual(tuple(references), ("Empty", "Random", "Star"))
-        self.assertEqual(references["Empty"], 0.0)
-        self.assertTrue(np.isfinite(references["Random"]))
-        self.assertTrue(np.isfinite(references["Star"]))
+        self.assertEqual(tuple(references), ("empty", "random", "star"))
+        self.assertEqual(references["empty"], 0.0)
+        self.assertTrue(np.isfinite(references["random"]))
+        self.assertTrue(np.isfinite(references["star"]))
 
         _, norm = get_observer_reference_style(
             "central_point_of_dominance.mean",
@@ -729,15 +729,39 @@ class PlotPairTest(unittest.TestCase):
                 cache_path=cache_path,
             )
 
-        self.assertEqual(references["Experimental"], 0.42)
+        self.assertEqual(references["choi2020"], 0.42)
 
     def test_positive_reference_norm_includes_reference_values(self) -> None:
         norm = positive_reference_norm(
             np.array([0.1, 0.2], dtype=float),
-            {"Experimental fit": 0.8},
+            {"choi2020": 0.8},
         )
 
         self.assertEqual((norm.vmin, norm.vmax), (0.0, 0.8))
+
+    def test_default_reference_values_preserve_caller_references(self) -> None:
+        self.assertEqual(
+            DensityObserver.reference_values({}, {"choi2020": 0.8}),
+            {"choi2020": 0.8},
+        )
+
+    def test_reference_style_filters_unavailable_reference_values(self) -> None:
+        references, _ = get_observer_reference_style(
+            "density.mean",
+            np.array([0.1, 0.2], dtype=float),
+            n_agents=10,
+            theta_labels=(),
+            theta_values=np.empty((1, 0), dtype=float),
+            cache_path=Path("/tmp/missing-choi-reference-cache.pkl"),
+            extra_references={
+                "ok": 0.7,
+                "missing": None,
+                "nan": float("nan"),
+                "infinite": float("inf"),
+            },
+        )
+
+        self.assertEqual(references, {"ok": 0.7, "empty": 0.0, "star": 0.2})
 
     def test_sigmoid_reference_lookup_returns_cached_fit_parameters_without_rescaling(
         self,
@@ -765,9 +789,9 @@ class PlotPairTest(unittest.TestCase):
                 cache_path=cache_path,
             )
 
-        self.assertEqual(references["A"]["Experimental fit"], 0.75)
-        self.assertEqual(references["k"]["Experimental fit"], 0.2)
-        self.assertEqual(references["t0"]["Experimental fit"], 20.0)
+        self.assertEqual(references["A"]["choi2020"], 0.75)
+        self.assertEqual(references["k"]["choi2020"], 0.2)
+        self.assertEqual(references["t0"]["choi2020"], 20.0)
 
     def test_sigmoid_reference_lookup_ignores_non_sigmoid_observers(self) -> None:
         request = ReferenceRequest("density", 10)

@@ -21,7 +21,8 @@ from network_creation.data.choi_2020_references import (
     dimension_name_from_observable,
     observer_name_from_observable,
 )
-from network_creation.stats.topology_welfare import normalized_welfare_per_topology
+from network_creation.observers.grimoire import OBSERVER_GRIMOIRE
+from network_creation.observers.statistics.episode import EpisodeStatisticObserver
 
 
 BOUNDED_OBSERVER_NAMES = {
@@ -42,19 +43,23 @@ def get_observer_reference_style(
     theta_values: np.ndarray,
     cache_path: str | Path | None = None,
     parameters_path: str | Path | None = None,
-    extra_references: Mapping[str, float] | None = None,
+    extra_references: Mapping[str, float | None] | None = None,
 ) -> tuple[dict[str, float], Normalize | None]:
     observer_name = observer_name_from_observable(observable_name)
+    dimension_name = dimension_name_from_observable(observable_name)
     theta = _unique_theta_parameters(
         theta_labels,
         theta_values,
         ("benefit_to_cost_ratio", "distance_discount"),
     )
-    references = (
-        _welfare_references(n_agents, theta)
-        if observer_name == WELFARE_OBSERVER_NAME and theta is not None
-        else {}
-    )
+    context: dict[str, object] = {
+        "n_agents": int(n_agents),
+        "dimension_name": dimension_name,
+    }
+    if theta is not None:
+        context.update(theta)
+
+    external_references: dict[str, float | None] = {}
 
     request = _reference_request(
         observer_name,
@@ -66,14 +71,11 @@ def get_observer_reference_style(
     if request is not None:
         value = lookup_reference_value(load_reference_cache(_cache_path(cache_path)), request)
         if value is not None:
-            references["Experimental"] = value
+            external_references["choi2020"] = value
 
-    references.update(
-        {
-            str(label): float(value)
-            for label, value in (extra_references or {}).items()
-            if np.isfinite(value)
-        }
+    external_references.update(extra_references or {})
+    references = _finite_references(
+        _observer_reference_values(observer_name, context, external_references)
     )
     return references, _reference_norm(observer_name, values, references)
 
@@ -101,7 +103,7 @@ def get_sigmoid_fit_reference_values(
         request,
     )
     return {
-        key: {"Experimental fit": value}
+        key: {"choi2020": value}
         for key, value in references.items()
         if np.isfinite(value)
     }
@@ -109,7 +111,7 @@ def get_sigmoid_fit_reference_values(
 
 def positive_reference_norm(
     values: np.ndarray,
-    references: Mapping[str, float],
+    references: Mapping[str, float | None],
 ) -> Normalize:
     finite = _finite_values(values, references)
     if finite.size == 0:
@@ -203,10 +205,10 @@ def _reference_norm(
     values: np.ndarray,
     references: Mapping[str, float],
 ) -> Normalize | None:
-    if observer_name == WELFARE_OBSERVER_NAME and {"Empty", "Random", "Star"} <= set(
+    if observer_name == WELFARE_OBSERVER_NAME and {"empty", "random", "star"} <= set(
         references
     ):
-        empty, random, star = (references[name] for name in ("Empty", "Random", "Star"))
+        empty, random, star = (references[name] for name in ("empty", "random", "star"))
         if empty < random < star:
             return TwoSlopeNorm(vmin=empty, vcenter=random, vmax=star)
     if observer_name in BOUNDED_OBSERVER_NAMES:
@@ -218,26 +220,28 @@ def _reference_norm(
     return Normalize(vmin=float(np.min(finite)), vmax=float(np.max(finite)))
 
 
-def _welfare_references(
-    n_agents: int,
-    theta: Mapping[str, float],
-) -> dict[str, float]:
-    def welfare(topology_class: str) -> float:
-        return normalized_welfare_per_topology(
-            topology_class=topology_class,  # type: ignore[arg-type]
-            n=int(n_agents),
-            benefit_to_cost_ratio=theta["benefit_to_cost_ratio"],
-            distance_discount=theta["distance_discount"],
-        )
+def _observer_reference_values(
+    observer_name: str,
+    context: Mapping[str, object],
+    references: Mapping[str, float | None],
+) -> dict[str, float | None]:
+    observer_class = OBSERVER_GRIMOIRE.get(observer_name)
+    if observer_class is None or not issubclass(observer_class, EpisodeStatisticObserver):
+        return dict(references)
+    return observer_class.reference_values(context, references)
 
-    reference_max = welfare("max")
-    if not np.isfinite(reference_max) or reference_max == 0.0:
-        return {}
-    return {
-        "Empty": float(welfare("empty") / reference_max),
-        "Random": float(welfare("random") / reference_max),
-        "Star": float(welfare("star") / reference_max),
-    }
+
+def _finite_references(
+    references: Mapping[str, float | None],
+) -> dict[str, float]:
+    finite_references: dict[str, float] = {}
+    for key, value in references.items():
+        if value is None:
+            continue
+        value_float = float(value)
+        if np.isfinite(value_float):
+            finite_references[str(key)] = value_float
+    return finite_references
 
 
 def _cache_path(path: str | Path | None) -> Path:
@@ -261,13 +265,20 @@ def _project_path(path: str | Path) -> Path:
 
 def _finite_values(
     values: np.ndarray,
-    references: Mapping[str, float],
+    references: Mapping[str, float | None],
 ) -> np.ndarray:
     finite_values = np.asarray(values, dtype=float)
     return np.concatenate(
         [
             finite_values[np.isfinite(finite_values)],
-            np.asarray([v for v in references.values() if np.isfinite(v)], dtype=float),
+            np.asarray(
+                [
+                    float(v)
+                    for v in references.values()
+                    if v is not None and np.isfinite(float(v))
+                ],
+                dtype=float,
+            ),
         ]
     )
 

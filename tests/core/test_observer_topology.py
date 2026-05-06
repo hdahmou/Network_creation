@@ -70,6 +70,12 @@ class TopologyObserverTest(unittest.TestCase):
             np.array([0.0, 1.0, 1.0], dtype=np.float32),
         )
 
+    def test_density_reference_values_include_empty_and_star(self) -> None:
+        self.assertEqual(
+            DensityObserver.reference_values({"n_agents": 5}, {"choi2020": 0.4}),
+            {"choi2020": 0.4, "empty": 0.0, "star": 0.4},
+        )
+
     def test_indegree_observer_uses_directed_adjacency_matrix(self) -> None:
         indegree_observer = IndegreeObserver(
             n_agents=0,
@@ -104,6 +110,38 @@ class TopologyObserverTest(unittest.TestCase):
         np.testing.assert_allclose(
             indegree_observer.values,
             np.array([2.0 / 3.0], dtype=np.float32),
+        )
+
+    def test_indegree_reference_values_include_empty_and_star(self) -> None:
+        references = IndegreeObserver.reference_values(
+            {"n_agents": 4},
+            {"choi2020": 0.5},
+        )
+
+        self.assertEqual(
+            references,
+            {"choi2020": 0.5, "empty": 0.0, "star": 0.75},
+        )
+
+    def test_triad_reference_values_include_empty_and_star_by_dimension(self) -> None:
+        self.assertEqual(
+            TriadCensusObserver.reference_values(
+                {"n_agents": 5, "dimension_name": "003"},
+                {"choi2020": 0.6},
+            ),
+            {"choi2020": 0.6, "empty": 1.0, "star": 0.4},
+        )
+        self.assertEqual(
+            TriadCensusObserver.reference_values(
+                {"n_agents": 5, "dimension_name": "021U"}
+            ),
+            {"empty": 0.0, "star": 0.6},
+        )
+        self.assertEqual(
+            TriadCensusObserver.reference_values(
+                {"n_agents": 5, "dimension_name": "021D"}
+            ),
+            {"empty": 0.0, "star": 0.0},
         )
 
     def test_triad_census_observer_returns_zero_when_no_triads_exist(self) -> None:
@@ -298,6 +336,12 @@ class TopologyObserverTest(unittest.TestCase):
             np.array([1.0], dtype=np.float32),
         )
 
+    def test_distance_reference_values_include_empty_and_star(self) -> None:
+        self.assertEqual(
+            DistanceObserver.reference_values({"n_agents": 5}, {"choi2020": 1.5}),
+            {"choi2020": 1.5, "empty": 0.0, "star": 1.6},
+        )
+
     def test_global_closeness_centrality_observer_uses_full_graph_harmonic_scores(
         self,
     ) -> None:
@@ -337,6 +381,15 @@ class TopologyObserverTest(unittest.TestCase):
             np.array([2.0 / 3.0], dtype=np.float32),
         )
 
+    def test_global_closeness_reference_values_include_empty_and_star(self) -> None:
+        self.assertEqual(
+            GlobalClosenessCentralityObserver.reference_values(
+                {"n_agents": 5},
+                {"choi2020": 0.7},
+            ),
+            {"choi2020": 0.7, "empty": 0.0, "star": 1.0},
+        )
+
     def test_central_point_of_dominance_observer_matches_normalized_betweenness(
         self,
     ) -> None:
@@ -374,6 +427,15 @@ class TopologyObserverTest(unittest.TestCase):
         np.testing.assert_allclose(
             dominance_observer.values,
             np.array([4.0 / 9.0], dtype=np.float32),
+        )
+
+    def test_central_point_reference_values_include_empty_and_star(self) -> None:
+        self.assertEqual(
+            CentralPointOfDominanceObserver.reference_values(
+                {"n_agents": 5},
+                {"choi2020": 0.8},
+            ),
+            {"choi2020": 0.8, "empty": 0.0, "star": 1.0},
         )
 
     def test_distance_observer_aggregates_mean_and_runs(self) -> None:

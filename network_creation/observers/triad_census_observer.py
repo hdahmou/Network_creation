@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from math import comb
 
 import igraph as ig
@@ -60,3 +61,25 @@ class TriadCensusObserver(EpisodeSeriesTensorStatisticObserver):
 
     def compute_step_value(self, event: StepEvent) -> NDArray[np.float32]:
         return _compute_triad_proportions(event.post_state.graph)
+
+    @classmethod
+    def reference_values(
+        cls,
+        context: Mapping[str, object],
+        references: Mapping[str, float | None] | None = None,
+    ) -> dict[str, float | None]:
+        del cls
+        result = dict(references or {})
+        try:
+            n_agents = int(context["n_agents"])
+        except (KeyError, TypeError, ValueError):
+            return result
+
+        dimension_name = context.get("dimension_name")
+        if dimension_name == "003":
+            result.update({"empty": 1.0, "star": float((n_agents - 3) / n_agents)})
+        elif dimension_name == "021U":
+            result.update({"empty": 0.0, "star": float(3.0 / n_agents)})
+        elif dimension_name in TRIAD_TYPE_NAMES:
+            result.update({"empty": 0.0, "star": 0.0})
+        return result

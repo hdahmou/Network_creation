@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 import igraph as ig
 import numpy as np
 
@@ -33,3 +35,19 @@ class IndegreeObserver(EpisodeSeriesStatisticObserver):
 
     def compute_step_value(self, event: StepEvent) -> float:
         return _compute_average_indegree(event.post_state.graph)
+
+    @classmethod
+    def reference_values(
+        cls,
+        context: Mapping[str, object],
+        references: Mapping[str, float | None] | None = None,
+    ) -> dict[str, float | None]:
+        del cls
+        result = dict(references or {})
+        result["empty"] = 0.0
+        try:
+            n_agents = int(context["n_agents"])
+        except (KeyError, TypeError, ValueError):
+            return result
+        result["star"] = float((n_agents - 1) / n_agents)
+        return result

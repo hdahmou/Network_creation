@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 import igraph as ig
 import numpy as np
 
@@ -36,3 +38,18 @@ class DistanceObserver(EpisodeSeriesStatisticObserver):
 
     def compute_step_value(self, event: StepEvent) -> float:
         return _compute_average_distance(event.post_state.graph)
+
+    @classmethod
+    def reference_values(
+        cls,
+        context: Mapping[str, object],
+        references: Mapping[str, float | None] | None = None,
+    ) -> dict[str, float | None]:
+        del cls
+        result = dict(references or {})
+        try:
+            n_agents = int(context["n_agents"])
+        except (KeyError, TypeError, ValueError):
+            return result
+        result.update({"empty": 0.0, "star": float(2.0 * (n_agents - 1) / n_agents)})
+        return result

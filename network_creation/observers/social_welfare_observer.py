@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
+import numpy as np
 
 from network_creation.core.observability import (
     EpisodeStartEvent,
@@ -61,3 +64,39 @@ class CenteredMeanWelfareObserver(EpisodeSeriesStatisticObserver):
             benefit_to_cost_ratio=self.benefit_to_cost_ratio,
             distance_discount=self.distance_discount,
         ) / (self.max_normalized_welfare + 1e-8)
+
+    @classmethod
+    def reference_values(
+        cls,
+        context: Mapping[str, object],
+        references: Mapping[str, float | None] | None = None,
+    ) -> dict[str, float | None]:
+        del cls
+        result = dict(references or {})
+        try:
+            n_agents = int(context["n_agents"])
+            benefit_to_cost_ratio = float(context["benefit_to_cost_ratio"])
+            distance_discount = float(context["distance_discount"])
+        except (KeyError, TypeError, ValueError):
+            return result
+
+        def welfare(topology_class: str) -> float:
+            return normalized_welfare_per_topology(
+                topology_class=topology_class,  # type: ignore[arg-type]
+                n=n_agents,
+                benefit_to_cost_ratio=benefit_to_cost_ratio,
+                distance_discount=distance_discount,
+            )
+
+        reference_max = welfare("max")
+        if not np.isfinite(reference_max) or reference_max == 0.0:
+            return result
+
+        result.update(
+            {
+                "empty": float(welfare("empty") / reference_max),
+                "random": float(welfare("random") / reference_max),
+                "star": float(welfare("star") / reference_max),
+            }
+        )
+        return result

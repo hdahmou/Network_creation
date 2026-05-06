@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
 from numbers import Integral
 from typing import Any
 
@@ -125,6 +126,15 @@ class EpisodeStatisticObserver(SimulationObserver, ABC):
     def fixed_output_dtype(cls) -> np.dtype[Any]:
         del cls
         return np.dtype(np.float32)
+
+    @classmethod
+    def reference_values(
+        cls,
+        context: Mapping[str, object],
+        references: Mapping[str, float | None] | None = None,
+    ) -> dict[str, float | None]:
+        del cls, context
+        return dict(references or {})
 
     @abstractmethod
     def _get_episode_values(self, event: EpisodeEndEvent) -> NDArray[np.float32]:

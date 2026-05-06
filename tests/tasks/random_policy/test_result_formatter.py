@@ -16,6 +16,7 @@ from tests.tasks.policy_result_support import build_random_config, write_result_
 class RandomPolicyResultFormatterTest(unittest.TestCase):
     def test_from_zarr_reconstructs_timeseries_outputs(self) -> None:
         config = build_random_config()
+        config["simulator"]["max_steps"] = 2
         outputs_by_index = [
             (
                 0,
@@ -44,6 +45,7 @@ class RandomPolicyResultFormatterTest(unittest.TestCase):
         np.testing.assert_array_equal(ds.coords["n_agents"].values, np.asarray([4]))
         np.testing.assert_allclose(ds.coords["random_proportion"].values, [1.0])
         np.testing.assert_array_equal(ds.coords["parameter_row"].values, np.asarray([0]))
+        np.testing.assert_array_equal(ds.coords["step"].values, np.asarray([0, 1, 2]))
         np.testing.assert_array_equal(ds.coords["input_index"].values, np.asarray([[[0]]], dtype=np.int64))
         self.assertFalse(ds.attrs["has_failures"])
         self.assertEqual(
@@ -62,6 +64,34 @@ class RandomPolicyResultFormatterTest(unittest.TestCase):
             ds["x"].isel(step=-1).values,
             np.asarray([[[[2.0, 12.0]]]], dtype=np.float32),
         )
+
+    def test_from_zarr_uses_observer_sampling_for_step_coordinates(self) -> None:
+        config = build_random_config()
+        config["simulator"]["max_steps"] = 10
+        config["observers"]["defaults"]["sampling"]["every"] = 5
+        outputs_by_index = [
+            (
+                0,
+                {
+                    "density.mean": np.asarray([0.0, 5.0, 10.0], dtype=np.float32),
+                    "centered_mean_welfare.mean": np.asarray(
+                        [20.0, 25.0, 30.0], dtype=np.float32
+                    ),
+                },
+            )
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store_path = write_result_store(
+                Path(tmpdir),
+                config=config,
+                outputs_by_index=outputs_by_index,
+                total_inputs=1,
+            )
+
+            ds = load_policy_results(store_path)
+
+        np.testing.assert_array_equal(ds.coords["step"].values, np.asarray([0, 5, 10]))
 
     def test_from_zarr_supports_scalar_outputs_without_timeseries(self) -> None:
         config = build_random_config()

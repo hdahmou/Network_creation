@@ -58,10 +58,21 @@ def stack_result_tensors(
     raise ValueError("results must contain scalar or time-series outputs")
 
 
-def build_policy_outputs(outputs: dict[str, NDArray[np.generic]]) -> PolicyOutput:
+def build_policy_outputs(
+    outputs: dict[str, NDArray[np.generic]],
+    *,
+    step_labels: NDArray[np.int64] | None = None,
+) -> PolicyOutput:
     timeseries, observable_names = stack_result_tensors(outputs)
+    labels = (
+        np.arange(timeseries.shape[1], dtype=np.int64)
+        if step_labels is None
+        else np.asarray(step_labels, dtype=np.int64)
+    )
+    if labels.shape != (timeseries.shape[1],):
+        raise ValueError("step labels must match the output step axis")
     return PolicyOutput(
         timeseries=timeseries,
         observable_names=observable_names,
-        step_labels=np.arange(timeseries.shape[1], dtype=np.int64),
+        step_labels=labels,
     )

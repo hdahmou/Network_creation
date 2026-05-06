@@ -126,6 +126,30 @@ class EnvironmentTest(unittest.TestCase):
 
 
 class AgentPolicyIntegrationTest(unittest.TestCase):
+    @staticmethod
+    def _empty_observation(n_agents: int = 3) -> Observation:
+        graph = create_empty_graph(n_agents)
+        return Observation(
+            node_idx=0,
+            graph=graph,
+            outside_node_idxs=np.array([], dtype=np.int_),
+            local_global=Observation.create_local_global_map(
+                graph,
+                np.array([], dtype=np.int_),
+            ),
+        )
+
+    @staticmethod
+    def _random_policy_action_space() -> ActionSpace:
+        return ActionSpace(
+            actions={
+                ActionType.ADD: [Action(ActionType.ADD, source=0, target=1)],
+                ActionType.BRIDGE: [Action(ActionType.BRIDGE, source=0)],
+                ActionType.DELETE: [Action(ActionType.DELETE, source=0, target=2)],
+                ActionType.PASS: [Action(ActionType.PASS, source=0)],
+            }
+        )
+
     def test_agent_rejects_non_integer_visibility_distance(self) -> None:
         with self.assertRaisesRegex(ValueError, "positive integer"):
             Agent(
@@ -275,6 +299,125 @@ class AgentPolicyIntegrationTest(unittest.TestCase):
 
         self.assertNotEqual(local_actions, global_actions)
         self.assertTrue(all(action in local_actions for action in samples))
+
+    def test_random_policy_without_p_act_preserves_legacy_uniform_action_sampling(
+        self,
+    ) -> None:
+        action_space = self._random_policy_action_space()
+        policy = RandomPolicy(seed=7)
+
+        samples = [
+            policy.get_decision(
+                self._empty_observation(),
+                action_space,
+            ).actions[0]
+            for _ in range(8)
+        ]
+
+        self.assertIsNone(policy.p_act)
+        self.assertEqual(
+            samples,
+            [
+                Action(ActionType.BRIDGE, source=0),
+                Action(ActionType.PASS, source=0),
+                Action(ActionType.PASS, source=0),
+                Action(ActionType.BRIDGE, source=0),
+                Action(ActionType.PASS, source=0),
+                Action(ActionType.BRIDGE, source=0),
+                Action(ActionType.BRIDGE, source=0),
+                Action(ActionType.ADD, source=0, target=1),
+            ],
+        )
+
+    def test_random_policy_rejects_invalid_p_act(self) -> None:
+        for invalid_p_act in (-0.1, 1.1, True):
+            with self.subTest(p_act=invalid_p_act):
+                with self.assertRaisesRegex(ValueError, "p_act"):
+                    RandomPolicy(seed=7, p_act=invalid_p_act)
+
+    def test_random_policy_p_act_zero_always_passes(self) -> None:
+        action_space = self._random_policy_action_space()
+        policy = RandomPolicy(seed=7, p_act=0.0)
+
+        samples = [
+            policy.get_decision(
+                self._empty_observation(),
+                action_space,
+            ).actions[0]
+            for _ in range(8)
+        ]
+
+        self.assertEqual(policy.p_act, 0.0)
+        self.assertEqual(samples, [Action(ActionType.PASS, source=0)] * 8)
+
+    def test_random_policy_p_act_one_samples_non_pass_actions(self) -> None:
+        action_space = self._random_policy_action_space()
+        policy = RandomPolicy(seed=7, p_act=1.0)
+
+        samples = [
+            policy.get_decision(
+                self._empty_observation(),
+                action_space,
+            ).actions[0]
+            for _ in range(20)
+        ]
+
+        self.assertTrue(all(action.type is not ActionType.PASS for action in samples))
+
+    def test_random_policy_p_act_one_can_sample_bridge_action(self) -> None:
+        bridge_action = Action(ActionType.BRIDGE, source=0)
+        action_space = ActionSpace(
+            actions={
+                ActionType.ADD: [],
+                ActionType.BRIDGE: [bridge_action],
+                ActionType.DELETE: [],
+                ActionType.PASS: [Action(ActionType.PASS, source=0)],
+            }
+        )
+        policy = RandomPolicy(seed=7, p_act=1.0)
+
+        decision = policy.get_decision(
+            self._empty_observation(),
+            action_space,
+        )
+
+        self.assertEqual(decision.actions, (bridge_action,))
+
+    def test_random_policy_p_act_falls_back_to_pass_when_no_non_pass_actions(
+        self,
+    ) -> None:
+        pass_action = Action(ActionType.PASS, source=0)
+        action_space = ActionSpace(
+            actions={
+                ActionType.ADD: [],
+                ActionType.BRIDGE: [],
+                ActionType.DELETE: [],
+                ActionType.PASS: [pass_action],
+            }
+        )
+        policy = RandomPolicy(seed=7, p_act=1.0)
+
+        decision = policy.get_decision(
+            self._empty_observation(n_agents=1),
+            action_space,
+        )
+
+        self.assertEqual(decision.actions, (pass_action,))
+
+    def test_random_policy_with_p_act_reset_is_deterministic(self) -> None:
+        action_space = self._random_policy_action_space()
+        policy = RandomPolicy(seed=7, p_act=0.5)
+        observation = self._empty_observation()
+
+        first_run = [
+            policy.get_decision(observation, action_space).actions[0] for _ in range(8)
+        ]
+        policy.reset(seed=7)
+        second_run = [
+            policy.get_decision(observation, action_space).actions[0] for _ in range(8)
+        ]
+
+        self.assertEqual(first_run, second_run)
 
 
 if __name__ == "__main__":

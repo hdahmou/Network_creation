@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import tempfile
 import unittest
+from pathlib import Path
 
 import matplotlib
 
@@ -10,8 +12,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.collections import PathCollection, QuadMesh
-from matplotlib.colors import TwoSlopeNorm
-from matplotlib.ticker import NullLocator
+from matplotlib.colors import Normalize, TwoSlopeNorm
+from matplotlib.ticker import FormatStrFormatter, NullLocator
 
 from network_creation.core.agent import Agent
 from network_creation.core.environment import Environment
@@ -23,6 +25,12 @@ from network_creation.core.model import (
 )
 from network_creation.core.observability import ObservationSampling
 from network_creation.core.simulator import Simulator
+from network_creation.data.choi_2020_references import (
+    ReferenceRequest,
+    reference_key,
+    save_reference_cache,
+    sigmoid_reference_key,
+)
 from network_creation.observers.density_observer import DensityObserver
 from network_creation.observers.statistics.episode_tensor_series import (
     EpisodeSeriesTensorStatisticObserver,
@@ -30,6 +38,12 @@ from network_creation.observers.statistics.episode_tensor_series import (
 from network_creation.observers.triad_census_observer import TriadCensusObserver
 from network_creation.plotting.episode_series import plot_episode_series_observer
 from network_creation.plotting.plot_pair import plot_pair
+from network_creation.plotting.reference_values import (
+    annotate_colorbar_reference_values,
+    get_observer_reference_style,
+    get_sigmoid_fit_reference_values,
+    positive_reference_norm,
+)
 from network_creation.policies.random import RandomPolicy
 from tests.core.simulation_support import ConstantPolicy
 
@@ -449,18 +463,137 @@ class PlotPairTest(unittest.TestCase):
         )
         self.y = np.array([10.0, 20.0, 30.0, 40.0], dtype=float)
 
+    def pair_layout(self, X, *, atol=0.0):
+        n = int(np.count_nonzero(np.var(X, axis=0) > atol) - 1)
+        figure, axes = plt.subplots(
+            n,
+            n,
+            figsize=(2.4 * n, 2.4 * n),
+            layout="constrained",
+            squeeze=False,
+        )
+        return figure, axes
+
+    def plot_pair_in_layout(self, X, y=None, **kwargs):
+        figure, axes = self.pair_layout(X, atol=kwargs.get("atol", 0.0))
+        returned_figure, returned_axes = plot_pair(
+            X,
+            self.y if y is None else y,
+            fig=figure,
+            axes=axes,
+            **kwargs,
+        )
+        self.assertIs(returned_figure, figure)
+        return figure, returned_axes
+
+    def fixed_reference_layout(self):
+        figure = plt.figure(figsize=(12.9, 10.0), layout="constrained")
+        grid = figure.add_gridspec(
+            2,
+            4,
+            width_ratios=[5.0, 5.0, 0.3, 2.6],
+        )
+        axes = np.empty((2, 2), dtype=object)
+        for i in range(2):
+            for j in range(2):
+                axes[i, j] = figure.add_subplot(grid[i, j])
+        colorbar_axis = figure.add_subplot(grid[:, 2])
+        label_axis = figure.add_subplot(grid[:, 3], sharey=colorbar_axis)
+        label_axis.axis("off")
+        return figure, axes, colorbar_axis, label_axis
+
+    def add_external_colorbar(
+        self,
+        figure,
+        colorbar_axis,
+        *,
+        cmap="Greys",
+        norm=None,
+        label="y",
+    ):
+        norm = norm or Normalize(vmin=float(self.y.min()), vmax=float(self.y.max()))
+        colorbar = figure.colorbar(
+            plt.cm.ScalarMappable(cmap=cmap, norm=norm),
+            cax=colorbar_axis,
+        )
+        colorbar.set_label(label)
+        colorbar.ax.yaxis.set_major_formatter(FormatStrFormatter("%.2f"))
+        return colorbar
+
     def test_plot_pair_uses_data_limits_when_no_overrides_are_provided(self) -> None:
-        figure, axes = plot_pair(self.X, self.y, method="points")
+        figure, axes = self.plot_pair_in_layout(self.X, method="points")
 
         self.assertEqual(axes[0, 0].collections[0].get_clim(), (10.0, 40.0))
-        np.testing.assert_allclose(figure.axes[-1].get_ybound(), (10.0, 40.0))
+        self.assertEqual(set(figure.axes), set(axes.ravel()))
+        plt.close(figure)
+
+    def test_plot_pair_does_not_add_default_colorbar_for_single_pair_axis(self) -> None:
+        figure, axes = self.plot_pair_in_layout(self.X[:, :2], method="points")
+
+        self.assertEqual(axes.shape, (1, 1))
+        self.assertEqual(figure.axes, [axes[0, 0]])
+        plt.close(figure)
+
+    def test_plot_pair_can_draw_into_subfigure_panels(self) -> None:
+        parent_figure = plt.figure(figsize=(9, 3), layout="constrained")
+        panels = parent_figure.subfigures(1, 3)
+        figure_numbers = set(plt.get_fignums())
+
+        try:
+            for panel in panels:
+                axes = panel.subplots(2, 2, squeeze=False)
+                returned_panel, axes = plot_pair(
+                    self.X,
+                    self.y,
+                    method="points",
+                    fig=panel,
+                    axes=axes,
+                )
+
+                self.assertIs(returned_panel, panel)
+                self.assertEqual(axes.shape, (2, 2))
+                self.assertGreater(len(axes[0, 0].collections), 0)
+
+                grid_axes = list(axes.ravel())
+                extra_axes = [
+                    axis
+                    for axis in panel.axes
+                    if all(axis is not grid_axis for grid_axis in grid_axes)
+                ]
+                self.assertEqual(extra_axes, [])
+
+            self.assertEqual(set(plt.get_fignums()), figure_numbers)
+        finally:
+            plt.close(parent_figure)
+
+    def test_plot_pair_accepts_explicit_axes_and_leaves_colorbar_external(self) -> None:
+        figure, axes, colorbar_axis, label_axis = self.fixed_reference_layout()
+
+        returned_figure, returned_axes = plot_pair(
+            self.X,
+            self.y,
+            method="points",
+            fig=figure,
+            axes=axes,
+        )
+
+        self.assertIs(returned_figure, figure)
+        self.assertIs(returned_axes[0, 0], axes[0, 0])
+        self.assertGreater(len(axes[0, 0].collections), 0)
+        self.assertEqual(len(colorbar_axis.collections), 0)
+
+        self.add_external_colorbar(figure, colorbar_axis)
+        np.testing.assert_allclose(colorbar_axis.get_ybound(), (10.0, 40.0))
+        self.assertEqual(
+            set(figure.axes),
+            set(axes.ravel()) | {colorbar_axis, label_axis},
+        )
         plt.close(figure)
 
     def test_plot_pair_uses_caller_provided_norm_for_points(self) -> None:
         custom_norm = TwoSlopeNorm(vmin=0.0, vcenter=25.0, vmax=50.0)
-        figure, axes = plot_pair(
+        figure, axes = self.plot_pair_in_layout(
             self.X,
-            self.y,
             method="points",
             cmap="RdBu_r",
             norm=custom_norm,
@@ -469,14 +602,203 @@ class PlotPairTest(unittest.TestCase):
         collection = axes[0, 0].collections[0]
         self.assertEqual(collection.get_clim(), (0.0, 50.0))
         self.assertIs(collection.norm, custom_norm)
-        np.testing.assert_allclose(figure.axes[-1].get_ybound(), (0.0, 50.0))
+        self.assertEqual(set(figure.axes), set(axes.ravel()))
         plt.close(figure)
+
+    def test_colorbar_reference_annotation_is_external_to_plot_pair(self) -> None:
+        figure, axes, colorbar_axis, label_axis = self.fixed_reference_layout()
+        plot_pair(
+            self.X,
+            self.y,
+            method="points",
+            fig=figure,
+            axes=axes,
+        )
+        self.add_external_colorbar(figure, colorbar_axis)
+
+        annotate_colorbar_reference_values(
+            colorbar_axis,
+            label_axis,
+            {"Low": 12.0, "Experimental": 38.0},
+        )
+
+        self.assertEqual(
+            [text.get_text() for text in colorbar_axis.texts],
+            ["12.00", "Low", "38.00", "Experimental"],
+        )
+        self.assertEqual(len(label_axis.texts), 0)
+        self.assertEqual(len(colorbar_axis.lines), 0)
+        self.assertEqual(len(label_axis.lines), 0)
+        np.testing.assert_allclose(label_axis.get_ylim(), colorbar_axis.get_ylim())
+
+        figure.canvas.draw()
+        renderer = figure.canvas.get_renderer()
+        figure_bounds = figure.bbox
+        for text in colorbar_axis.texts:
+            self.assertLessEqual(text.get_window_extent(renderer).x1, figure_bounds.x1)
+        plt.close(figure)
+
+    def test_reference_annotation_does_not_change_pair_plot_axes_positions(self) -> None:
+        def rendered_positions(references):
+            figure, axes, colorbar_axis, label_axis = self.fixed_reference_layout()
+            plot_pair(
+                self.X,
+                self.y,
+                method="points",
+                fig=figure,
+                axes=axes,
+            )
+            self.add_external_colorbar(figure, colorbar_axis)
+            annotate_colorbar_reference_values(
+                colorbar_axis,
+                label_axis,
+                references,
+            )
+            figure.canvas.draw()
+            return figure, np.array(
+                [axis.get_position().bounds for axis in axes.ravel()],
+                dtype=float,
+            )
+
+        empty_figure, empty_positions = rendered_positions({})
+        reference_figure, reference_positions = rendered_positions(
+            {"Low": 12.0, "Middle": 25.0, "High": 38.0}
+        )
+
+        try:
+            np.testing.assert_allclose(empty_positions, reference_positions, atol=1e-6)
+        finally:
+            plt.close(empty_figure)
+            plt.close(reference_figure)
+
+    def test_reference_style_returns_welfare_references_and_bounded_norm(self) -> None:
+        theta = np.array(
+            [
+                [10.0, 0.5, 0.9],
+                [10.0, 0.5, 0.9],
+            ],
+            dtype=float,
+        )
+
+        references, _ = get_observer_reference_style(
+            "centered_mean_welfare.mean",
+            np.array([0.1, 0.2], dtype=float),
+            n_agents=10,
+            theta_labels=("n_agents", "benefit_to_cost_ratio", "distance_discount"),
+            theta_values=theta,
+            cache_path=Path("/tmp/missing-choi-reference-cache.pkl"),
+        )
+
+        self.assertEqual(tuple(references), ("Empty", "Random", "Star"))
+        self.assertEqual(references["Empty"], 0.0)
+        self.assertTrue(np.isfinite(references["Random"]))
+        self.assertTrue(np.isfinite(references["Star"]))
+
+        _, norm = get_observer_reference_style(
+            "central_point_of_dominance.mean",
+            np.array([0.2, 0.8], dtype=float),
+            n_agents=10,
+            theta_labels=(),
+            theta_values=np.empty((1, 0), dtype=float),
+            cache_path=Path("/tmp/missing-choi-reference-cache.pkl"),
+        )
+
+        self.assertIsNotNone(norm)
+        self.assertEqual((norm.vmin, norm.vmax), (0.0, 1.0))
+
+    def test_reference_style_looks_up_welfare_cache_with_choi_parameters(self) -> None:
+        request = ReferenceRequest("centered_mean_welfare", 10, 0.5, 0.9)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache_path = Path(tmpdir) / "choi-reference.pkl"
+            save_reference_cache(
+                {"values": {reference_key(request): 0.42}, "missing_group_sizes": []},
+                cache_path,
+            )
+
+            references, _ = get_observer_reference_style(
+                "centered_mean_welfare.mean",
+                np.array([0.1, 0.2], dtype=float),
+                n_agents=10,
+                theta_labels=(
+                    "n_agents",
+                    "benefit_to_cost_ratio",
+                    "distance_discount",
+                ),
+                theta_values=np.array([[10.0, 0.25, 0.9]], dtype=float),
+                cache_path=cache_path,
+            )
+
+        self.assertEqual(references["Experimental"], 0.42)
+
+    def test_positive_reference_norm_includes_reference_values(self) -> None:
+        norm = positive_reference_norm(
+            np.array([0.1, 0.2], dtype=float),
+            {"Experimental fit": 0.8},
+        )
+
+        self.assertEqual((norm.vmin, norm.vmax), (0.0, 0.8))
+
+    def test_sigmoid_reference_lookup_returns_cached_fit_parameters_without_rescaling(
+        self,
+    ) -> None:
+        request = ReferenceRequest("central_point_of_dominance", 10)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache_path = Path(tmpdir) / "choi-reference.pkl"
+            save_reference_cache(
+                {
+                    "values": {},
+                    "sigmoid_values": {
+                        sigmoid_reference_key(request, "A"): 0.75,
+                        sigmoid_reference_key(request, "k"): 0.2,
+                        sigmoid_reference_key(request, "t0"): 20.0,
+                    },
+                    "missing_group_sizes": [],
+                },
+                cache_path,
+            )
+
+            references = get_sigmoid_fit_reference_values(
+                "central_point_of_dominance.mean",
+                n_agents=10,
+                cache_path=cache_path,
+            )
+
+        self.assertEqual(references["A"]["Experimental fit"], 0.75)
+        self.assertEqual(references["k"]["Experimental fit"], 0.2)
+        self.assertEqual(references["t0"]["Experimental fit"], 20.0)
+
+    def test_sigmoid_reference_lookup_ignores_non_sigmoid_observers(self) -> None:
+        request = ReferenceRequest("density", 10)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache_path = Path(tmpdir) / "choi-reference.pkl"
+            save_reference_cache(
+                {
+                    "values": {},
+                    "sigmoid_values": {
+                        sigmoid_reference_key(request, "A"): 0.75,
+                        sigmoid_reference_key(request, "k"): 0.2,
+                        sigmoid_reference_key(request, "t0"): 20.0,
+                    },
+                    "missing_group_sizes": [],
+                },
+                cache_path,
+            )
+
+            references = get_sigmoid_fit_reference_values(
+                "density.mean",
+                n_agents=10,
+                cache_path=cache_path,
+            )
+
+        self.assertEqual(references, {})
 
     def test_plot_pair_uses_caller_provided_norm_for_gaussian_mode(self) -> None:
         custom_norm = TwoSlopeNorm(vmin=0.0, vcenter=25.0, vmax=50.0)
-        figure, axes = plot_pair(
+        figure, axes = self.plot_pair_in_layout(
             self.X,
-            self.y,
             method="gaussian",
             cmap="RdBu_r",
             norm=custom_norm,
@@ -485,7 +807,7 @@ class PlotPairTest(unittest.TestCase):
         image = axes[0, 0].images[0]
         self.assertEqual(image.get_clim(), (0.0, 50.0))
         self.assertIs(image.norm, custom_norm)
-        np.testing.assert_allclose(figure.axes[-1].get_ybound(), (0.0, 50.0))
+        self.assertEqual(set(figure.axes), set(axes.ravel()))
         plt.close(figure)
 
     def test_plot_pair_preserves_points_path_for_ordered_discrete_axis(self) -> None:
@@ -499,9 +821,8 @@ class PlotPairTest(unittest.TestCase):
             dtype=float,
         )
         custom_norm = TwoSlopeNorm(vmin=0.0, vcenter=25.0, vmax=50.0)
-        figure, axes = plot_pair(
+        figure, axes = self.plot_pair_in_layout(
             X,
-            self.y,
             labels=["stage", "weight", "bias"],
             ordered_discrete_keys=["stage"],
             method="points",
@@ -534,9 +855,8 @@ class PlotPairTest(unittest.TestCase):
             dtype=float,
         )
         custom_norm = TwoSlopeNorm(vmin=0.0, vcenter=25.0, vmax=50.0)
-        figure, axes = plot_pair(
+        figure, axes = self.plot_pair_in_layout(
             X,
-            self.y,
             labels=["stage", "weight", "bias"],
             ordered_discrete_keys=["stage"],
             method="gaussian",
@@ -568,9 +888,8 @@ class PlotPairTest(unittest.TestCase):
             dtype=float,
         )
         custom_norm = TwoSlopeNorm(vmin=0.0, vcenter=25.0, vmax=50.0)
-        figure, axes = plot_pair(
+        figure, axes = self.plot_pair_in_layout(
             X,
-            self.y,
             labels=["stage", "rank", "bias"],
             ordered_discrete_keys=["stage", "rank"],
             method="gaussian",
@@ -596,16 +915,22 @@ class PlotPairTest(unittest.TestCase):
         plt.close(figure)
 
     def test_plot_pair_rejects_unknown_ordered_discrete_keys(self) -> None:
-        with self.assertRaisesRegex(
-            ValueError,
-            "unknown labels: missing",
-        ):
-            plot_pair(
-                self.X,
-                self.y,
-                labels=["a", "b", "c"],
-                ordered_discrete_keys=["missing"],
-            )
+        figure, axes = self.pair_layout(self.X)
+        try:
+            with self.assertRaisesRegex(
+                ValueError,
+                "unknown labels: missing",
+            ):
+                plot_pair(
+                    self.X,
+                    self.y,
+                    fig=figure,
+                    axes=axes,
+                    labels=["a", "b", "c"],
+                    ordered_discrete_keys=["missing"],
+                )
+        finally:
+            plt.close(figure)
 
 
 if __name__ == "__main__":

@@ -104,7 +104,9 @@ namespace Runtime {
 }
 
 namespace Policies {
-    class RandomPolicy
+    class RandomPolicy {
+        +p_act: float | None
+    }
 
     class ReplayPolicy {
         +actions_by_step: dict[int, tuple[Action, ...]]

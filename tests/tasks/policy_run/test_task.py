@@ -77,6 +77,26 @@ class PolicyRunTest(unittest.TestCase):
             np.asarray([[5.0, 3.0, 0.0], [10.0, 5.0, 0.0]], dtype=np.float32),
         )
 
+    def test_prepare_namespaces_random_policy_p_act_in_multi_policy_runs(self) -> None:
+        config = self._base_config()
+        config["population"]["policies"][1]["parameters"]["p_act"] = continuous(
+            0.0, 1.0
+        )
+
+        task = prepare_policy_run(config)
+
+        self.assertEqual(task.sweep.configuration_values.shape, (2, 3, 2, 9))
+        self.assertEqual(
+            task.parameter_samples.parameter_names,
+            (
+                "benefit_to_cost_ratio",
+                "distance_discount",
+                "visibility_distance",
+                "myopic.bridge_probability",
+                "random.p_act",
+            ),
+        )
+
     def test_build_agent_assigns_policies_by_id_order(self) -> None:
         config = self._base_config()
         config["sampling"]["log2_budget"] = 0

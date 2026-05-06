@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -9,6 +10,8 @@ from typing import Any
 import numpy as np
 from numpy.typing import NDArray
 import xarray as xr
+
+from network_creation.core.observability import ObservationSampling
 
 from ..execution.zarr_store import load_zarr_results
 from .outputs import PolicyOutput, build_policy_outputs
@@ -35,7 +38,11 @@ def load_policy_results(zarr_path: str | Path) -> xr.Dataset:
     grid_shape = _parameter_grid_shape(raw_parameters)
     n_agents_values = np.asarray(metadata["n_agents"], dtype=np.int64)
     parameter_rows = np.arange(grid_shape[2], dtype=np.int64)
-    output = build_policy_outputs(_raw_outputs(raw, output_schema))
+    raw_outputs = _raw_outputs(raw, output_schema)
+    output = build_policy_outputs(
+        raw_outputs,
+        step_labels=_shared_step_labels(policy_config, raw_outputs),
+    )
 
     proportion_name = _policy_proportion_name(policy_config, parameter_names)
     keep_parameter_names, keep_parameter_indices = _theta_parameter_columns(
@@ -128,6 +135,85 @@ def _raw_outputs(
         str(field["name"]): np.asarray(raw[str(field["name"])].values)
         for field in output_schema
     }
+
+
+def _shared_step_labels(
+    policy_config: Any,
+    outputs: Mapping[str, NDArray[np.generic]],
+) -> NDArray[np.int64] | None:
+    series_names = [
+        name for name, values in outputs.items() if np.asarray(values).ndim == 2
+    ]
+    if not series_names or not isinstance(policy_config, Mapping):
+        return None
+
+    labels_by_output = _configured_output_step_labels(policy_config)
+    shared: NDArray[np.int64] | None = None
+    for name in series_names:
+        labels = labels_by_output.get(name)
+        if labels is None:
+            return None
+        if labels.shape != (np.asarray(outputs[name]).shape[1],):
+            raise ValueError(
+                f"configured step labels for {name!r} do not match output shape"
+            )
+        if shared is None:
+            shared = labels
+        elif not np.array_equal(shared, labels):
+            raise ValueError("time-series outputs must share the same step labels")
+    return shared
+
+
+def _configured_output_step_labels(
+    policy_config: Mapping[str, Any],
+) -> dict[str, NDArray[np.int64]]:
+    simulator = policy_config.get("simulator", {})
+    raw_observers = policy_config.get("observers", {})
+    if not isinstance(simulator, Mapping) or not isinstance(raw_observers, Mapping):
+        return {}
+    max_steps = int(simulator["max_steps"])
+    defaults = raw_observers.get("defaults", {})
+    if not isinstance(defaults, Mapping):
+        return {}
+    default_sampling = defaults.get("sampling")
+    outputs = raw_observers.get("outputs", ())
+    if not isinstance(outputs, Sequence):
+        return {}
+
+    labels: dict[str, NDArray[np.int64]] = {}
+    for observer in outputs:
+        if not isinstance(observer, Mapping):
+            continue
+        sampling = _load_observation_sampling(
+            observer.get("sampling", default_sampling)
+        )
+        labels[f"{observer['name']}.{observer['output']}"] = _step_labels(
+            max_steps,
+            sampling,
+        )
+    return labels
+
+
+def _load_observation_sampling(raw: Any) -> ObservationSampling:
+    if not isinstance(raw, Mapping):
+        raise ValueError("observer sampling must be a mapping")
+    kind = str(raw["kind"])
+    if kind == "periodic":
+        return ObservationSampling.periodic(int(raw["every"]))
+    if kind == "terminal":
+        return ObservationSampling.terminal()
+    raise ValueError(f"unsupported observation sampling kind: {kind}")
+
+
+def _step_labels(
+    max_steps: int,
+    observation_sampling: ObservationSampling,
+) -> NDArray[np.int64]:
+    if observation_sampling.kind == "terminal":
+        return np.asarray([max_steps], dtype=np.int64)
+    assert observation_sampling.every is not None
+    count = observation_sampling.fixed_sample_count(max_steps)
+    return np.arange(count, dtype=np.int64) * int(observation_sampling.every)
 
 
 def _proportion_values(

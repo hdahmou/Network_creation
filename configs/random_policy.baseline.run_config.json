@@ -41,7 +41,13 @@
       {
         "id": "random",
         "kind": "random",
-        "parameters": {}
+        "parameters": {
+          "p_act": {
+            "kind": "continuous",
+            "min": 0.0,
+            "max": 1.0
+          }
+        }
       }
     ],
     "policy_proportions": {

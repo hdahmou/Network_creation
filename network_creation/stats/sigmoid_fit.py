@@ -44,10 +44,12 @@ def _fit_zero_start_sigmoids_core(
     t_grid = t_values[None, :]
     t_min = t_values[0]
     t_span = jnp.maximum(t_values[-1] - t_values[0], 1.0)
+    min_abs_k = abs(float(min_k))
+    max_abs_k = abs(float(max_k))
 
     obs = jnp.isfinite(Y)
     Y0 = jnp.where(obs, Y, 0.0)
-    Yinit = jnp.clip(Y0, 0.0, 1.0)
+    row_indices = jnp.arange(Y.shape[0])
 
     eps = jnp.asarray(1e-6, dtype=Y.dtype)
 
@@ -55,32 +57,55 @@ def _fit_zero_start_sigmoids_core(
         x = jnp.clip(x, eps, 1.0 - eps)
         return jnp.log(x) - jnp.log1p(-x)
 
-    A0 = jnp.max(jnp.where(obs, Yinit, 0.0), axis=1)
-    A0 = jnp.clip(A0, 1e-3, 0.999)
+    observed_indices = jnp.where(obs, jnp.arange(T)[None, :], -1)
+    last_observed_index = jnp.max(observed_indices, axis=1)
+    last_observed_index = jnp.maximum(last_observed_index, 0)
+    last_observed = Y0[row_indices, last_observed_index]
+
+    peak_index = jnp.argmax(jnp.where(obs, jnp.abs(Y0), -jnp.inf), axis=1)
+    peak_observed = Y0[row_indices, peak_index]
+    A0 = jnp.where(
+        jnp.abs(last_observed) >= 0.5 * jnp.abs(peak_observed),
+        last_observed,
+        peak_observed,
+    )
+    A0 = jnp.where(
+        jnp.abs(A0) >= min_amp,
+        A0,
+        jnp.where(A0 < 0.0, -min_amp, min_amp),
+    )
 
     half = 0.5 * A0[:, None]
-    dist_to_half = jnp.where(obs, jnp.abs(Yinit - half), jnp.inf)
+    dist_to_half = jnp.where(obs, jnp.abs(Y0 - half), jnp.inf)
     t00 = t_values[jnp.argmin(dist_to_half, axis=1)]
 
     if T > 1:
-        dy = jnp.diff(Yinit, axis=1)
+        dy = jnp.diff(Y0, axis=1)
         dt = jnp.diff(t_values)[None, :]
-        max_slope = jnp.max(jnp.maximum(dy / dt, 0.0), axis=1)
+        valid_slope = obs[:, 1:] & obs[:, :-1]
+        slope = jnp.where(valid_slope, dy / dt, 0.0)
+        max_abs_slope_index = jnp.argmax(jnp.abs(slope), axis=1)
+        signed_slope = slope[row_indices, max_abs_slope_index]
     else:
-        max_slope = jnp.zeros(Y.shape[0], dtype=Y.dtype)
+        signed_slope = jnp.zeros(Y.shape[0], dtype=Y.dtype)
 
-    k0 = 4.0 * max_slope / jnp.maximum(A0, 1e-3)
-    k0 = jnp.clip(k0, min_k * 10.0, max_k * 0.5)
+    k0 = 4.0 * signed_slope / jnp.where(jnp.abs(A0) >= min_amp, A0, min_amp)
+    k0 = jnp.clip(k0, -max_abs_k * 0.5, max_abs_k * 0.5)
+    k0 = jnp.where(
+        jnp.abs(k0) >= min_abs_k * 10.0,
+        k0,
+        jnp.where(k0 < 0.0, -min_abs_k * 10.0, min_abs_k * 10.0),
+    )
 
     raw = {
-        "A": logit(A0),
-        "k": logit((k0 - min_k) / (max_k - min_k)),
+        "A": A0,
+        "k": jnp.arctanh(jnp.clip(k0 / max_abs_k, -0.999, 0.999)),
         "t0": logit((t00 - t_min) / t_span),
     }
 
     def unpack(raw):
-        A = jax.nn.sigmoid(raw["A"])[:, None]
-        k = min_k + (max_k - min_k) * jax.nn.sigmoid(raw["k"])[:, None]
+        A = raw["A"][:, None]
+        k = max_abs_k * jnp.tanh(raw["k"])[:, None]
         t0 = t_min + t_span * jax.nn.sigmoid(raw["t0"])[:, None]
         return A, k, t0
 
@@ -141,7 +166,7 @@ def _fit_zero_start_sigmoids_core(
     ss_tot = jnp.sum(jnp.where(obs, (Y0 - y_mean[:, None]) ** 2, 0.0), axis=1)
 
     r2 = 1.0 - ss_res / jnp.maximum(ss_tot, eps)
-    nrmse = rmse / jnp.maximum(A[:, 0], min_amp)
+    nrmse = rmse / jnp.maximum(jnp.abs(params[:, 0]), min_amp)
 
     amp = jnp.max(jnp.where(obs, Y0, -jnp.inf), axis=1) - jnp.min(
         jnp.where(obs, Y0, jnp.inf), axis=1
@@ -171,6 +196,8 @@ def fit_zero_start_sigmoids(
     Y = jnp.asarray(Y, dtype=jnp.float32)
     if Y.ndim != 2:
         raise ValueError("Y must have shape (series, time)")
+    if max_k == 0.0:
+        raise ValueError("max_k must be non-zero")
 
     _, T = Y.shape
     t_values_np = _time_values(t, int(T))

@@ -13,7 +13,6 @@ from numpy.typing import NDArray
 
 from network_creation.io import read_json
 
-
 PRIOR_SAMPLES_ATTR = "prior_samples"
 PRIOR_SAMPLE_INDICES_ATTR = "prior_sample_indices"
 PRIOR_SAMPLE_METADATA_ATTR = "prior_sample_metadata"
@@ -117,16 +116,35 @@ class PosteriorArtifact:
         x_event_shape = tuple(dataset_meta["x_event_shape"])
         x_array = np.asarray(x, dtype=np.float32).reshape(x_event_shape)
         x_tensor = torch.as_tensor(
-            x_array,
+            x_array[None, ...],
             dtype=torch.float32,
             device=torch.device(device),
         )
 
-        samples = self.posterior.sample((num_samples,), x=x_tensor, **sample_kwargs)
+        try:
+            samples = self.posterior.sample((num_samples,), x=x_tensor, **sample_kwargs)
+        except RuntimeError as error:
+            if not _should_retry_with_batched_sampling(
+                posterior=self.posterior,
+                metadata=self.metadata,
+                x_event_shape=x_event_shape,
+                error=error,
+            ):
+                raise
+            repeat_factors = (num_samples,) + (1,) * len(x_event_shape)
+            repeated_x = x_tensor.repeat(repeat_factors)
+            samples = self.posterior.sample_batched(
+                (1,),
+                x=repeated_x,
+                **sample_kwargs,
+            ).squeeze(0)
         samples_np = np.asarray(samples.detach().cpu().numpy(), dtype=np.float32)
         if samples_np.ndim == 1:
             samples_np = samples_np.reshape(1, -1)
-        return decode_discrete_theta_samples(samples_np, self.metadata), self.theta_order
+        return (
+            decode_discrete_theta_samples(samples_np, self.metadata),
+            self.theta_order,
+        )
 
 
 def load_posterior_artifact(artifact_dir: str | Path) -> PosteriorArtifact:
@@ -165,7 +183,9 @@ def select_prior_samples(
     else:
         rng = np.random.default_rng(seed)
         indices = np.sort(
-            rng.choice(theta_array.shape[0], size=n_keep, replace=False).astype(np.int64)
+            rng.choice(theta_array.shape[0], size=n_keep, replace=False).astype(
+                np.int64
+            )
         )
     return np.asarray(theta_array[indices], dtype=np.float32), indices
 
@@ -249,7 +269,11 @@ def decode_discrete_theta_samples(
         category_set = set(categories.tolist())
         if unique_values.issubset(category_set):
             values = rounded
-        elif unique_values and min(unique_values) >= 0 and max(unique_values) < len(categories):
+        elif (
+            unique_values
+            and min(unique_values) >= 0
+            and max(unique_values) < len(categories)
+        ):
             values = categories[rounded]
         else:
             nearest = np.argmin(
@@ -267,7 +291,9 @@ def discrete_category_values(
     name: str,
 ) -> NDArray[np.int64]:
     dataset_meta = metadata.get("dataset", metadata)
-    discrete_names = [str(value) for value in dataset_meta.get("discrete_theta_names", [])]
+    discrete_names = [
+        str(value) for value in dataset_meta.get("discrete_theta_names", [])
+    ]
     for discrete_name, values in zip(
         discrete_names,
         dataset_meta.get("discrete_theta_values", []),
@@ -297,3 +323,20 @@ def _posterior_value(posterior: Any, name: str) -> Any:
     if isinstance(posterior, dict):
         return posterior.get(name)
     return getattr(posterior, name, None)
+
+
+def _should_retry_with_batched_sampling(
+    *,
+    posterior: Any,
+    metadata: dict[str, Any],
+    x_event_shape: tuple[int, ...],
+    error: RuntimeError,
+) -> bool:
+    dataset_meta = metadata.get("dataset", metadata)
+    has_discrete_theta = bool(dataset_meta.get("discrete_theta_names", []))
+    return (
+        has_discrete_theta
+        and len(x_event_shape) > 1
+        and hasattr(posterior, "sample_batched")
+        and "doesn't match the broadcast shape" in str(error)
+    )

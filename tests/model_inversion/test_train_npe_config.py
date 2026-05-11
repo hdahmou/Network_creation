@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import pickle
 import sys
 import tempfile
@@ -40,6 +41,18 @@ class TrainNPEConfigTests(unittest.TestCase):
         config_path = self.config_dir / "train_config.json"
         config_path.write_text(json.dumps(payload), encoding="utf-8")
         return config_path
+
+    def assert_project_relative_metadata_path(
+        self,
+        metadata_value: object,
+        expected_path: Path,
+    ) -> None:
+        self.assertIsInstance(metadata_value, str)
+        self.assertFalse(Path(str(metadata_value)).is_absolute())
+        self.assertEqual(
+            metadata_value,
+            os.path.relpath(expected_path, PROJECT_ROOT).replace(os.sep, "/"),
+        )
 
     def test_load_train_config_resolves_paths_relative_to_config_file(self) -> None:
         config_path = self.write_config(
@@ -343,6 +356,15 @@ class TrainNPEConfigTests(unittest.TestCase):
         self.assertEqual(metadata["diagnostics"]["diagnostic_count"], 1)
         self.assertEqual(metadata["dataset"]["train_count"], 3)
         self.assertEqual(metadata["dataset"]["diagnostic_count"], 1)
+        self.assertEqual(metadata["dataset"]["path_base"], "project_root")
+        self.assert_project_relative_metadata_path(
+            metadata["dataset"]["result_store_path"],
+            config.zarr_path,
+        )
+        self.assert_project_relative_metadata_path(
+            metadata["dataset"]["config_path"],
+            self.config_dir / "run_config.json",
+        )
         with np.load(artifact_dir / "diagnostic_data.npz") as diagnostic_data:
             np.testing.assert_allclose(
                 diagnostic_data["theta"],
@@ -480,6 +502,15 @@ class TrainNPEConfigTests(unittest.TestCase):
         )
         self.assertEqual(metadata["sbi"]["method"], "MNPE")
         self.assertEqual(metadata["sbi"]["prior_samples"]["count"], 3)
+        self.assertEqual(metadata["dataset"]["path_base"], "project_root")
+        self.assert_project_relative_metadata_path(
+            metadata["dataset"]["result_store_path"],
+            config.zarr_path,
+        )
+        self.assert_project_relative_metadata_path(
+            metadata["dataset"]["config_path"],
+            self.config_dir / "run_config.json",
+        )
         with np.load(output_root / "mixed-run" / "diagnostic_data.npz") as diagnostic_data:
             np.testing.assert_allclose(
                 diagnostic_data["theta"],

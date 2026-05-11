@@ -1,0 +1,55 @@
+{
+  "dataset": {
+    "zarr_path": "../artifacts/simulation_runs/run-20260507T191251.zarr",
+    "observers": [
+      "centered_mean_welfare.mean"
+    ],
+    "theta_parameters": [
+      "n_agents",
+      "outside_optimism",
+      "exploration"
+    ],
+    "drop_constant_theta": true,
+    "x_representation": "timeseries",
+    "discrete_theta_parameters": [
+      "n_agents"
+    ]
+  },
+  "artifact": {
+    "output_root": "../artifacts/model_inversion",
+    "run_name": null,
+    "save_training_data": false,
+    "prior_sample_count": 4096
+  },
+  "diagnostics": {
+    "reserve_count": 200
+  },
+  "density_estimator": {
+    "model": "mnpe",
+    "hidden_features": 50,
+    "num_transforms": 5,
+    "num_bins": 10,
+    "z_score_theta": "independent",
+    "z_score_x": "structured",
+    "flow_model": "nsf"
+  },
+  "embedding": {
+    "kind": "rnn",
+    "output_dim": 32,
+    "rnn_hidden_size": 64,
+    "rnn_num_layers": 1,
+    "rnn_type": "gru",
+    "rnn_bidirectional": false
+  },
+  "training": {
+    "seed": 0,
+    "device": "cpu",
+    "training_batch_size": 200,
+    "learning_rate": 0.0005,
+    "validation_fraction": 0.1,
+    "stop_after_epochs": 20,
+    "max_num_epochs": 500,
+    "clip_max_norm": 5.0,
+    "show_progress_bars": true
+  }
+}

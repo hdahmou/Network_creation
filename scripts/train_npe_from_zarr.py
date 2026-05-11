@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import pickle
 import sys
 from collections.abc import Sequence
@@ -406,6 +407,7 @@ def build_metadata(
     density: DensityEstimatorConfig,
     embedding: EmbeddingConfig,
 ) -> dict[str, Any]:
+    artifact_dataset_metadata = _artifact_dataset_metadata(dataset_metadata)
     return {
         "created_at": datetime.now(timezone.utc).isoformat(),
         "sbi": {
@@ -421,7 +423,7 @@ def build_metadata(
             },
         },
         "dataset": {
-            **dataset_metadata,
+            **artifact_dataset_metadata,
             "theta_dim": theta_dim,
             "train_count": int(train_count),
             "diagnostic_count": int(diagnostic_count),
@@ -445,6 +447,23 @@ def build_metadata(
             "discrete_theta_order": list(dataset_metadata.get("discrete_theta_names", [])),
         },
     }
+
+
+def _artifact_dataset_metadata(dataset_metadata: dict[str, Any]) -> dict[str, Any]:
+    metadata = dict(dataset_metadata)
+    metadata["result_store_path"] = _project_relative_path(
+        metadata["result_store_path"]
+    )
+    metadata["config_path"] = _project_relative_path(metadata["config_path"])
+    metadata["path_base"] = "project_root"
+    return metadata
+
+
+def _project_relative_path(raw_path: Any) -> str:
+    path = Path(str(raw_path)).expanduser()
+    absolute_path = path if path.is_absolute() else PROJECT_ROOT / path
+    relative_path = os.path.relpath(absolute_path.resolve(), PROJECT_ROOT)
+    return relative_path.replace(os.sep, "/")
 
 
 def split_diagnostic_holdout(

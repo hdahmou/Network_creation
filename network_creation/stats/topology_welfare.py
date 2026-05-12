@@ -3,6 +3,7 @@ from __future__ import annotations
 import igraph as ig
 from typing import Literal
 import numpy as np
+from numpy.typing import NDArray
 from functools import cache
 
 _ARGMAX_P_GRID = np.linspace(0.0, 1.0, 1000, dtype=float)
@@ -19,6 +20,44 @@ def total_welfare(
         total_benefit += 2.0 * count * (distance_discount ** int(left))
     total_cost = float(graph.ecount())
     return benefit_to_cost_ratio * total_benefit - total_cost
+
+
+def agent_payoff(
+    graph: ig.Graph,
+    benefit_to_cost_ratio: float,
+    distance_discount: float,
+    n_agent_slots: int | None = None,
+) -> NDArray[np.float32]:
+    """Return normalized payoff per agent, optionally padded to a fixed slot count."""
+
+    n_agents = graph.vcount()
+    if n_agent_slots is None:
+        n_agent_slots = n_agents
+    if n_agent_slots < n_agents:
+        raise ValueError("n_agent_slots must be greater than or equal to graph size")
+
+    values = np.full(n_agent_slots, np.nan, dtype=np.float32)
+    normalization = benefit_to_cost_ratio * (n_agents - 1) * distance_discount
+    if n_agents == 0 or normalization == 0.0:
+        return values
+
+    distances = np.asarray(graph.distances(mode="all"), dtype=np.float64)
+    finite_non_self = np.isfinite(distances)
+    np.fill_diagonal(finite_non_self, False)
+
+    benefit_terms = np.zeros_like(distances, dtype=np.float64)
+    np.power(
+        distance_discount,
+        distances,
+        out=benefit_terms,
+        where=finite_non_self,
+    )
+    benefits = benefit_terms.sum(axis=1)
+    costs = np.asarray(graph.degree(mode="out"), dtype=np.float64)
+    values[:n_agents] = (
+        (benefit_to_cost_ratio * benefits - costs) / normalization
+    ).astype(np.float32)
+    return values
 
 
 def normalized_welfare(

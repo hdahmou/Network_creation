@@ -8,7 +8,7 @@ import numpy as np
 from scipy.stats import qmc
 
 from tasks.policies import prepare_policy_run
-from tasks.policies.sweep import collect_parameter_specs, sample_parameters
+from tasks.policies.sweep import build_sweep, collect_parameter_specs, sample_parameters
 from tests.tasks.config_support import (
     continuous,
     fixed,
@@ -84,13 +84,21 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
         np.testing.assert_allclose(parameter_samples.parameter_values, expected)
 
     def test_prepare_generates_row_index_inputs_from_task_spec(self) -> None:
-        task = prepare_policy_run(self._base_config())
-        prepared = task
+        config = self._base_config()
+        input_spec = collect_parameter_specs(config)
+        parameter_samples = sample_parameters(input_spec)
+        sweep = build_sweep(
+            config,
+            parameter_samples,
+            parameter_specs=input_spec["parameters"],
+            policy_ids=("best_response",),
+        )
+        prepared = prepare_policy_run(config)
 
         self.assertEqual(prepared.inputs, (0,))
-        self.assertEqual(task.sweep.configuration_values.shape, (1, 1, 1, 8))
+        self.assertEqual(sweep.configuration_values.shape, (1, 1, 1, 8))
         self.assertEqual(
-            task.parameter_samples.parameter_names,
+            parameter_samples.parameter_names,
             (
                 "benefit_to_cost_ratio",
                 "distance_discount",
@@ -100,7 +108,7 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
             ),
         )
         np.testing.assert_allclose(
-            task.parameter_samples.parameter_values,
+            parameter_samples.parameter_values,
             np.array(
                 [[0.05, 0.5, 4.0, 0.25, 0.5]],
                 dtype=np.float32,

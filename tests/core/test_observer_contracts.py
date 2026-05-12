@@ -171,6 +171,13 @@ def _build_contract_test_observer(name: str):
             "observation_sampling": periodic,
             "aggregations": (),
         },
+        "agent_payoff": {
+            "n_agents": 3,
+            "observation_sampling": periodic,
+            "benefit_to_cost_ratio": 1.0,
+            "distance_discount": 0.5,
+            "aggregations": (),
+        },
         "centered_mean_welfare": {
             "n_agents": 3,
             "observation_sampling": periodic,

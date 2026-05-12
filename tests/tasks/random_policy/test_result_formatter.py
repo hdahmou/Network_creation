@@ -9,7 +9,9 @@ from pathlib import Path
 import numpy as np
 
 from tasks.policies import load_policy_results
+from tasks.policies.outputs import SAMPLED_AGENT_PARAMETERS_FIELD
 
+from tests.tasks.config_support import continuous
 from tests.tasks.policy_result_support import build_random_config, write_result_store
 
 
@@ -63,6 +65,131 @@ class RandomPolicyResultFormatterTest(unittest.TestCase):
         np.testing.assert_allclose(
             ds["x"].isel(step=-1).values,
             np.asarray([[[[2.0, 12.0]]]], dtype=np.float32),
+        )
+
+    def test_from_zarr_preserves_agent_payoff_axis(self) -> None:
+        config = build_random_config()
+        config["population"]["n_agents"] = [2, 4]
+        config["simulator"]["max_steps"] = 2
+        config["observers"]["outputs"] = [
+            {"name": "density", "output": "mean"},
+            {"name": "agent_payoff", "output": "mean"},
+        ]
+        outputs_by_index = [
+            (
+                0,
+                {
+                    "density.mean": np.asarray([0.0, 1.0, 2.0], dtype=np.float32),
+                    "agent_payoff.mean": np.asarray(
+                        [
+                            [0.0, 0.0, np.nan, np.nan],
+                            [0.0, 1.0, np.nan, np.nan],
+                            [0.5, 1.0, np.nan, np.nan],
+                        ],
+                        dtype=np.float32,
+                    ),
+                },
+            ),
+            (
+                1,
+                {
+                    "density.mean": np.asarray([10.0, 11.0, 12.0], dtype=np.float32),
+                    "agent_payoff.mean": np.asarray(
+                        [
+                            [0.0, 0.0, 0.0, 0.0],
+                            [1.0, 2.0, 3.0, 4.0],
+                            [5.0, 6.0, 7.0, 8.0],
+                        ],
+                        dtype=np.float32,
+                    ),
+                },
+            ),
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store_path = write_result_store(
+                Path(tmpdir),
+                config=config,
+                outputs_by_index=outputs_by_index,
+                total_inputs=2,
+            )
+
+            ds = load_policy_results(store_path)
+
+        self.assertEqual(
+            ds["agent_payoff.mean"].dims,
+            (
+                "n_agents",
+                "random_proportion",
+                "parameter_row",
+                "step",
+                "agent_slot",
+            ),
+        )
+        np.testing.assert_array_equal(ds.coords["agent_slot"].values, np.arange(4))
+        np.testing.assert_array_equal(ds.coords["step"].values, np.asarray([0, 1, 2]))
+        self.assertEqual(ds["agent_payoff.mean"].shape, (2, 1, 1, 3, 4))
+        self.assertEqual(tuple(ds.coords["observable"].values), ("density.mean",))
+        self.assertTrue(
+            np.isnan(ds["agent_payoff.mean"].isel(n_agents=0).values[..., 2:]).all()
+        )
+        np.testing.assert_allclose(
+            ds["agent_payoff.mean"].isel(n_agents=1, step=-1).values,
+            np.asarray([[[5.0, 6.0, 7.0, 8.0]]], dtype=np.float32),
+        )
+
+    def test_from_zarr_loads_sampled_agent_parameters_only_when_requested(self) -> None:
+        config = build_random_config()
+        config["population"]["policies"][0]["parameters"]["p_act"] = continuous(
+            0.0,
+            1.0,
+            std=0.1,
+        )
+        outputs_by_index = [
+            (
+                0,
+                {
+                    "density.mean": np.asarray([0.0, 1.0, 2.0, 3.0], dtype=np.float32),
+                    SAMPLED_AGENT_PARAMETERS_FIELD: np.asarray(
+                        [[0.1], [0.2], [0.3], [0.4]],
+                        dtype=np.float32,
+                    ),
+                },
+            )
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store_path = write_result_store(
+                Path(tmpdir),
+                config=config,
+                outputs_by_index=outputs_by_index,
+                total_inputs=1,
+            )
+
+            default_ds = load_policy_results(store_path)
+            ds = load_policy_results(
+                store_path,
+                load_sampled_agent_parameters=True,
+            )
+
+        self.assertNotIn(SAMPLED_AGENT_PARAMETERS_FIELD, default_ds)
+        self.assertNotIn("agent_index", default_ds.coords)
+        self.assertNotIn("agent_parameter", default_ds.coords)
+        self.assertEqual(
+            ds[SAMPLED_AGENT_PARAMETERS_FIELD].dims,
+            (
+                "n_agents",
+                "random_proportion",
+                "parameter_row",
+                "agent_index",
+                "agent_parameter",
+            ),
+        )
+        self.assertEqual(tuple(ds.coords["agent_parameter"].values), ("p_act",))
+        self.assertEqual(tuple(ds.coords["observable"].values), ("density.mean",))
+        np.testing.assert_allclose(
+            ds[SAMPLED_AGENT_PARAMETERS_FIELD].values,
+            np.asarray([[[[[0.1], [0.2], [0.3], [0.4]]]]], dtype=np.float32),
         )
 
     def test_from_zarr_uses_observer_sampling_for_step_coordinates(self) -> None:

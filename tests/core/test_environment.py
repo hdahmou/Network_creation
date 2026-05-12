@@ -23,6 +23,7 @@ from network_creation.core.model import (
 )
 from network_creation.policies.base import Policy
 from network_creation.policies.random import RandomPolicy
+from network_creation.policies.threshold_link import ThresholdLinkPolicy
 from tests.graph_factories import graph_from_adjacency_matrix
 
 
@@ -408,6 +409,188 @@ class AgentPolicyIntegrationTest(unittest.TestCase):
         action_space = self._random_policy_action_space()
         policy = RandomPolicy(seed=7, p_act=0.5)
         observation = self._empty_observation()
+
+        first_run = [
+            policy.get_decision(observation, action_space).actions[0] for _ in range(8)
+        ]
+        policy.reset(seed=7)
+        second_run = [
+            policy.get_decision(observation, action_space).actions[0] for _ in range(8)
+        ]
+
+        self.assertEqual(first_run, second_run)
+
+    def test_threshold_link_policy_rejects_invalid_parameters(self) -> None:
+        for invalid_threshold in (-0.1, 1.1, True):
+            with self.subTest(link_threshold=invalid_threshold):
+                with self.assertRaisesRegex(ValueError, "link_threshold"):
+                    ThresholdLinkPolicy(seed=7, link_threshold=invalid_threshold)
+
+        for invalid_p_act in (-0.1, 1.1, True):
+            with self.subTest(p_act=invalid_p_act):
+                with self.assertRaisesRegex(ValueError, "p_act"):
+                    ThresholdLinkPolicy(
+                        seed=7,
+                        link_threshold=0.5,
+                        p_act=invalid_p_act,
+                    )
+
+    def test_threshold_link_policy_p_act_zero_always_passes(self) -> None:
+        pass_action = Action(ActionType.PASS, source=0)
+        action_space = ActionSpace(
+            actions={
+                ActionType.ADD: [Action(ActionType.ADD, source=0, target=1)],
+                ActionType.BRIDGE: [Action(ActionType.BRIDGE, source=0)],
+                ActionType.DELETE: [],
+                ActionType.PASS: [pass_action],
+            }
+        )
+        policy = ThresholdLinkPolicy(seed=7, link_threshold=1.0, p_act=0.0)
+
+        samples = [
+            policy.get_decision(
+                self._empty_observation(),
+                action_space,
+            ).actions[0]
+            for _ in range(8)
+        ]
+
+        self.assertEqual(samples, [pass_action] * 8)
+
+    def test_threshold_link_policy_creates_below_threshold(self) -> None:
+        add_action = Action(ActionType.ADD, source=0, target=2)
+        action_space = ActionSpace(
+            actions={
+                ActionType.ADD: [add_action],
+                ActionType.BRIDGE: [],
+                ActionType.DELETE: [Action(ActionType.DELETE, source=0, target=1)],
+                ActionType.PASS: [Action(ActionType.PASS, source=0)],
+            }
+        )
+        policy = ThresholdLinkPolicy(seed=7, link_threshold=0.5)
+
+        decision = policy.get_decision(
+            self._empty_observation(n_agents=5),
+            action_space,
+        )
+
+        self.assertEqual(decision.actions, (add_action,))
+
+    def test_threshold_link_policy_deletes_at_threshold(self) -> None:
+        delete_action = Action(ActionType.DELETE, source=0, target=1)
+        action_space = ActionSpace(
+            actions={
+                ActionType.ADD: [Action(ActionType.ADD, source=0, target=2)],
+                ActionType.BRIDGE: [],
+                ActionType.DELETE: [delete_action],
+                ActionType.PASS: [Action(ActionType.PASS, source=0)],
+            }
+        )
+        policy = ThresholdLinkPolicy(seed=7, link_threshold=0.5)
+
+        decision = policy.get_decision(
+            self._empty_observation(n_agents=3),
+            action_space,
+        )
+
+        self.assertEqual(decision.actions, (delete_action,))
+
+    def test_threshold_link_policy_stays_in_delete_phase_below_threshold(self) -> None:
+        first_delete_action = Action(ActionType.DELETE, source=0, target=1)
+        at_threshold_action_space = ActionSpace(
+            actions={
+                ActionType.ADD: [Action(ActionType.ADD, source=0, target=3)],
+                ActionType.BRIDGE: [],
+                ActionType.DELETE: [
+                    first_delete_action,
+                    Action(ActionType.DELETE, source=0, target=2),
+                ],
+                ActionType.PASS: [Action(ActionType.PASS, source=0)],
+            }
+        )
+        second_delete_action = Action(ActionType.DELETE, source=0, target=1)
+        below_threshold_action_space = ActionSpace(
+            actions={
+                ActionType.ADD: [Action(ActionType.ADD, source=0, target=2)],
+                ActionType.BRIDGE: [],
+                ActionType.DELETE: [second_delete_action],
+                ActionType.PASS: [Action(ActionType.PASS, source=0)],
+            }
+        )
+        policy = ThresholdLinkPolicy(seed=7, link_threshold=0.5)
+        observation = self._empty_observation(n_agents=5)
+
+        first_decision = policy.get_decision(observation, at_threshold_action_space)
+        second_decision = policy.get_decision(observation, below_threshold_action_space)
+
+        self.assertEqual(first_decision.actions[0].type, ActionType.DELETE)
+        self.assertEqual(second_decision.actions, (second_delete_action,))
+
+    def test_threshold_link_policy_reset_restores_create_phase(self) -> None:
+        at_threshold_action_space = ActionSpace(
+            actions={
+                ActionType.ADD: [Action(ActionType.ADD, source=0, target=3)],
+                ActionType.BRIDGE: [],
+                ActionType.DELETE: [
+                    Action(ActionType.DELETE, source=0, target=1),
+                    Action(ActionType.DELETE, source=0, target=2),
+                ],
+                ActionType.PASS: [Action(ActionType.PASS, source=0)],
+            }
+        )
+        add_action = Action(ActionType.ADD, source=0, target=2)
+        below_threshold_action_space = ActionSpace(
+            actions={
+                ActionType.ADD: [add_action],
+                ActionType.BRIDGE: [],
+                ActionType.DELETE: [Action(ActionType.DELETE, source=0, target=1)],
+                ActionType.PASS: [Action(ActionType.PASS, source=0)],
+            }
+        )
+        policy = ThresholdLinkPolicy(seed=7, link_threshold=0.5)
+        observation = self._empty_observation(n_agents=5)
+
+        policy.get_decision(observation, at_threshold_action_space)
+        policy.reset(seed=7)
+        decision = policy.get_decision(observation, below_threshold_action_space)
+
+        self.assertEqual(decision.actions, (add_action,))
+
+    def test_threshold_link_policy_passes_when_preferred_action_set_is_empty(
+        self,
+    ) -> None:
+        pass_action = Action(ActionType.PASS, source=0)
+        action_space = ActionSpace(
+            actions={
+                ActionType.ADD: [],
+                ActionType.BRIDGE: [],
+                ActionType.DELETE: [],
+                ActionType.PASS: [pass_action],
+            }
+        )
+        policy = ThresholdLinkPolicy(seed=7, link_threshold=1.0)
+
+        decision = policy.get_decision(
+            self._empty_observation(n_agents=3),
+            action_space,
+        )
+
+        self.assertEqual(decision.actions, (pass_action,))
+
+    def test_threshold_link_policy_reset_is_deterministic(self) -> None:
+        action_space = ActionSpace(
+            actions={
+                ActionType.ADD: [
+                    Action(ActionType.ADD, source=0, target=1),
+                    Action(ActionType.ADD, source=0, target=2),
+                ],
+                ActionType.BRIDGE: [Action(ActionType.BRIDGE, source=0)],
+                ActionType.DELETE: [],
+                ActionType.PASS: [Action(ActionType.PASS, source=0)],
+            }
+        )
+        observation = self._empty_observation(n_agents=4)
+        policy = ThresholdLinkPolicy(seed=7, link_threshold=1.0, p_act=0.5)
 
         first_run = [
             policy.get_decision(observation, action_space).actions[0] for _ in range(8)

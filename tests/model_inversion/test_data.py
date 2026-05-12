@@ -31,6 +31,7 @@ class ModelDatasetTests(unittest.TestCase):
                             "kind": "continuous",
                             "min": 0.0,
                             "max": 1.0,
+                            "std": 0.0,
                         },
                         "beta": {"kind": "fixed", "value": 5.0},
                     }

@@ -902,6 +902,7 @@ class ReplayTest(unittest.TestCase):
             observer_names=(
                 "density",
                 "hub_persistence",
+                "agent_payoff",
                 "centered_mean_welfare",
             ),
             observation_sampling=ObservationSampling.terminal(),
@@ -923,6 +924,10 @@ class ReplayTest(unittest.TestCase):
             observers["centered_mean_welfare"].__class__,
             OBSERVER_GRIMOIRE["centered_mean_welfare"],
         )
+        self.assertIs(
+            observers["agent_payoff"].__class__,
+            OBSERVER_GRIMOIRE["agent_payoff"],
+        )
         self.assertEqual(
             getattr(observers["centered_mean_welfare"], "benefit_to_cost_ratio"),
             0.5,
@@ -931,12 +936,21 @@ class ReplayTest(unittest.TestCase):
             getattr(observers["centered_mean_welfare"], "distance_discount"),
             0.9,
         )
+        self.assertEqual(
+            getattr(observers["agent_payoff"], "benefit_to_cost_ratio"),
+            0.5,
+        )
+        self.assertEqual(
+            getattr(observers["agent_payoff"], "dimension_names"),
+            ("agent_0", "agent_1", "agent_2"),
+        )
 
     def test_reference_requests_cover_available_grimoire_statistics(self) -> None:
         observer_names = available_reference_observer_names()
         parameters = (ChoiReferenceParameters(3, 0.5, 0.9),)
 
         self.assertIn("triad_census", observer_names)
+        self.assertIn("agent_payoff", observer_names)
         self.assertIn("centered_mean_welfare", observer_names)
         self.assertNotIn("hub_persistence", observer_names)
         self.assertNotIn("action_print", observer_names)
@@ -947,6 +961,14 @@ class ReplayTest(unittest.TestCase):
         )
         self.assertIn(
             ReferenceRequest("centered_mean_welfare", 3, 0.5, 0.9),
+            reference_requests(parameters),
+        )
+        self.assertIn(
+            ReferenceRequest("agent_payoff", 3, 0.5, 0.9, dimension_name="agent_0"),
+            reference_requests(parameters),
+        )
+        self.assertIn(
+            ReferenceRequest("agent_payoff", 3, 0.5, 0.9, dimension_name="agent_2"),
             reference_requests(parameters),
         )
 
@@ -1013,6 +1035,13 @@ class ReplayTest(unittest.TestCase):
                 benefit_to_cost_ratio=0.5,
                 distance_discount=0.9,
             )
+            agent_payoff_request = ReferenceRequest(
+                observer_name="agent_payoff",
+                n_agents=2,
+                benefit_to_cost_ratio=0.5,
+                distance_discount=0.9,
+                dimension_name="agent_0",
+            )
 
             def fake_fit_sigmoid(Y, *, t=None, **kwargs):
                 del kwargs
@@ -1031,7 +1060,12 @@ class ReplayTest(unittest.TestCase):
             ):
                 cache = build_reference_cache(
                     data_root=tmp_path,
-                    requests=(density_request, triad_request, welfare_request),
+                    requests=(
+                        density_request,
+                        triad_request,
+                        welfare_request,
+                        agent_payoff_request,
+                    ),
                 )
             cache_path = tmp_path / "choi_reference_stats.pkl"
             save_reference_cache(cache, cache_path)
@@ -1044,6 +1078,10 @@ class ReplayTest(unittest.TestCase):
         )
         self.assertEqual(lookup_reference_value(loaded_cache, triad_request), 0.0)
         self.assertIsNotNone(lookup_reference_value(loaded_cache, welfare_request))
+        self.assertAlmostEqual(
+            lookup_reference_value(loaded_cache, agent_payoff_request),
+            -1.2222222,
+        )
         assert loaded_cache is not None
         self.assertNotIn(
             sigmoid_reference_key(density_request, "A"),

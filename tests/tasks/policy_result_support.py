@@ -10,12 +10,10 @@ import numpy as np
 
 from tasks.execution.zarr_store import ZarrResultStore
 from tasks.execution.schema import OutputArraySpec, OutputSpec
+from tasks.policies import prepare_policy_run
 from tasks.policies.sweep import (
     collect_parameter_specs,
     sample_parameters,
-    parse_policy_entries,
-    build_sweep,
-    infer_parameter_bounds,
 )
 from .config_support import continuous, fixed, policy, task_config
 
@@ -127,44 +125,5 @@ def write_result_store(
 def _policy_metadata(
     config: dict[str, object],
 ) -> tuple[dict[str, object], dict[str, np.ndarray[Any, Any]]]:
-    input_spec = collect_parameter_specs(config)
-    parameter_specs = input_spec["parameters"]
-    parameter_samples = sample_parameters(input_spec)
-    policy_entries = parse_policy_entries(config)
-    sweep = build_sweep(
-        config,
-        parameter_samples,
-        parameter_specs=parameter_specs,
-        policy_ids=tuple(policy_id for policy_id, _ in policy_entries),
-    )
-    parameter_names = sweep.parameter_names_for_results
-    parameters = sweep.parameter_values_for_results()
-    parameter_low, parameter_high = infer_parameter_bounds(
-        parameters,
-        parameter_names=parameter_names,
-        parameter_specs=parameter_specs,
-    )
-    input_coordinates = np.asarray(
-        [
-            sweep.coordinates(input_index)
-            for input_index in range(sweep.total_inputs)
-        ],
-        dtype=np.int64,
-    )
-    return (
-        {
-            "parameter_names": list(parameter_names),
-            "policy_config": {
-                key: config[key]
-                for key in ("sampling", "simulator", "game", "population", "observers")
-                if key in config
-            },
-        },
-        {
-            "n_agents": np.asarray(sweep.n_agents_values, dtype=np.int64),
-            "parameters": parameters,
-            "parameter_low": parameter_low,
-            "parameter_high": parameter_high,
-            "input_coordinates": input_coordinates,
-        },
-    )
+    prepared = prepare_policy_run(config)
+    return dict(prepared.result_attrs), dict(prepared.result_arrays)

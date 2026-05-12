@@ -12,6 +12,7 @@ from matplotlib.colors import Normalize, TwoSlopeNorm
 from network_creation.data.choi_2020_references import (
     DEFAULT_REFERENCE_CACHE_PATH,
     DEFAULT_REFERENCE_PARAMETERS_PATH,
+    PAYOFF_OBSERVER_NAMES,
     ReferenceRequest,
     ChoiReferenceParameters,
     load_reference_cache,
@@ -179,8 +180,8 @@ def _reference_request(
     *,
     parameters_path: str | Path | None = None,
 ) -> ReferenceRequest | None:
-    if observer_name != WELFARE_OBSERVER_NAME:
-        dimension_name = dimension_name_from_observable(observable_name)
+    dimension_name = dimension_name_from_observable(observable_name)
+    if observer_name not in PAYOFF_OBSERVER_NAMES:
         return ReferenceRequest(observer_name, int(n_agents), dimension_name=dimension_name)
     choi_parameters = _choi_parameters_for_group_size(n_agents, parameters_path)
     if choi_parameters is not None:
@@ -189,6 +190,7 @@ def _reference_request(
             int(n_agents),
             choi_parameters.benefit_to_cost_ratio,
             choi_parameters.distance_discount,
+            dimension_name=dimension_name,
         )
     if theta is None:
         return None
@@ -197,6 +199,7 @@ def _reference_request(
         int(n_agents),
         theta["benefit_to_cost_ratio"],
         theta["distance_discount"],
+        dimension_name=dimension_name,
     )
 
 

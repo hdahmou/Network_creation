@@ -29,7 +29,8 @@
     "distance_discount": {
       "kind": "continuous",
       "min": 0.01,
-      "max": 0.99
+      "max": 0.99,
+      "std": 0.0
     }
   },
   "population": {
@@ -46,7 +47,8 @@
           "bridge_probability": {
             "kind": "continuous",
             "min": 0.0,
-            "max": 1.0
+            "max": 1.0,
+            "std": 0.0
           }
         }
       }

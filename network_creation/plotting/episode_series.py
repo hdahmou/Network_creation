@@ -5,6 +5,7 @@ from __future__ import annotations
 from matplotlib.axes import Axes
 import numpy as np
 from network_creation.core.observability import StatisticResult
+from network_creation.observers.agent_payoff_observer import AgentPayoffObserver
 from network_creation.observers.statistics.episode_series import (
     EpisodeSeriesStatisticObserver,
 )
@@ -14,6 +15,7 @@ from network_creation.observers.statistics.episode_tensor_series import (
 
 _PRIMARY_COLOR = "#1f4e79"
 _BAND_COLOR = "#f6bd60"
+_SPREAD_LEGEND_TITLE = "solid line: mean\nshaded band: ± SD"
 
 
 def plot_episode_series_observer(
@@ -36,11 +38,19 @@ def plot_episode_series_observer(
     ):
         raise ValueError("dimension_name is only supported for tensor-valued observers")
 
+    legend_title = None
     if observer.aggregations:
-        result = observer.get()
-        if isinstance(observer, EpisodeSeriesTensorStatisticObserver):
+        if _is_agent_payoff_virtual_dimension(observer, dimension_name):
+            assert isinstance(observer, AgentPayoffObserver)
+            assert dimension_name is not None
+            result = observer.degree_ranked_result(dimension_name)
+        else:
+            result = observer.get()
+        if isinstance(observer, EpisodeSeriesTensorStatisticObserver) and (
+            not _is_agent_payoff_virtual_dimension(observer, dimension_name)
+        ):
             result = _select_tensor_result_dimension(result, dimension_name)
-        _plot_aggregated_outputs(
+        legend_title = _plot_aggregated_outputs(
             observer=observer,
             result=result,
             ax=ax,
@@ -52,16 +62,7 @@ def plot_episode_series_observer(
         )
     else:
         if isinstance(observer, EpisodeSeriesTensorStatisticObserver):
-            if dimension_name is None:
-                raise ValueError(
-                    "dimension_name must be provided for tensor-valued observers"
-                )
-            if dimension_name not in observer.dimension_names:
-                raise ValueError(f"unknown dimension name: {dimension_name}")
-            dimension_idx = observer.dimension_names.index(dimension_name)
-            selected_values = observer.values.reshape(observer.values.shape[0], -1)[
-                :, dimension_idx
-            ]
+            selected_values = _select_tensor_observer_values(observer, dimension_name)
         else:
             selected_values = observer.values
         ax.plot(
@@ -83,8 +84,35 @@ def plot_episode_series_observer(
 
     handles, labels = ax.get_legend_handles_labels()
     if handles and labels:
-        ax.legend()
+        ax.legend(title=legend_title)
     return ax
+
+
+def _is_agent_payoff_virtual_dimension(
+    observer: object,
+    dimension_name: str | None,
+) -> bool:
+    return isinstance(
+        observer,
+        AgentPayoffObserver,
+    ) and observer.is_degree_ranked_dimension_name(dimension_name)
+
+
+def _select_tensor_observer_values(
+    observer: EpisodeSeriesTensorStatisticObserver,
+    dimension_name: str | None,
+) -> np.ndarray:
+    if _is_agent_payoff_virtual_dimension(observer, dimension_name):
+        assert isinstance(observer, AgentPayoffObserver)
+        assert dimension_name is not None
+        return observer.degree_ranked_values(dimension_name)
+
+    if dimension_name is None:
+        raise ValueError("dimension_name must be provided for tensor-valued observers")
+    if dimension_name not in observer.dimension_names:
+        raise ValueError(f"unknown dimension name: {dimension_name}")
+    dimension_idx = observer.dimension_names.index(dimension_name)
+    return observer.values.reshape(observer.values.shape[0], -1)[:, dimension_idx]
 
 
 def _plot_aggregated_outputs(
@@ -96,7 +124,7 @@ def _plot_aggregated_outputs(
     band_color: str | None,
     label: str | None,
     set_title: bool,
-) -> None:
+) -> str | None:
     if result.steps is None:
         raise ValueError("episode-series statistic result must include steps")
 
@@ -110,6 +138,7 @@ def _plot_aggregated_outputs(
     fill_color = band_color
     if fill_color is None:
         fill_color = _BAND_COLOR if color is None else primary_color
+    legend_title = None
 
     runs = result.outputs.get("runs")
     if runs is not None and show_runs:
@@ -126,26 +155,24 @@ def _plot_aggregated_outputs(
 
     if primary_output_name is None:
         if not set_title:
-            return
+            return None
         if result.n_episodes == 1:
             ax.set_title(f"{observer.label} over one episode")
-            return
+            return None
         ax.set_title(f"{observer.label} across multiple episodes")
-        return
+        return None
 
     primary_values = result.outputs[primary_output_name]
     if isinstance(primary_values, tuple):
         raise ValueError(f"output '{primary_output_name}' must be one series")
     selected_primary_values = primary_values
 
-    if primary_output_name == "mean" and "std" in observer.aggregations:
+    if primary_output_name == "mean" and "std" in result.outputs:
         std_values = result.outputs["std"]
         if isinstance(std_values, tuple):
             raise ValueError("output 'std' must be one series")
-        selected_std_values = std_values
-
-        lower_band = selected_primary_values - selected_std_values
-        upper_band = selected_primary_values + selected_std_values
+        lower_band = selected_primary_values - std_values
+        upper_band = selected_primary_values + std_values
         if observer.y_min is not None:
             lower_band = np.maximum(lower_band, observer.y_min)
         if observer.y_max is not None:
@@ -157,8 +184,9 @@ def _plot_aggregated_outputs(
             upper_band,
             color=fill_color,
             alpha=0.35,
-            label=None if label is not None else "mean ± std",
+            label=None if label is not None else "mean ± SD",
         )
+        legend_title = _SPREAD_LEGEND_TITLE
 
     ax.plot(
         result.steps,
@@ -176,17 +204,22 @@ def _plot_aggregated_outputs(
     )
     ax.set_xlim(result.steps[0], result.steps[-1])
     if not set_title:
-        return
+        return legend_title
     if result.n_episodes == 1:
         ax.set_title(f"{observer.label} over one episode")
-        return
+        return legend_title
     ax.set_title(f"{observer.label} across multiple episodes")
+    return legend_title
 
 
 def _select_tensor_result_dimension(
     result: StatisticResult,
     dimension_name: str | None,
 ) -> StatisticResult:
+    if dimension_name is None:
+        raise ValueError("dimension_name must be provided for tensor-valued observers")
+    if result.dimension_names is None or dimension_name not in result.dimension_names:
+        raise ValueError(f"unknown dimension name: {dimension_name}")
     dimension_idx = result.dimension_names.index(dimension_name)
 
     def select(values: np.ndarray) -> np.ndarray:

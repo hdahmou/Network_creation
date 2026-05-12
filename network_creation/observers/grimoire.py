@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from .action_count_observer import ActionCountObserver
 from .action_print_observer import ActionPrintObserver
+from .agent_payoff_observer import AgentPayoffObserver
 from .central_point_of_dominance_observer import CentralPointOfDominanceObserver
 from .density_observer import DensityObserver
 from .distance_observer import DistanceObserver
@@ -24,6 +25,7 @@ OBSERVER_GRIMOIRE = {
     "global_closeness_centrality": GlobalClosenessCentralityObserver,
     "hub_persistence": HubPersistenceObserver,
     "indegree": IndegreeObserver,
+    "agent_payoff": AgentPayoffObserver,
     "centered_mean_welfare": CenteredMeanWelfareObserver,
     "state_history": StateHistoryObserver,
     "triad_census": TriadCensusObserver,

@@ -28,6 +28,14 @@ from .choi_2020 import (
 DEFAULT_REFERENCE_CACHE_PATH = Path("artifacts/data/choi_2020_reference_stats.pkl")
 DEFAULT_REFERENCE_PARAMETERS_PATH = Path("data/choi_2020/parameters.json")
 WELFARE_OBSERVER_NAME = "centered_mean_welfare"
+AGENT_PAYOFF_OBSERVER_NAME = "agent_payoff"
+PAYOFF_OBSERVER_NAMES = frozenset(
+    {
+        WELFARE_OBSERVER_NAME,
+        AGENT_PAYOFF_OBSERVER_NAME,
+    }
+)
+PAYOFF_PARAMETER_NAMES = ("benefit_to_cost_ratio", "distance_discount")
 SIGMOID_FIT_OBSERVER_NAMES = frozenset(
     {
         "central_point_of_dominance",
@@ -99,25 +107,15 @@ def reference_requests(
     }
     for n_agents, parameter in sorted(parameters_by_size.items()):
         for observer_name in available_reference_observer_names():
-            dimension_names = getattr(
-                OBSERVER_GRIMOIRE[observer_name],
-                "dimension_names",
-                None,
+            requests.extend(
+                _reference_request_for_observer(
+                    observer_name,
+                    n_agents,
+                    parameter,
+                    dimension_name=dimension_name,
+                )
+                for dimension_name in _reference_dimensions(observer_name, n_agents)
             )
-            if dimension_names is None:
-                requests.append(
-                    _reference_request_for_observer(observer_name, n_agents, parameter)
-                )
-            else:
-                requests.extend(
-                    _reference_request_for_observer(
-                        observer_name,
-                        n_agents,
-                        parameter,
-                        dimension_name=str(dimension_name),
-                    )
-                    for dimension_name in dimension_names
-                )
     return tuple(requests)
 
 
@@ -285,10 +283,11 @@ def lookup_reference_value(
 ) -> float | None:
     if cache is None:
         return None
-    value = cast(
+    raw_values = cast(
         Mapping[tuple[str, int, str, str, str], float],
         cache.get("values", {}),
-    ).get(reference_key(request))
+    )
+    value = raw_values.get(reference_key(request))
     return None if value is None else float(value)
 
 
@@ -336,7 +335,7 @@ def _reference_request_for_observer(
     *,
     dimension_name: str | None = None,
 ) -> ReferenceRequest:
-    if observer_name != WELFARE_OBSERVER_NAME:
+    if observer_name not in PAYOFF_OBSERVER_NAMES:
         return ReferenceRequest(
             observer_name,
             int(n_agents),
@@ -349,6 +348,23 @@ def _reference_request_for_observer(
         distance_discount=parameter.distance_discount,
         dimension_name=dimension_name,
     )
+
+
+def _reference_dimensions(
+    observer_name: str,
+    n_agents: int,
+) -> tuple[str | None, ...]:
+    if observer_name == AGENT_PAYOFF_OBSERVER_NAME:
+        return tuple(f"agent_{agent_id}" for agent_id in range(int(n_agents)))
+
+    dimension_names = getattr(
+        OBSERVER_GRIMOIRE[observer_name],
+        "dimension_names",
+        None,
+    )
+    if dimension_names is None:
+        return (None,)
+    return tuple(str(dimension_name) for dimension_name in dimension_names)
 
 
 def _observer_run_key(
@@ -443,9 +459,9 @@ def _build_observer(
         "aggregations": tuple(aggregations),
         **dict(settings or {}),
     }
-    if observer_name == WELFARE_OBSERVER_NAME:
+    if observer_name in PAYOFF_OBSERVER_NAMES:
         if benefit_to_cost_ratio is None or distance_discount is None:
-            raise ValueError("welfare references require Choi payoff parameters")
+            raise ValueError("payoff references require Choi payoff parameters")
         kwargs["benefit_to_cost_ratio"] = float(cast(float, benefit_to_cost_ratio))
         kwargs["distance_discount"] = float(cast(float, distance_discount))
     return cast(type[EpisodeStatisticObserver], observer_class)(**kwargs)
@@ -457,10 +473,13 @@ def _is_cacheable_reference_observer(
 ) -> bool:
     if not issubclass(observer_class, EpisodeStatisticObserver):
         return False
-    if observer_name == WELFARE_OBSERVER_NAME:
-        return True
     for parameter in signature(observer_class.__init__).parameters.values():
         if parameter.name in BASE_OBSERVER_PARAMETERS:
+            continue
+        if (
+            observer_name in PAYOFF_OBSERVER_NAMES
+            and parameter.name in PAYOFF_PARAMETER_NAMES
+        ):
             continue
         if parameter.kind in (Parameter.VAR_POSITIONAL, Parameter.VAR_KEYWORD):
             continue

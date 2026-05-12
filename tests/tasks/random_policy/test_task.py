@@ -27,8 +27,7 @@ class RandomPolicyTaskTest(unittest.TestCase):
         )
 
     def test_prepare_builds_structured_output_schema_and_run_returns_arrays(self) -> None:
-        task = prepare_policy_run(self._base_config())
-        prepared = task
+        prepared = prepare_policy_run(self._base_config())
 
         self.assertEqual(
             prepared.output_schema.metadata(),
@@ -38,15 +37,6 @@ class RandomPolicyTaskTest(unittest.TestCase):
             ],
         )
         self.assertEqual(prepared.inputs, (0,))
-        self.assertEqual(
-            task.parameter_samples.parameter_names,
-            (
-                "benefit_to_cost_ratio",
-                "distance_discount",
-                "visibility_distance",
-            ),
-        )
-        self.assertEqual(task.parameter_samples.parameter_values.shape, (1, 3))
 
         output = prepared.run(prepared.inputs[0])
 
@@ -146,6 +136,28 @@ class RandomPolicyTaskTest(unittest.TestCase):
         output = prepared.run(prepared.inputs[0])
         self.assertEqual(output["density.mean"].shape, (4,))
         self.assertEqual(output["triad_census.mean"].shape, (4, 7))
+
+    def test_prepare_pads_agent_payoff_for_n_agents_sweeps(self) -> None:
+        config = self._base_config()
+        config["population"]["n_agents"] = [2, 4]
+        config["observers"]["outputs"] = [
+            {"name": "agent_payoff", "output": "mean"},
+        ]
+        prepared = prepare_policy_run(config)
+
+        self.assertEqual(
+            prepared.output_schema.metadata(),
+            [
+                {"name": "agent_payoff.mean", "shape": [4, 4], "dtype": "float32"},
+            ],
+        )
+
+        small_output = prepared.run(0)["agent_payoff.mean"]
+        large_output = prepared.run(1)["agent_payoff.mean"]
+
+        self.assertEqual(small_output.shape, (4, 4))
+        self.assertEqual(large_output.shape, (4, 4))
+        self.assertTrue(np.isnan(small_output[:, 2:]).all())
 
     def test_prepare_supports_terminal_observer_outputs(self) -> None:
         config = self._base_config()

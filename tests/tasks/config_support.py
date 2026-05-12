@@ -8,8 +8,13 @@ def fixed(value: float | int) -> dict[str, object]:
     return {"kind": "fixed", "value": value}
 
 
-def continuous(minimum: float, maximum: float) -> dict[str, object]:
-    return {"kind": "continuous", "min": minimum, "max": maximum}
+def continuous(
+    minimum: float,
+    maximum: float,
+    *,
+    std: float = 0.0,
+) -> dict[str, object]:
+    return {"kind": "continuous", "min": minimum, "max": maximum, "std": std}
 
 
 def sampled_choice(values: Sequence[float | int]) -> dict[str, object]:

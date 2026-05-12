@@ -5,6 +5,7 @@ from __future__ import annotations
 import unittest
 
 from tasks.policies import prepare_policy_run
+from tasks.policies.sweep import collect_parameter_specs, sample_parameters
 from tests.tasks.config_support import (
     continuous,
     fixed,
@@ -29,19 +30,20 @@ class RandomPolicyPreparationTest(unittest.TestCase):
         )
 
     def test_prepare_generates_singleton_row_index_input(self) -> None:
-        task = prepare_policy_run(self._base_config())
-        prepared = task
+        config = self._base_config()
+        prepared = prepare_policy_run(config)
+        parameter_samples = sample_parameters(collect_parameter_specs(config))
 
         self.assertEqual(prepared.inputs, (0,))
         self.assertEqual(
-            task.parameter_samples.parameter_names,
+            parameter_samples.parameter_names,
             (
                 "benefit_to_cost_ratio",
                 "distance_discount",
                 "visibility_distance",
             ),
         )
-        self.assertEqual(task.parameter_samples.parameter_values.shape, (1, 3))
+        self.assertEqual(parameter_samples.parameter_values.shape, (1, 3))
 
     def test_prepare_collects_explicit_p_act_parameter(self) -> None:
         config = self._base_config()
@@ -50,11 +52,12 @@ class RandomPolicyPreparationTest(unittest.TestCase):
             0.0, 1.0
         )
 
-        task = prepare_policy_run(config)
+        prepared = prepare_policy_run(config)
+        parameter_samples = sample_parameters(collect_parameter_specs(config))
 
-        self.assertEqual(task.inputs, (0, 1))
+        self.assertEqual(prepared.inputs, (0, 1))
         self.assertEqual(
-            task.parameter_samples.parameter_names,
+            parameter_samples.parameter_names,
             (
                 "benefit_to_cost_ratio",
                 "distance_discount",
@@ -62,7 +65,7 @@ class RandomPolicyPreparationTest(unittest.TestCase):
                 "p_act",
             ),
         )
-        self.assertEqual(task.parameter_samples.parameter_values.shape, (2, 4))
+        self.assertEqual(parameter_samples.parameter_values.shape, (2, 4))
 
     def test_prepare_accepts_parameters_other_than_visibility_distance(self) -> None:
         config = self._base_config()

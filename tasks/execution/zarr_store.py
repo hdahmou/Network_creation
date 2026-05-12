@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from pathlib import Path
 from typing import Any, cast
 
@@ -13,7 +13,11 @@ import xarray as xr
 from .schema import OutputSpec, RunOutput
 
 
-def load_zarr_results(path: str | Path) -> xr.Dataset:
+def load_zarr_results(
+    path: str | Path,
+    *,
+    skip_outputs: Collection[str] = (),
+) -> xr.Dataset:
     """Load one run result Zarr store into an in-memory xarray dataset."""
     store_path = Path(path).expanduser()
     if not store_path.exists():
@@ -39,6 +43,8 @@ def load_zarr_results(path: str | Path) -> xr.Dataset:
     data_vars: dict[str, Any] = {}
     for field in output_schema:
         name = str(field["name"])
+        if name in skip_outputs:
+            continue
         values = np.asarray(outputs_group[name])[order]
         dims = (
             "result",

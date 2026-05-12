@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 from numpy.typing import NDArray
@@ -14,7 +14,14 @@ import xarray as xr
 from network_creation.core.observability import ObservationSampling
 
 from ..execution.zarr_store import load_zarr_results
-from .outputs import PolicyOutput, build_policy_outputs
+from .outputs import (
+    PolicyOutput,
+    SAMPLED_AGENT_PARAMETER_NAMES_ATTR,
+    SAMPLED_AGENT_PARAMETERS_FIELD,
+    build_policy_outputs,
+)
+
+AGENT_PAYOFF_OBSERVER_NAME = "agent_payoff"
 
 
 @dataclass(frozen=True)
@@ -24,8 +31,17 @@ class _ResultCoordinates:
     parameter_row: NDArray[np.int64]
 
 
-def load_policy_results(zarr_path: str | Path) -> xr.Dataset:
-    raw = load_zarr_results(zarr_path)
+def load_policy_results(
+    zarr_path: str | Path,
+    *,
+    load_sampled_agent_parameters: bool = False,
+) -> xr.Dataset:
+    skip_outputs = (
+        ()
+        if load_sampled_agent_parameters
+        else (SAMPLED_AGENT_PARAMETERS_FIELD,)
+    )
+    raw = load_zarr_results(zarr_path, skip_outputs=skip_outputs)
     result_store_path = Path(raw.attrs["path"])
     metadata = raw.attrs["metadata"]
     attrs = raw.attrs
@@ -39,9 +55,19 @@ def load_policy_results(zarr_path: str | Path) -> xr.Dataset:
     n_agents_values = np.asarray(metadata["n_agents"], dtype=np.int64)
     parameter_rows = np.arange(grid_shape[2], dtype=np.int64)
     raw_outputs = _raw_outputs(raw, output_schema)
-    output = build_policy_outputs(
-        raw_outputs,
-        step_labels=_shared_step_labels(policy_config, raw_outputs),
+    sampled_agent_parameters = raw_outputs.get(SAMPLED_AGENT_PARAMETERS_FIELD)
+    agent_payoff_outputs = _agent_payoff_outputs(raw_outputs)
+    regular_outputs = {
+        name: values
+        for name, values in raw_outputs.items()
+        if name not in agent_payoff_outputs
+        and name != SAMPLED_AGENT_PARAMETERS_FIELD
+    }
+    step_labels = _shared_step_labels(policy_config, raw_outputs)
+    output = _build_policy_output_or_empty(
+        regular_outputs,
+        all_outputs=raw_outputs,
+        step_labels=step_labels,
     )
 
     proportion_name = _policy_proportion_name(policy_config, parameter_names)
@@ -83,6 +109,30 @@ def load_policy_results(zarr_path: str | Path) -> xr.Dataset:
         "observable": ("observable", list(output.observable_names)),
         "step": ("step", output.step_labels),
     }
+    agent_slot_count = _agent_slot_count(agent_payoff_outputs)
+    if agent_slot_count is not None:
+        coords["agent_slot"] = (
+            "agent_slot",
+            np.arange(agent_slot_count, dtype=np.int64),
+        )
+    episode_count = _agent_payoff_episode_count(agent_payoff_outputs)
+    if episode_count is not None:
+        coords["episode"] = ("episode", np.arange(episode_count, dtype=np.int64))
+    if sampled_agent_parameters is not None:
+        agent_parameter_names = _sampled_agent_parameter_names(attrs)
+        _validate_sampled_agent_parameter_names(
+            sampled_agent_parameters,
+            agent_parameter_names,
+        )
+        coords["agent_index"] = (
+            "agent_index",
+            np.arange(np.asarray(sampled_agent_parameters).shape[1], dtype=np.int64),
+        )
+        coords["agent_parameter"] = (
+            "agent_parameter",
+            list(agent_parameter_names),
+        )
+
     data_vars: dict[str, Any] = {
         "theta": ((*dense_dims, "theta_parameter"), theta),
         "prior_low": (("theta_parameter",), prior_low),
@@ -92,6 +142,23 @@ def load_policy_results(zarr_path: str | Path) -> xr.Dataset:
             x,
         ),
     }
+    data_vars.update(
+        _dense_agent_payoff_data_vars(
+            grid_shape=grid_shape,
+            dense_dims=dense_dims,
+            result_coordinates=result_coordinates,
+            outputs=agent_payoff_outputs,
+        )
+    )
+    if sampled_agent_parameters is not None:
+        data_vars[SAMPLED_AGENT_PARAMETERS_FIELD] = (
+            (*dense_dims, "agent_index", "agent_parameter"),
+            _dense_result_grid(
+                grid_shape=grid_shape,
+                result_coordinates=result_coordinates,
+                values=sampled_agent_parameters,
+            ),
+        )
 
     return xr.Dataset(
         data_vars=data_vars,
@@ -131,29 +198,133 @@ def _raw_outputs(
     raw: xr.Dataset,
     output_schema: list[Any],
 ) -> dict[str, NDArray[np.generic]]:
+    outputs: dict[str, NDArray[np.generic]] = {}
+    for field in output_schema:
+        name = str(field["name"])
+        if name not in raw.data_vars:
+            continue
+        outputs[name] = np.asarray(raw[name].values)
+    return outputs
+
+
+def _agent_payoff_outputs(
+    outputs: Mapping[str, NDArray[np.generic]],
+) -> dict[str, NDArray[np.generic]]:
     return {
-        str(field["name"]): np.asarray(raw[str(field["name"])].values)
-        for field in output_schema
+        name: values
+        for name, values in outputs.items()
+        if _is_agent_payoff_output(name)
     }
+
+
+def _validate_sampled_agent_parameter_names(
+    values: NDArray[np.generic],
+    names: Sequence[str],
+) -> None:
+    array = np.asarray(values)
+    if array.ndim != 3:
+        raise ValueError(
+            f"{SAMPLED_AGENT_PARAMETERS_FIELD} outputs must have rank 3"
+        )
+    if len(names) != array.shape[2]:
+        raise ValueError(
+            f"{SAMPLED_AGENT_PARAMETER_NAMES_ATTR} length must match "
+            f"{SAMPLED_AGENT_PARAMETERS_FIELD} parameter axis"
+        )
+
+
+def _sampled_agent_parameter_names(attrs: Mapping[str, Any]) -> tuple[str, ...]:
+    raw_names = attrs.get(SAMPLED_AGENT_PARAMETER_NAMES_ATTR, ())
+    return tuple(str(name) for name in cast(Sequence[Any], raw_names))
+
+
+def _is_agent_payoff_output(name: str) -> bool:
+    return str(name).split(".", maxsplit=1)[0] == AGENT_PAYOFF_OBSERVER_NAME
+
+
+def _agent_slot_count(
+    outputs: Mapping[str, NDArray[np.generic]],
+) -> int | None:
+    if not outputs:
+        return None
+    counts = {int(np.asarray(values).shape[-1]) for values in outputs.values()}
+    if len(counts) != 1:
+        raise ValueError("agent_payoff outputs must share the same agent axis length")
+    return counts.pop()
+
+
+def _agent_payoff_episode_count(
+    outputs: Mapping[str, NDArray[np.generic]],
+) -> int | None:
+    counts = {
+        int(np.asarray(values).shape[1])
+        for values in outputs.values()
+        if np.asarray(values).ndim == 4
+    }
+    if not counts:
+        return None
+    if len(counts) != 1:
+        raise ValueError("agent_payoff runs outputs must share the same episode count")
+    return counts.pop()
+
+
+def _infer_result_count(outputs: Mapping[str, NDArray[np.generic]]) -> int:
+    first = next(iter(outputs.values()), None)
+    if first is None:
+        return 0
+    return int(np.asarray(first).shape[0])
+
+
+def _infer_step_count(outputs: Mapping[str, NDArray[np.generic]]) -> int:
+    for name, values in outputs.items():
+        step_axis_length = _step_axis_length(name, values)
+        if step_axis_length is not None:
+            return step_axis_length
+    return 1
+
+
+def _build_policy_output_or_empty(
+    outputs: Mapping[str, NDArray[np.generic]],
+    *,
+    all_outputs: Mapping[str, NDArray[np.generic]],
+    step_labels: NDArray[np.int64] | None,
+) -> PolicyOutput:
+    if outputs:
+        labels = step_labels if _has_step_axis(outputs) else None
+        return build_policy_outputs(dict(outputs), step_labels=labels)
+
+    labels = (
+        np.arange(_infer_step_count(all_outputs), dtype=np.int64)
+        if step_labels is None
+        else np.asarray(step_labels, dtype=np.int64)
+    )
+    result_count = _infer_result_count(all_outputs)
+    return PolicyOutput(
+        timeseries=np.empty((result_count, labels.shape[0], 0), dtype=np.float32),
+        observable_names=(),
+        step_labels=labels,
+    )
 
 
 def _shared_step_labels(
     policy_config: Any,
     outputs: Mapping[str, NDArray[np.generic]],
 ) -> NDArray[np.int64] | None:
-    series_names = [
-        name for name, values in outputs.items() if np.asarray(values).ndim == 2
-    ]
-    if not series_names or not isinstance(policy_config, Mapping):
+    step_axis_lengths = {
+        name: step_axis_length
+        for name, values in outputs.items()
+        if (step_axis_length := _step_axis_length(name, values)) is not None
+    }
+    if not step_axis_lengths or not isinstance(policy_config, Mapping):
         return None
 
     labels_by_output = _configured_output_step_labels(policy_config)
     shared: NDArray[np.int64] | None = None
-    for name in series_names:
+    for name, step_axis_length in step_axis_lengths.items():
         labels = labels_by_output.get(name)
         if labels is None:
             return None
-        if labels.shape != (np.asarray(outputs[name]).shape[1],):
+        if labels.shape != (step_axis_length,):
             raise ValueError(
                 f"configured step labels for {name!r} do not match output shape"
             )
@@ -162,6 +333,25 @@ def _shared_step_labels(
         elif not np.array_equal(shared, labels):
             raise ValueError("time-series outputs must share the same step labels")
     return shared
+
+
+def _has_step_axis(outputs: Mapping[str, NDArray[np.generic]]) -> bool:
+    return any(np.asarray(values).ndim == 2 for values in outputs.values())
+
+
+def _step_axis_length(
+    name: str,
+    values: NDArray[np.generic],
+) -> int | None:
+    array = np.asarray(values)
+    if array.ndim == 2:
+        return int(array.shape[1])
+    if _is_agent_payoff_output(name):
+        if array.ndim == 3:
+            return int(array.shape[1])
+        if array.ndim == 4:
+            return int(array.shape[2])
+    return None
 
 
 def _configured_output_step_labels(
@@ -269,17 +459,60 @@ def _dense_output_grid(
     result_coordinates: _ResultCoordinates,
     output: PolicyOutput,
 ) -> NDArray[np.float32]:
-    x = np.full(
-        (*grid_shape, *output.timeseries.shape[1:]),
+    return _dense_result_grid(
+        grid_shape=grid_shape,
+        result_coordinates=result_coordinates,
+        values=output.timeseries,
+    )
+
+
+def _dense_agent_payoff_data_vars(
+    *,
+    grid_shape: tuple[int, int, int],
+    dense_dims: tuple[str, str, str],
+    result_coordinates: _ResultCoordinates,
+    outputs: Mapping[str, NDArray[np.generic]],
+) -> dict[str, Any]:
+    data_vars: dict[str, Any] = {}
+    for name, values in outputs.items():
+        array = np.asarray(values, dtype=np.float32)
+        dense = _dense_result_grid(
+            grid_shape=grid_shape,
+            result_coordinates=result_coordinates,
+            values=array,
+        )
+        if array.ndim == 3:
+            data_vars[name] = ((*dense_dims, "step", "agent_slot"), dense)
+        elif array.ndim == 4:
+            data_vars[name] = (
+                (*dense_dims, "episode", "step", "agent_slot"),
+                dense,
+            )
+        else:
+            raise ValueError(
+                f"agent_payoff outputs must have rank 3 or 4, got {array.ndim}"
+            )
+    return data_vars
+
+
+def _dense_result_grid(
+    *,
+    grid_shape: tuple[int, int, int],
+    result_coordinates: _ResultCoordinates,
+    values: NDArray[np.generic],
+) -> NDArray[np.float32]:
+    array = np.asarray(values, dtype=np.float32)
+    dense = np.full(
+        (*grid_shape, *array.shape[1:]),
         np.nan,
         dtype=np.float32,
     )
-    x[
+    dense[
         result_coordinates.n_agents_index,
         result_coordinates.policy_proportion_index,
         result_coordinates.parameter_row,
-    ] = output.timeseries
-    return x
+    ] = array
+    return dense
 
 
 def _policy_proportion_name(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from typing import Any, cast
 
 import numpy as np
 
@@ -74,9 +75,9 @@ class CenteredMeanWelfareObserver(EpisodeSeriesStatisticObserver):
         del cls
         result = dict(references or {})
         try:
-            n_agents = int(context["n_agents"])
-            benefit_to_cost_ratio = float(context["benefit_to_cost_ratio"])
-            distance_discount = float(context["distance_discount"])
+            n_agents = int(cast(Any, context["n_agents"]))
+            benefit_to_cost_ratio = float(cast(Any, context["benefit_to_cost_ratio"]))
+            distance_discount = float(cast(Any, context["distance_discount"]))
         except (KeyError, TypeError, ValueError):
             return result
 

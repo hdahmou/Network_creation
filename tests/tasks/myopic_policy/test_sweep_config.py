@@ -108,13 +108,20 @@ class MyopicPolicyPreparationTest(unittest.TestCase):
             10.0, 2.0
         )
 
-        task = prepare_policy_run(config)
+        input_spec = collect_parameter_specs(config)
+        parameter_samples = sample_parameters(input_spec)
+        sweep = build_sweep(
+            config,
+            parameter_samples,
+            parameter_specs=input_spec["parameters"],
+            policy_ids=("myopic",),
+        )
 
-        column = task.sweep.column_index_by_name[
+        column = sweep.column_index_by_name[
             "benefit_to_cost_ratio"
         ]
         np.testing.assert_allclose(
-            task.sweep.configuration_values[:, 0, 0, column],
+            sweep.configuration_values[:, 0, 0, column],
             np.asarray([1.0, 0.5], dtype=np.float32),
         )
 
@@ -174,13 +181,20 @@ class MyopicPolicyPreparationTest(unittest.TestCase):
             "bridge_probability"
         ] = continuous(0.0, 1.0)
 
-        task = prepare_policy_run(config)
-        prepared = task
+        input_spec = collect_parameter_specs(config)
+        parameter_samples = sample_parameters(input_spec)
+        sweep = build_sweep(
+            config,
+            parameter_samples,
+            parameter_specs=input_spec["parameters"],
+            policy_ids=("myopic",),
+        )
+        prepared = prepare_policy_run(config)
 
         self.assertEqual(prepared.inputs, (0, 1, 2, 3, 4, 5))
-        self.assertEqual(task.sweep.configuration_values.shape, (3, 1, 2, 7))
+        self.assertEqual(sweep.configuration_values.shape, (3, 1, 2, 7))
         np.testing.assert_allclose(
-            task.sweep.configuration_values[:, 0, :, 0],
+            sweep.configuration_values[:, 0, :, 0],
             np.array(
                 [
                     [2.0, 2.0],
@@ -222,6 +236,30 @@ class MyopicPolicyPreparationTest(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "log2_budget"):
             sample_parameters(input_spec)
+
+    def test_sample_parameters_requires_valid_continuous_std(self) -> None:
+        cases = (
+            ({"kind": "continuous", "min": 0.0, "max": 1.0}, "alpha.std"),
+            (
+                {"kind": "continuous", "min": 0.0, "max": 1.0, "std": -0.1},
+                "alpha.std",
+            ),
+            (
+                {"kind": "continuous", "min": 1.0, "max": 0.0, "std": 0.0},
+                "alpha.min",
+            ),
+        )
+
+        for spec, expected_error in cases:
+            with self.subTest(spec=spec):
+                with self.assertRaisesRegex(ValueError, expected_error):
+                    sample_parameters(
+                        {
+                            "log2_budget": 0,
+                            "seed": 123,
+                            "parameters": {"alpha": spec},
+                        }
+                    )
 
 
 if __name__ == "__main__":

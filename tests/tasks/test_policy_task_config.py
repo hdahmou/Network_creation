@@ -6,6 +6,12 @@ from typing import Any, cast
 import unittest
 
 from tasks.policies import prepare_policy_run
+from tasks.policies.sweep import (
+    build_sweep,
+    collect_parameter_specs,
+    parse_policy_entries,
+    sample_parameters,
+)
 from tests.tasks.config_support import task_config
 
 
@@ -56,12 +62,21 @@ class PolicyTaskConfigTest(unittest.TestCase):
             "p": 0.25,
         }
 
+        input_spec = collect_parameter_specs(config)
+        parameter_samples = sample_parameters(input_spec)
+        policy_entries = parse_policy_entries(config)
+        sweep = build_sweep(
+            config,
+            parameter_samples,
+            parameter_specs=input_spec["parameters"],
+            policy_ids=tuple(policy_id for policy_id, _ in policy_entries),
+        )
         policy_task = prepare_policy_run(config)
-        settings = policy_task.sweep.resolve(policy_task.sweep.configuration_at(0))
+        settings = sweep.resolve(sweep.configuration_at(0))
 
         self.assertEqual(policy_task.inputs, (0,))
-        self.assertEqual(policy_task.sweep.initial_graph_kind, "erdos_renyi")
-        self.assertEqual(policy_task.sweep.initial_graph_p, 0.25)
+        self.assertEqual(sweep.initial_graph_kind, "erdos_renyi")
+        self.assertEqual(sweep.initial_graph_p, 0.25)
         self.assertEqual(settings.initial_graph_kind, "erdos_renyi")
         self.assertEqual(settings.initial_graph_p, 0.25)
 

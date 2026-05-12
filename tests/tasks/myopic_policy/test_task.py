@@ -29,8 +29,7 @@ class MyopicPolicyTaskTest(unittest.TestCase):
         )
 
     def test_prepare_builds_structured_output_schema_and_run_returns_arrays(self) -> None:
-        task = prepare_policy_run(self._base_config())
-        prepared = task
+        prepared = prepare_policy_run(self._base_config())
 
         self.assertEqual(
             prepared.output_schema.metadata(),
@@ -40,15 +39,6 @@ class MyopicPolicyTaskTest(unittest.TestCase):
             ],
         )
         self.assertEqual(prepared.inputs, (0,))
-        self.assertEqual(
-            task.parameter_samples.parameter_names,
-            (
-                "benefit_to_cost_ratio",
-                "distance_discount",
-                "visibility_distance",
-                "bridge_probability",
-            ),
-        )
 
         output = prepared.run(prepared.inputs[0])
 

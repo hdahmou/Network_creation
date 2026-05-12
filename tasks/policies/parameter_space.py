@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from numbers import Real
 from typing import Any, cast
 
 import numpy as np
@@ -11,6 +12,30 @@ from numpy.typing import NDArray
 
 type ParameterSpec = Mapping[str, object]
 type ParameterConfig = Mapping[str, ParameterSpec]
+
+
+def _read_finite_real(spec: ParameterSpec, key: str, *, parameter_name: str) -> float:
+    value = spec.get(key)
+    if isinstance(value, bool) or not isinstance(value, Real):
+        raise ValueError(f"{parameter_name}.{key} must be a finite number")
+    numeric_value = float(value)
+    if not np.isfinite(numeric_value):
+        raise ValueError(f"{parameter_name}.{key} must be a finite number")
+    return numeric_value
+
+
+def validate_continuous_parameter_spec(
+    name: str,
+    spec: ParameterSpec,
+) -> tuple[float, float, float]:
+    minimum = _read_finite_real(spec, "min", parameter_name=name)
+    maximum = _read_finite_real(spec, "max", parameter_name=name)
+    std = _read_finite_real(spec, "std", parameter_name=name)
+    if minimum >= maximum:
+        raise ValueError(f"{name}.min must be less than {name}.max")
+    if std < 0.0:
+        raise ValueError(f"{name}.std must be non-negative")
+    return minimum, maximum, std
 
 
 def build_parameter_values(
@@ -78,9 +103,8 @@ def build_continuous_parameter_values(
     )
     continuous_parameter_values = np.empty_like(unit_samples)
 
-    for column_index, (_, spec) in enumerate(continuous_parameters):
-        minimum = float(cast(Any, spec["min"]))
-        maximum = float(cast(Any, spec["max"]))
+    for column_index, (name, spec) in enumerate(continuous_parameters):
+        minimum, maximum, _ = validate_continuous_parameter_spec(name, spec)
         continuous_parameter_values[:, column_index] = minimum + (
             unit_samples[:, column_index] * (maximum - minimum)
         )

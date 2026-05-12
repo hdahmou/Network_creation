@@ -23,8 +23,16 @@ from network_creation.core.model import (
     ActionType,
     ActorScheduler,
 )
-from network_creation.core.observability import ObservationSampling
+from network_creation.core.observability import (
+    EpisodeEndEvent,
+    EpisodeStartEvent,
+    ObservationSampling,
+    StateView,
+    StatisticResult,
+    StepEvent,
+)
 from network_creation.core.simulator import Simulator
+from network_creation.observers.agent_payoff_observer import AgentPayoffObserver
 from network_creation.data.choi_2020_references import (
     ReferenceRequest,
     reference_key,
@@ -46,6 +54,7 @@ from network_creation.plotting.reference_values import (
 )
 from network_creation.policies.random import RandomPolicy
 from tests.core.simulation_support import ConstantPolicy
+from tests.graph_factories import graph_from_adjacency_matrix
 
 
 class MatrixObserver(EpisodeSeriesTensorStatisticObserver):
@@ -66,6 +75,68 @@ class MatrixObserver(EpisodeSeriesTensorStatisticObserver):
             [[base, base + 1.0], [base + 2.0, base + 3.0]],
             dtype=np.float32,
         )
+
+
+class StaticAggregatedSeriesObserver:
+    label = "Static"
+    x_label = "step"
+    y_label = "value"
+    y_min = None
+    y_max = None
+    n_episodes = 4
+    aggregations = ("mean", "std")
+    steps = np.array([0, 1], dtype=np.int64)
+
+    def get(self) -> StatisticResult:
+        return StatisticResult(
+            steps=self.steps,
+            n_episodes=self.n_episodes,
+            outputs={
+                "mean": np.array([10.0, 20.0], dtype=np.float32),
+                "std": np.array([4.0, 8.0], dtype=np.float32),
+            },
+            sample_shape=(),
+            dimension_names=None,
+        )
+
+
+def _record_agent_payoff_episode(
+    observer: AgentPayoffObserver,
+    final_graph,
+    *,
+    seed: int = 123,
+    initial_graph=None,
+) -> None:
+    if initial_graph is None:
+        initial_graph = create_empty_graph(final_graph.vcount())
+
+    observer.on_episode_start(
+        EpisodeStartEvent(
+            episode_index=observer.n_episodes,
+            seed=seed,
+            max_steps=1,
+            n_agents=final_graph.vcount(),
+            initial_state=StateView(initial_graph),
+        )
+    )
+    observer.on_step_end(
+        StepEvent(
+            step=0,
+            decisions=(),
+            modified=final_graph.ecount() != initial_graph.ecount(),
+            pre_state=StateView(initial_graph),
+            post_state=StateView(final_graph),
+        )
+    )
+    observer.on_episode_end(
+        EpisodeEndEvent(
+            episode_index=observer.n_episodes,
+            seed=seed,
+            current_step=1,
+            last_modified_step=0,
+            final_state=StateView(final_graph),
+        )
+    )
 
 
 class PlotEpisodeSeriesObserverTest(unittest.TestCase):
@@ -156,6 +227,27 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
         self.assertEqual(len(axis.lines), 1)
         self.assertEqual(len(axis.collections), 1)
         self.assertEqual(axis.get_title(), "Density across multiple episodes")
+        self.assertEqual(
+            axis.get_legend().get_title().get_text(),
+            "solid line: mean\nshaded band: ± SD",
+        )
+        plt.close(figure)
+
+    def test_multi_episode_plot_draws_standard_deviation_band(
+        self,
+    ) -> None:
+        observer = StaticAggregatedSeriesObserver()
+        figure, axis = plt.subplots()
+
+        plot_episode_series_observer(observer=observer, ax=axis)
+
+        vertices = axis.collections[0].get_paths()[0].vertices
+        expected_lower = np.array([10.0, 20.0]) - np.array([4.0, 8.0])
+        expected_upper = np.array([10.0, 20.0]) + np.array([4.0, 8.0])
+        np.testing.assert_allclose(vertices[:, 1].min(), expected_lower.min())
+        np.testing.assert_allclose(vertices[:, 1].max(), expected_upper.max())
+        _, labels = axis.get_legend_handles_labels()
+        self.assertIn("mean ± SD", labels)
         plt.close(figure)
 
     def test_runs_only_plot_uses_single_episode_title_when_needed(self) -> None:
@@ -279,6 +371,10 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
         self.assertEqual(axis.lines[0].get_label(), "group size 10")
         self.assertEqual(axis.lines[0].get_color(), "#123456")
         self.assertEqual(len(axis.collections), 1)
+        self.assertEqual(
+            axis.get_legend().get_title().get_text(),
+            "solid line: mean\nshaded band: ± SD",
+        )
         plt.close(figure)
 
     def test_scalar_plot_rejects_dimension_argument(self) -> None:
@@ -445,6 +541,121 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
                 observer=observer,
                 ax=axis,
                 dimension_name="missing",
+            )
+
+        plt.close(figure)
+
+    def test_agent_payoff_plot_selects_highest_degree_virtual_dimension(self) -> None:
+        observer = AgentPayoffObserver(
+            n_agents=3,
+            observation_sampling=ObservationSampling.periodic(1),
+            benefit_to_cost_ratio=2.0,
+            distance_discount=0.5,
+            aggregations=(),
+        )
+        final_graph = graph_from_adjacency_matrix(
+            np.array(
+                [
+                    [0, 1, 0],
+                    [0, 0, 0],
+                    [0, 1, 0],
+                ],
+                dtype=np.int8,
+            )
+        )
+        _record_agent_payoff_episode(observer, final_graph)
+
+        figure, axis = plt.subplots()
+        returned_axis = plot_episode_series_observer(
+            observer=observer,
+            ax=axis,
+            dimension_name="highest_degree",
+        )
+
+        self.assertIs(returned_axis, axis)
+        np.testing.assert_allclose(axis.lines[0].get_ydata(), np.array([0.0, 1.0]))
+        plt.close(figure)
+
+    def test_agent_payoff_plot_selects_aggregated_virtual_dimension(self) -> None:
+        observer = AgentPayoffObserver(
+            n_agents=3,
+            observation_sampling=ObservationSampling.periodic(1),
+            benefit_to_cost_ratio=2.0,
+            distance_discount=0.5,
+            aggregations=("mean", "std", "runs"),
+        )
+        final_graph = graph_from_adjacency_matrix(
+            np.array(
+                [
+                    [0, 1, 0],
+                    [0, 0, 0],
+                    [0, 1, 0],
+                ],
+                dtype=np.int8,
+            )
+        )
+        _record_agent_payoff_episode(observer, final_graph, seed=11)
+        _record_agent_payoff_episode(observer, final_graph, seed=17)
+
+        figure, axis = plt.subplots()
+        returned_axis = plot_episode_series_observer(
+            observer=observer,
+            ax=axis,
+            dimension_name="rest_except_top_two",
+            show_runs=True,
+        )
+
+        self.assertIs(returned_axis, axis)
+        self.assertEqual(len(axis.lines), 3)
+        self.assertEqual(len(axis.collections), 1)
+        self.assertEqual(axis.get_title(), "Agent Payoff across multiple episodes")
+        plt.close(figure)
+
+    def test_agent_payoff_plot_keeps_fixed_agent_dimension_selection(self) -> None:
+        observer = AgentPayoffObserver(
+            n_agents=2,
+            observation_sampling=ObservationSampling.periodic(1),
+            benefit_to_cost_ratio=2.0,
+            distance_discount=0.5,
+            aggregations=(),
+        )
+        final_graph = graph_from_adjacency_matrix(
+            np.array(
+                [
+                    [0, 1],
+                    [0, 0],
+                ],
+                dtype=np.int8,
+            )
+        )
+        _record_agent_payoff_episode(observer, final_graph)
+
+        figure, axis = plt.subplots()
+        plot_episode_series_observer(
+            observer=observer,
+            ax=axis,
+            dimension_name="agent_1",
+        )
+
+        np.testing.assert_allclose(axis.lines[0].get_ydata(), np.array([0.0, 1.0]))
+        plt.close(figure)
+
+    def test_agent_payoff_plot_rejects_unknown_virtual_dimension(self) -> None:
+        observer = AgentPayoffObserver(
+            n_agents=2,
+            observation_sampling=ObservationSampling.periodic(1),
+            benefit_to_cost_ratio=2.0,
+            distance_discount=0.5,
+            aggregations=(),
+        )
+        _record_agent_payoff_episode(observer, create_empty_graph(2))
+
+        figure, axis = plt.subplots()
+        with self.assertRaisesRegex(ValueError, "unknown dimension name"):
+            plot_episode_series_observer(
+                observer=observer,
+                ax=axis,
+                dimension_name="highest_out_degree",
             )
 
         plt.close(figure)
@@ -730,6 +941,42 @@ class PlotPairTest(unittest.TestCase):
             )
 
         self.assertEqual(references["choi2020"], 0.42)
+
+    def test_reference_style_looks_up_agent_payoff_cache_with_payoff_parameters(
+        self,
+    ) -> None:
+        request = ReferenceRequest(
+            "agent_payoff",
+            10,
+            0.5,
+            0.9,
+            dimension_name="agent_0",
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache_path = Path(tmpdir) / "choi-reference.pkl"
+            save_reference_cache(
+                {
+                    "values": {reference_key(request): -1.2222222},
+                    "missing_group_sizes": [],
+                },
+                cache_path,
+            )
+
+            references, _ = get_observer_reference_style(
+                "agent_payoff.mean.agent_0",
+                np.array([-0.1, -0.2], dtype=float),
+                n_agents=10,
+                theta_labels=(
+                    "n_agents",
+                    "benefit_to_cost_ratio",
+                    "distance_discount",
+                ),
+                theta_values=np.array([[10.0, 0.5, 0.9]], dtype=float),
+                cache_path=cache_path,
+            )
+
+        self.assertEqual(references["choi2020"], -1.2222222)
 
     def test_positive_reference_norm_includes_reference_values(self) -> None:
         norm = positive_reference_norm(

@@ -36,8 +36,7 @@ class BestResponsePolicyTaskTest(unittest.TestCase):
         )
 
     def test_prepare_builds_structured_output_schema_and_run_returns_arrays(self) -> None:
-        task = prepare_policy_run(self._base_config())
-        prepared = task
+        prepared = prepare_policy_run(self._base_config())
 
         self.assertEqual(
             prepared.output_schema.metadata(),
@@ -47,16 +46,6 @@ class BestResponsePolicyTaskTest(unittest.TestCase):
             ],
         )
         self.assertEqual(prepared.inputs, (0,))
-        self.assertEqual(
-            task.parameter_samples.parameter_names,
-            (
-                "benefit_to_cost_ratio",
-                "distance_discount",
-                "visibility_distance",
-                "outside_optimism",
-                "exploration",
-            ),
-        )
 
         output = prepared.run(prepared.inputs[0])
 

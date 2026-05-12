@@ -16,7 +16,7 @@ from dask.distributed import Client, as_completed
 
 from network_creation.io import read_json, write_json
 
-from tasks.policies import PreparedPolicyRun, prepare_policy_run
+from tasks.policies import prepare_policy_run
 from .schema import PreparedRun, RunOutput
 from .zarr_store import ZarrResultStore
 
@@ -26,7 +26,7 @@ class RunPlan:
     config: dict[str, Any]
     scheduler_address: str
     batch_size: int
-    prepared: PreparedPolicyRun | PreparedRun[Any]
+    prepared: PreparedRun[Any]
     run_inputs: tuple[Any, ...]
     started_slug: str
     output_zarr: Path

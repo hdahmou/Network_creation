@@ -5,7 +5,7 @@
     "write_batch_size": 64
   },
   "sampling": {
-    "log2_budget": 13,
+    "log2_budget": 12,
     "seed": 123
   },
   "simulator": {
@@ -32,10 +32,10 @@
     }
   },
   "population": {
-    "n_agents": [10, 15, 20, 25, 30, 35, 40, 45, 50],
+    "n_agents": [10, 20, 50],
     "visibility_distance": {
-      "kind": "fixed",
-      "value": 20
+      "kind": "sampled_choice",
+      "values": [1, 2, 3, 4, 5, 6, 50]
     },
     "policies": [
       {
@@ -45,12 +45,14 @@
           "outside_optimism": {
             "kind": "continuous",
             "min": 0.0,
-            "max": 1.0
+            "max": 1.0,
+            "std": 0.0
           },
           "exploration": {
             "kind": "continuous",
             "min": 0.001,
-            "max": 0.4
+            "max": 0.4,
+            "std": 0.0
           }
         }
       },
@@ -61,14 +63,15 @@
           "p_act": {
             "kind": "continuous",
             "min": 0.0,
-            "max": 1.0
+            "max": 1.0,
+            "std": 0.0
           }
         }
       }
     ],
     "policy_proportions": {
       "policy": "best_response",
-      "values": [1.0]
+      "values": [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
     }
   },
   "observers": {

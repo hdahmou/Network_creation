@@ -11,7 +11,7 @@ import xarray as xr
 
 ObservationRepresentation = Literal["final", "timeseries"]
 
-DEFAULT_DISCRETE_THETA_CANDIDATES = ("n_agents",)
+DEFAULT_DISCRETE_THETA_CANDIDATES = ("n_agents", "visibility_distance")
 
 
 def filter_inversion_dataset(
@@ -120,8 +120,9 @@ def resolve_discrete_theta_parameters(
 ) -> tuple[str, ...]:
     """Resolve theta names that should be modelled categorically by MNPE.
 
-    ``requested=None`` auto-detects ``n_agents`` when present. Passing an empty
-    sequence explicitly disables mixed-parameter inference.
+    ``requested=None`` auto-detects known categorical theta parameters when
+    present. Passing an empty sequence explicitly disables mixed-parameter
+    inference.
     """
 
     available = tuple(str(value) for value in theta_names)

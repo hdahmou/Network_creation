@@ -8,13 +8,15 @@
     ],
     "theta_parameters": [
       "n_agents",
+      "visibility_distance",
       "outside_optimism",
       "exploration"
     ],
     "drop_constant_theta": true,
     "x_representation": "final",
     "discrete_theta_parameters": [
-      "n_agents"
+      "n_agents",
+      "visibility_distance"
     ]
   },
   "artifact": {

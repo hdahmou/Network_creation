@@ -10,13 +10,6 @@ namespace CoreModel {
         BRIDGE
     }
 
-    class ActorScheduler {
-        -_rng: Generator
-        -_n_actors: int
-        +ActorScheduler(seed, n_agents, n_actors)
-        +select_agents(agents) tuple[Agent, ...]
-    }
-
     class Action {
         +type: ActionType
         +source: int
@@ -41,10 +34,6 @@ namespace CoreModel {
         +node_idx: int
         +graph: Graph
         +outside_node_idxs: NDArray
-        +local_global: LocalGlobalMap
-        +create_local_global_map(graph, outside_global_node_ids) LocalGlobalMap
-        +global_from_local(local_idx: int) int
-        +local_from_global(node_id: int) int
     }
 }
 
@@ -57,14 +46,14 @@ namespace Runtime {
         +n_episodes: int
         +stagnation_patience: int | None
         +initial_graph_kind: str
+        +initial_graph_p: float | None
     }
 
     class Environment {
         +seed: int
         +state: EnvironmentState
         +node_ids: list[int]
-        +graph_size: int
-        +reset() EnvironmentState
+        +reset(seed: int | None) EnvironmentState
         +step(actions: Sequence[Action]) EnvironmentState
         +get_observation(agent: Agent) Observation
         +get_action_space(agent: Agent) ActionSpace
@@ -86,20 +75,20 @@ namespace Runtime {
         +get_decision(observation: Observation, action_space: ActionSpace) PolicyDecision
     }
 
+    class ActorScheduler {
+        +select_agents(agents: tuple[Agent, ...]) tuple[Agent, ...]
+    }
+
     class Simulator {
-        +rng: Generator
-        +agents: tuple[Agent, ...]
-        +n_agents: int
-        +n_completed_episodes: int
         +env: Environment
+        +agents: tuple[Agent, ...]
         +actor_scheduler: ActorScheduler
         +observers: tuple[SimulationObserver, ...]
-        -_step_observers_by_step: tuple[tuple[SimulationObserver, ...], ...]
         +max_steps: int
         +stagnation_patience: int | None
+        +n_completed_episodes: int
         +reset() void
         +run(n_episodes: int, reset_observers: bool) void
-        -_decision_to_global(observation: Observation, decision: PolicyDecision) PolicyDecision
     }
 }
 
@@ -125,6 +114,11 @@ namespace Policies {
         +distance_discount: float
         +exploration: float
         +outside_optimism: float
+    }
+
+    class ThresholdLinkPolicy {
+        +link_threshold: float
+        +p_act: float
     }
 }
 
@@ -191,6 +185,7 @@ namespace ObserverStatistics {
     class EpisodeStatisticObserver {
         <<abstract>>
         +name: str
+        +n_agents: int
         +observation_sampling: ObservationSampling
         +aggregations: tuple[str, ...]
         +n_episodes: int
@@ -198,6 +193,7 @@ namespace ObserverStatistics {
         +get() StatisticResult
         +fixed_output_shape(max_steps: int, observation_sampling: ObservationSampling) tuple[int, ...]
         +fixed_output_dtype() dtype
+        +reference_values(context: Mapping, references: Mapping | None) dict[str, float | None]
     }
 
     class EpisodeSeriesStatisticObserver {
@@ -249,13 +245,21 @@ namespace Observers {
     }
 
     class HubPersistenceObserver {
-        -_window_size: int
         +observes_step(step_index: int, max_steps: int) bool
     }
 
     class TriadCensusObserver {
         +dimension_names: tuple[str, ...]
         +triad_type_names: tuple[str, ...]
+    }
+
+    class AgentPayoffObserver {
+        +benefit_to_cost_ratio: float
+        +distance_discount: float
+        +n_agent_slots: int
+        +dimension_names: tuple[str, ...]
+        +degree_ranked_dimension_names: tuple[str, ...]
+        +degree_ranked_result(dimension_name: str) StatisticResult
     }
 
     class StateHistoryResult {
@@ -297,13 +301,14 @@ Simulator --> Environment : uses
 Simulator --> Agent : schedules
 Simulator --> ActorScheduler : actor_scheduler
 Simulator --> SimulationObserver : notifies
-Simulator ..> Observation : converts local decisions
-Simulator ..> PolicyDecision : globalizes actions
+Simulator ..> Observation : passes to policies
+Simulator ..> PolicyDecision : applies decisions
 
 RandomPolicy --|> Policy : extends
 ReplayPolicy --|> Policy : extends
 MyopicPayoffPolicy --|> Policy : extends
 BestResponsePolicy --|> Policy : extends
+ThresholdLinkPolicy --|> Policy : extends
 
 SimulationObserver --> ObservationSampling : sampling
 StateView ..> EnvironmentState : from_state
@@ -328,6 +333,8 @@ CentralPointOfDominanceObserver --|> EpisodeSeriesStatisticObserver : extends
 CenteredMeanWelfareObserver --|> EpisodeSeriesStatisticObserver : extends
 HubPersistenceObserver --|> EpisodeSeriesStatisticObserver : extends
 TriadCensusObserver --|> EpisodeSeriesTensorStatisticObserver : extends
+AgentPayoffObserver --|> EpisodeSeriesTensorStatisticObserver : extends
+AgentPayoffObserver ..> StatisticResult : degree_ranked_result
 StateHistoryObserver ..|> SimulationObserver : implements
 StateHistoryObserver ..> StateHistoryResult : returns
 ActionPrintObserver ..|> SimulationObserver : implements

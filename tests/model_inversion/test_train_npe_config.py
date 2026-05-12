@@ -159,10 +159,18 @@ class TrainNPEConfigTests(unittest.TestCase):
         )
         self.assertEqual(
             config.theta_parameters,
-            ("n_agents", "outside_optimism", "exploration"),
+            (
+                "n_agents",
+                "visibility_distance",
+                "outside_optimism",
+                "exploration",
+            ),
         )
         self.assertEqual(config.x_representation, "final")
-        self.assertEqual(config.discrete_theta_parameters, ("n_agents",))
+        self.assertEqual(
+            config.discrete_theta_parameters,
+            ("n_agents", "visibility_distance"),
+        )
         self.assertEqual(config.prior_sample_count, 4096)
         self.assertEqual(config.diagnostics.reserve_count, 200)
         self.assertEqual(config.density.model, "mnpe")
@@ -174,6 +182,32 @@ class TrainNPEConfigTests(unittest.TestCase):
         self.assertNotIn("rnn_type", payload["embedding"])
         self.assertNotIn("rnn_bidirectional", payload["embedding"])
         self.assertEqual(config.training.training_batch_size, 200)
+
+    def test_centered_mean_welfare_rnn_config_loads_mixed_parameters(self) -> None:
+        config_path = (
+            PROJECT_ROOT
+            / "configs"
+            / "model_inversion.centered_mean_welfare.rnn.train_npe_config.json"
+        )
+
+        config = self.script.load_train_config(config_path)
+
+        self.assertEqual(
+            config.theta_parameters,
+            (
+                "n_agents",
+                "visibility_distance",
+                "outside_optimism",
+                "exploration",
+            ),
+        )
+        self.assertEqual(
+            config.discrete_theta_parameters,
+            ("n_agents", "visibility_distance"),
+        )
+        self.assertEqual(config.x_representation, "timeseries")
+        self.assertEqual(config.embedding.kind, "rnn")
+        self.assertEqual(config.density.model, "mnpe")
 
     def test_load_train_config_requires_diagnostics_reserve_count(self) -> None:
         config_path = self.write_config(
@@ -385,12 +419,14 @@ class TrainNPEConfigTests(unittest.TestCase):
             expected_theta[train_indices],
         )
 
-    def test_train_from_config_uses_mnpe_for_agent_count(self) -> None:
+    def test_train_from_config_uses_mnpe_for_agent_count_and_visibility_distance(
+        self,
+    ) -> None:
         output_root = Path(self.temp_dir.name) / "model_inversion_mixed"
         config = self.script.TrainNPEConfig(
             zarr_path=(self.config_dir / "../artifacts/run.zarr").resolve(),
             observers=("density.mean",),
-            theta_parameters=("n_agents", "alpha"),
+            theta_parameters=("n_agents", "alpha", "visibility_distance"),
             drop_constant_theta=False,
             x_representation="final",
             output_root=output_root,
@@ -405,7 +441,7 @@ class TrainNPEConfigTests(unittest.TestCase):
                 max_num_epochs=3,
             ),
             diagnostics=self.script.DiagnosticsConfig(reserve_count=1),
-            discrete_theta_parameters=("n_agents",),
+            discrete_theta_parameters=("n_agents", "visibility_distance"),
         )
 
         raw_results = xr.Dataset(
@@ -414,21 +450,21 @@ class TrainNPEConfigTests(unittest.TestCase):
                     ("sample", "theta_parameter"),
                     np.asarray(
                         [
-                            [10.0, 0.1],
-                            [20.0, 0.2],
-                            [10.0, 0.3],
-                            [20.0, 0.4],
+                            [10.0, 0.1, 1.0],
+                            [20.0, 0.2, 2.0],
+                            [10.0, 0.3, 3.0],
+                            [20.0, 0.4, 4.0],
                         ],
                         dtype=np.float32,
                     ),
                 ),
                 "prior_low": (
                     "theta_parameter",
-                    np.asarray([10.0, 0.0], dtype=np.float32),
+                    np.asarray([10.0, 0.0, 1.0], dtype=np.float32),
                 ),
                 "prior_high": (
                     "theta_parameter",
-                    np.asarray([20.0, 1.0], dtype=np.float32),
+                    np.asarray([20.0, 1.0, 4.0], dtype=np.float32),
                 ),
                 "x": (
                     ("sample", "step", "observable"),
@@ -445,7 +481,10 @@ class TrainNPEConfigTests(unittest.TestCase):
             },
             coords={
                 "sample": np.asarray([0, 1, 2, 3], dtype=np.int64),
-                "theta_parameter": ("theta_parameter", ["n_agents", "alpha"]),
+                "theta_parameter": (
+                    "theta_parameter",
+                    ["n_agents", "alpha", "visibility_distance"],
+                ),
                 "observable": ("observable", ["density.mean"]),
                 "step": np.asarray([0, 1], dtype=np.int64),
             },
@@ -475,7 +514,12 @@ class TrainNPEConfigTests(unittest.TestCase):
             seed=1,
         )
         expected_reordered_theta = np.asarray(
-            [[0.1, 10.0], [0.2, 20.0], [0.3, 10.0], [0.4, 20.0]],
+            [
+                [0.1, 10.0, 1.0],
+                [0.2, 20.0, 2.0],
+                [0.3, 10.0, 3.0],
+                [0.4, 20.0, 4.0],
+            ],
             dtype=np.float32,
         )
         expected_x = np.asarray([[2.0], [4.0], [6.0], [8.0]], dtype=np.float32)
@@ -489,11 +533,17 @@ class TrainNPEConfigTests(unittest.TestCase):
         )
         self.assertEqual(
             train_amortized_npe.call_args.kwargs["num_categories_per_discrete_theta"],
-            (2,),
+            (2, 4),
         )
         self.assertEqual(result["sbi_method"], "MNPE")
-        self.assertEqual(result["theta_names"], ["alpha", "n_agents"])
-        self.assertEqual(result["discrete_theta_names"], ["n_agents"])
+        self.assertEqual(
+            result["theta_names"],
+            ["alpha", "n_agents", "visibility_distance"],
+        )
+        self.assertEqual(
+            result["discrete_theta_names"],
+            ["n_agents", "visibility_distance"],
+        )
         self.assertEqual(result["train_count"], 3)
         self.assertEqual(result["diagnostic_count"], 1)
 
@@ -526,13 +576,22 @@ class TrainNPEConfigTests(unittest.TestCase):
             saved_posterior["prior_samples"],
             expected_reordered_theta[train_indices],
         )
-        self.assertEqual(metadata["dataset"]["theta_names"], ["alpha", "n_agents"])
+        self.assertEqual(
+            metadata["dataset"]["theta_names"],
+            ["alpha", "n_agents", "visibility_distance"],
+        )
         self.assertEqual(metadata["dataset"]["continuous_theta_names"], ["alpha"])
-        self.assertEqual(metadata["dataset"]["discrete_theta_names"], ["n_agents"])
-        self.assertEqual(metadata["dataset"]["discrete_theta_values"], [[10, 20]])
+        self.assertEqual(
+            metadata["dataset"]["discrete_theta_names"],
+            ["n_agents", "visibility_distance"],
+        )
+        self.assertEqual(
+            metadata["dataset"]["discrete_theta_values"],
+            [[10, 20], [1, 2, 3, 4]],
+        )
         self.assertEqual(
             metadata["dataset"]["num_categories_per_discrete_theta"],
-            [2],
+            [2, 4],
         )
 
 

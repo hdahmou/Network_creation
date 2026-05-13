@@ -220,6 +220,193 @@ class RandomPolicyResultFormatterTest(unittest.TestCase):
 
         np.testing.assert_array_equal(ds.coords["step"].values, np.asarray([0, 5, 10]))
 
+    def test_from_zarr_normalize_time_false_matches_default(self) -> None:
+        config = build_random_config()
+        config["population"]["n_agents"] = [2, 4]
+        config["simulator"]["max_steps"] = 2
+        config["simulator"]["actor_scheduler"]["n_actors"] = 1
+        outputs_by_index = [
+            (
+                0,
+                {
+                    "density.mean": np.asarray([0.0, 1.0, 2.0], dtype=np.float32),
+                    "centered_mean_welfare.mean": np.asarray(
+                        [10.0, 11.0, 12.0], dtype=np.float32
+                    ),
+                },
+            ),
+            (
+                1,
+                {
+                    "density.mean": np.asarray([20.0, 21.0, 22.0], dtype=np.float32),
+                    "centered_mean_welfare.mean": np.asarray(
+                        [30.0, 31.0, 32.0], dtype=np.float32
+                    ),
+                },
+            ),
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store_path = write_result_store(
+                Path(tmpdir),
+                config=config,
+                outputs_by_index=outputs_by_index,
+                total_inputs=2,
+            )
+
+            default_ds = load_policy_results(store_path)
+            raw_ds = load_policy_results(store_path, normalize_time=False)
+
+        self.assertTrue(default_ds.identical(raw_ds))
+
+    def test_from_zarr_normalizes_time_to_common_range_and_interpolates(self) -> None:
+        config = build_random_config()
+        config["population"]["n_agents"] = [2, 4]
+        config["simulator"]["max_steps"] = 4
+        config["simulator"]["actor_scheduler"]["n_actors"] = 1
+        outputs_by_index = [
+            (
+                0,
+                {
+                    "density.mean": np.asarray(
+                        [0.0, 10.0, 20.0, 30.0, 40.0],
+                        dtype=np.float32,
+                    ),
+                    "centered_mean_welfare.mean": np.asarray(
+                        [100.0, 110.0, 120.0, 130.0, 140.0],
+                        dtype=np.float32,
+                    ),
+                },
+            ),
+            (
+                1,
+                {
+                    "density.mean": np.asarray(
+                        [200.0, 201.0, 202.0, 203.0, 204.0],
+                        dtype=np.float32,
+                    ),
+                    "centered_mean_welfare.mean": np.asarray(
+                        [300.0, 301.0, 302.0, 303.0, 304.0],
+                        dtype=np.float32,
+                    ),
+                },
+            ),
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store_path = write_result_store(
+                Path(tmpdir),
+                config=config,
+                outputs_by_index=outputs_by_index,
+                total_inputs=2,
+            )
+
+            ds = load_policy_results(store_path, normalize_time=True)
+
+        np.testing.assert_allclose(
+            ds.coords["step"].values,
+            np.asarray([0.0, 0.5, 1.0], dtype=np.float64),
+        )
+        self.assertEqual(ds.attrs["normalize_time"], True)
+        self.assertEqual(ds.attrs["time_axis"], "activation_opportunities_per_agent")
+        self.assertEqual(ds.attrs["raw_step_labels"], [0.0, 1.0, 2.0, 3.0, 4.0])
+        self.assertEqual(ds.attrs["common_normalized_time_max"], 1.0)
+        self.assertEqual(ds.attrs["normalized_time_resolution"], 0.5)
+        np.testing.assert_allclose(
+            ds["x"]
+            .sel(n_agents=2, observable="density.mean")
+            .isel(random_proportion=0, parameter_row=0)
+            .values,
+            np.asarray([0.0, 10.0, 20.0], dtype=np.float32),
+        )
+        np.testing.assert_allclose(
+            ds["x"]
+            .sel(n_agents=4, observable="density.mean")
+            .isel(random_proportion=0, parameter_row=0)
+            .values,
+            np.asarray([200.0, 202.0, 204.0], dtype=np.float32),
+        )
+
+    def test_from_zarr_normalizes_agent_payoff_time_axis(self) -> None:
+        config = build_random_config()
+        config["population"]["n_agents"] = [2, 4]
+        config["simulator"]["max_steps"] = 2
+        config["simulator"]["actor_scheduler"]["n_actors"] = 1
+        config["observers"]["outputs"] = [
+            {"name": "density", "output": "mean"},
+            {"name": "agent_payoff", "output": "mean"},
+        ]
+        outputs_by_index = [
+            (
+                0,
+                {
+                    "density.mean": np.asarray([0.0, 1.0, 2.0], dtype=np.float32),
+                    "agent_payoff.mean": np.asarray(
+                        [
+                            [0.0, 0.0, np.nan, np.nan],
+                            [0.0, 1.0, np.nan, np.nan],
+                            [0.5, 1.0, np.nan, np.nan],
+                        ],
+                        dtype=np.float32,
+                    ),
+                },
+            ),
+            (
+                1,
+                {
+                    "density.mean": np.asarray([10.0, 11.0, 12.0], dtype=np.float32),
+                    "agent_payoff.mean": np.asarray(
+                        [
+                            [0.0, 0.0, 0.0, 0.0],
+                            [1.0, 2.0, 3.0, 4.0],
+                            [5.0, 6.0, 7.0, 8.0],
+                        ],
+                        dtype=np.float32,
+                    ),
+                },
+            ),
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store_path = write_result_store(
+                Path(tmpdir),
+                config=config,
+                outputs_by_index=outputs_by_index,
+                total_inputs=2,
+            )
+
+            ds = load_policy_results(store_path, normalize_time=True)
+
+        np.testing.assert_allclose(ds.coords["step"].values, [0.0, 0.5])
+        self.assertEqual(ds["agent_payoff.mean"].shape, (2, 1, 1, 2, 4))
+        np.testing.assert_allclose(
+            ds["agent_payoff.mean"]
+            .sel(n_agents=2)
+            .isel(random_proportion=0, parameter_row=0)
+            .values,
+            np.asarray(
+                [
+                    [0.0, 0.0, np.nan, np.nan],
+                    [0.0, 1.0, np.nan, np.nan],
+                ],
+                dtype=np.float32,
+            ),
+            equal_nan=True,
+        )
+        np.testing.assert_allclose(
+            ds["agent_payoff.mean"]
+            .sel(n_agents=4)
+            .isel(random_proportion=0, parameter_row=0)
+            .values,
+            np.asarray(
+                [
+                    [0.0, 0.0, 0.0, 0.0],
+                    [5.0, 6.0, 7.0, 8.0],
+                ],
+                dtype=np.float32,
+            ),
+        )
+
     def test_from_zarr_supports_scalar_outputs_without_timeseries(self) -> None:
         config = build_random_config()
         outputs_by_index = [

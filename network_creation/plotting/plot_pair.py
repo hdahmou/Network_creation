@@ -15,20 +15,15 @@ class _AxisSpec:
     limits: tuple[float, float]
     levels: np.ndarray | None = None
     edges: np.ndarray | None = None
+    tick_labels: tuple[str, ...] | None = None
 
 
 def _discrete_edges(levels: np.ndarray) -> np.ndarray:
-    if levels.size == 1:
-        level = float(levels[0])
-        return np.array([level - 0.5, level + 0.5], dtype=float)
-    midpoints = (levels[:-1] + levels[1:]) / 2.0
-    return np.concatenate(
-        (
-            [levels[0] - (midpoints[0] - levels[0])],
-            midpoints,
-            [levels[-1] + (levels[-1] - midpoints[-1])],
-        )
-    )
+    return np.arange(levels.size + 1, dtype=float) - 0.5
+
+
+def _discrete_tick_label(value: float) -> str:
+    return f"{value:g}"
 
 
 def _build_axis_spec(
@@ -38,10 +33,17 @@ def _build_axis_spec(
 ) -> _AxisSpec:
     values = np.asarray(values)
     if is_ordered_discrete:
-        levels = np.asarray(np.unique(values), dtype=float)
-        edges = _discrete_edges(levels)
+        raw_levels = np.asarray(np.unique(values), dtype=float)
+        levels = np.arange(raw_levels.size, dtype=float)
+        edges = _discrete_edges(raw_levels)
+        mapped_values = np.searchsorted(raw_levels, values).astype(float)
         return _AxisSpec(
-            values, True, (float(edges[0]), float(edges[-1])), levels, edges
+            mapped_values,
+            True,
+            (float(edges[0]), float(edges[-1])),
+            levels,
+            edges,
+            tuple(_discrete_tick_label(value) for value in raw_levels),
         )
     if bounds is None:
         bounds = (float(values.min()), float(values.max()))
@@ -79,6 +81,8 @@ def _apply_axis_metadata(ax: Axes, x_spec: _AxisSpec, y_spec: _AxisSpec) -> None
     ax.set_ylim(*y_spec.limits)
     if x_spec.levels is not None:
         ax.set_xticks(x_spec.levels)
+        assert x_spec.tick_labels is not None
+        ax.set_xticklabels(x_spec.tick_labels)
         ax.xaxis.set_minor_locator(NullLocator())
         assert x_spec.edges is not None
         for edge in x_spec.edges[1:-1]:
@@ -91,6 +95,8 @@ def _apply_axis_metadata(ax: Axes, x_spec: _AxisSpec, y_spec: _AxisSpec) -> None
             )
     if y_spec.levels is not None:
         ax.set_yticks(y_spec.levels)
+        assert y_spec.tick_labels is not None
+        ax.set_yticklabels(y_spec.tick_labels)
         ax.yaxis.set_minor_locator(NullLocator())
         assert y_spec.edges is not None
         for edge in y_spec.edges[1:-1]:

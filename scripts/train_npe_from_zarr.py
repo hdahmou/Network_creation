@@ -56,10 +56,10 @@ from network_creation.model_inversion.training import (  # noqa: E402
 )
 
 
-def load_policy_results(zarr_path: str | Path):
+def load_policy_results(zarr_path: str | Path, *, normalize_time: bool):
     from tasks.policies import load_policy_results as _load_policy_results
 
-    return _load_policy_results(zarr_path)
+    return _load_policy_results(zarr_path, normalize_time=normalize_time)
 
 
 @dataclass(frozen=True)
@@ -86,6 +86,13 @@ class TrainNPEConfig:
     diagnostics: DiagnosticsConfig
     discrete_theta_parameters: tuple[str, ...] | None = None
     prior_sample_count: int = 4096
+    normalize_time: bool = True
+
+    def __post_init__(self) -> None:
+        if self.embedding.kind == "rnn" and self.x_representation != "timeseries":
+            raise ValueError(
+                "embedding.kind='rnn' requires dataset.x_representation='timeseries'"
+            )
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -128,6 +135,12 @@ def load_train_config(config_path: str | Path) -> TrainNPEConfig:
         ObservationRepresentation,
         dataset.get("x_representation", "final"),
     )
+    normalize_time = bool(dataset.get("normalize_time", True))
+    embedding_kind = cast(EmbeddingKind, embedding.get("kind", "identity"))
+    if embedding_kind == "rnn" and x_representation != "timeseries":
+        raise ValueError(
+            "embedding.kind='rnn' requires dataset.x_representation='timeseries'"
+        )
 
     return TrainNPEConfig(
         zarr_path=_resolve_config_path(config_dir, dataset["zarr_path"]),
@@ -136,6 +149,7 @@ def load_train_config(config_path: str | Path) -> TrainNPEConfig:
         discrete_theta_parameters=discrete_theta_parameters,
         drop_constant_theta=dataset.get("drop_constant_theta", True),
         x_representation=x_representation,
+        normalize_time=normalize_time,
         output_root=_resolve_config_path(
             config_dir,
             artifact.get("output_root", "artifacts/model_inversion"),
@@ -163,7 +177,7 @@ def load_train_config(config_path: str | Path) -> TrainNPEConfig:
             z_score_x=density.get("z_score_x", "independent"),
         ),
         embedding=EmbeddingConfig(
-            kind=cast(EmbeddingKind, embedding.get("kind", "identity")),
+            kind=embedding_kind,
             output_dim=embedding.get("output_dim", 32),
             rnn_hidden_size=embedding.get("rnn_hidden_size", 64),
             rnn_num_layers=embedding.get("rnn_num_layers", 1),
@@ -194,10 +208,28 @@ def train_from_config(config: TrainNPEConfig) -> dict[str, Any]:
     np.random.seed(config.training.seed)
 
     LOGGER.info(
-        "[stage 2/10] Loading zarr dataset from %s",
+        "[stage 2/10] Loading zarr dataset from %s normalize_time=%s",
         config.zarr_path,
+        config.normalize_time,
     )
-    raw_results = load_policy_results(config.zarr_path)
+    raw_results = load_policy_results(
+        config.zarr_path,
+        normalize_time=config.normalize_time,
+    )
+    raw_results = raw_results.assign_attrs(
+        {
+            **raw_results.attrs,
+            "normalize_time": bool(config.normalize_time),
+            "time_axis": raw_results.attrs.get(
+                "time_axis",
+                (
+                    "activation_opportunities_per_agent"
+                    if config.normalize_time
+                    else "raw_simulator_steps"
+                ),
+            ),
+        }
+    )
     LOGGER.info(
         "[stage 2/10] Loaded zarr dataset with dimensions %s",
         _format_mapping(raw_results.sizes),
@@ -205,10 +237,11 @@ def train_from_config(config: TrainNPEConfig) -> dict[str, Any]:
 
     LOGGER.info(
         "[stage 3/10] Filtering inversion dataset: observers=%s "
-        "x_representation=%s theta_parameters=%s discrete_theta_parameters=%s "
-        "drop_constant_theta=%s",
+        "x_representation=%s normalize_time=%s theta_parameters=%s "
+        "discrete_theta_parameters=%s drop_constant_theta=%s",
         list(config.observers),
         config.x_representation,
+        config.normalize_time,
         None if config.theta_parameters is None else list(config.theta_parameters),
         (
             "auto"
@@ -391,6 +424,7 @@ def train_from_config(config: TrainNPEConfig) -> dict[str, Any]:
         "discrete_theta_names": list(dataset_metadata.get("discrete_theta_names", [])),
         "x_names": list(dataset_metadata["x_names"]),
         "x_representation": dataset_metadata["x_representation"],
+        "normalize_time": bool(config.normalize_time),
     }
 
 

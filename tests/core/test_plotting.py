@@ -250,6 +250,37 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
         self.assertIn("mean ± SD", labels)
         plt.close(figure)
 
+    def test_multi_episode_plot_accepts_custom_x_values(self) -> None:
+        observer = StaticAggregatedSeriesObserver()
+        figure, axis = plt.subplots()
+
+        plot_episode_series_observer(
+            observer=observer,
+            ax=axis,
+            x_values=np.asarray([0.0, 0.25]),
+            x_label="activation opportunities per agent",
+        )
+
+        self.assertEqual(axis.get_xlabel(), "activation opportunities per agent")
+        np.testing.assert_allclose(axis.lines[0].get_xdata(), [0.0, 0.25])
+        vertices = axis.collections[0].get_paths()[0].vertices
+        np.testing.assert_allclose(vertices[:, 0].min(), 0.0)
+        np.testing.assert_allclose(vertices[:, 0].max(), 0.25)
+        plt.close(figure)
+
+    def test_plot_rejects_custom_x_values_with_wrong_shape(self) -> None:
+        observer = StaticAggregatedSeriesObserver()
+        figure, axis = plt.subplots()
+
+        with self.assertRaisesRegex(ValueError, "x_values must have shape"):
+            plot_episode_series_observer(
+                observer=observer,
+                ax=axis,
+                x_values=np.asarray([0.0, 0.25, 0.5]),
+            )
+
+        plt.close(figure)
+
     def test_runs_only_plot_uses_single_episode_title_when_needed(self) -> None:
         observer = DensityObserver(
             n_agents=2,
@@ -1085,9 +1116,9 @@ class PlotPairTest(unittest.TestCase):
         X = np.array(
             [
                 [1.0, 0.2, 3.0],
-                [1.0, 0.5, 4.0],
-                [2.0, 0.8, 5.0],
-                [3.0, 1.1, 6.0],
+                [2.0, 0.5, 4.0],
+                [3.0, 0.8, 5.0],
+                [50.0, 1.1, 6.0],
             ],
             dtype=float,
         )
@@ -1104,12 +1135,20 @@ class PlotPairTest(unittest.TestCase):
         self.assertIsInstance(collection, PathCollection)
         self.assertIs(collection.norm, custom_norm)
         self.assertEqual(len(axes[0, 0].images), 0)
-        np.testing.assert_allclose(axes[0, 0].get_xticks(), [1.0, 2.0, 3.0])
+        np.testing.assert_allclose(
+            collection.get_offsets()[:, 0],
+            [0.0, 1.0, 2.0, 3.0],
+        )
+        np.testing.assert_allclose(axes[0, 0].get_xticks(), [0.0, 1.0, 2.0, 3.0])
+        self.assertEqual(
+            [tick.get_text() for tick in axes[1, 0].get_xticklabels()],
+            ["1", "2", "3", "50"],
+        )
         self.assertIsInstance(axes[0, 0].xaxis.get_minor_locator(), NullLocator)
-        self.assertEqual(len(axes[0, 0].lines), 2)
+        self.assertEqual(len(axes[0, 0].lines), 3)
         np.testing.assert_allclose(
             [line.get_xdata()[0] for line in axes[0, 0].lines],
-            [1.5, 2.5],
+            [0.5, 1.5, 2.5],
         )
         plt.close(figure)
 
@@ -1119,9 +1158,9 @@ class PlotPairTest(unittest.TestCase):
         X = np.array(
             [
                 [1.0, 0.2, 3.0],
-                [1.0, 0.5, 4.0],
-                [2.0, 0.8, 5.0],
-                [3.0, 1.1, 6.0],
+                [2.0, 0.5, 4.0],
+                [3.0, 0.8, 5.0],
+                [50.0, 1.1, 6.0],
             ],
             dtype=float,
         )
@@ -1137,12 +1176,16 @@ class PlotPairTest(unittest.TestCase):
         collection = axes[0, 0].collections[0]
         self.assertIsInstance(collection, QuadMesh)
         self.assertIs(collection.norm, custom_norm)
-        np.testing.assert_allclose(axes[0, 0].get_xticks(), [1.0, 2.0, 3.0])
+        np.testing.assert_allclose(axes[0, 0].get_xticks(), [0.0, 1.0, 2.0, 3.0])
+        self.assertEqual(
+            [tick.get_text() for tick in axes[1, 0].get_xticklabels()],
+            ["1", "2", "3", "50"],
+        )
         self.assertIsInstance(axes[0, 0].xaxis.get_minor_locator(), NullLocator)
-        self.assertEqual(len(axes[0, 0].lines), 2)
+        self.assertEqual(len(axes[0, 0].lines), 3)
         np.testing.assert_allclose(
             [line.get_xdata()[0] for line in axes[0, 0].lines],
-            [1.5, 2.5],
+            [0.5, 1.5, 2.5],
         )
         plt.close(figure)
 
@@ -1152,9 +1195,9 @@ class PlotPairTest(unittest.TestCase):
         X = np.array(
             [
                 [1.0, 10.0, 0.1],
-                [1.0, 20.0, 0.2],
-                [2.0, 10.0, 0.3],
-                [3.0, 20.0, 0.4],
+                [2.0, 20.0, 0.2],
+                [3.0, 10.0, 0.3],
+                [50.0, 100.0, 0.4],
             ],
             dtype=float,
         )
@@ -1170,18 +1213,26 @@ class PlotPairTest(unittest.TestCase):
         collection = axes[0, 0].collections[0]
         self.assertIsInstance(collection, QuadMesh)
         self.assertIs(collection.norm, custom_norm)
-        np.testing.assert_allclose(axes[0, 0].get_xticks(), [1.0, 2.0, 3.0])
-        np.testing.assert_allclose(axes[0, 0].get_yticks(), [10.0, 20.0])
+        np.testing.assert_allclose(axes[0, 0].get_xticks(), [0.0, 1.0, 2.0, 3.0])
+        np.testing.assert_allclose(axes[0, 0].get_yticks(), [0.0, 1.0, 2.0])
+        self.assertEqual(
+            [tick.get_text() for tick in axes[1, 0].get_xticklabels()],
+            ["1", "2", "3", "50"],
+        )
+        self.assertEqual(
+            [tick.get_text() for tick in axes[0, 0].get_yticklabels()],
+            ["10", "20", "100"],
+        )
         self.assertIsInstance(axes[0, 0].xaxis.get_minor_locator(), NullLocator)
         self.assertIsInstance(axes[0, 0].yaxis.get_minor_locator(), NullLocator)
-        self.assertEqual(len(axes[0, 0].lines), 3)
+        self.assertEqual(len(axes[0, 0].lines), 5)
         np.testing.assert_allclose(
-            [line.get_xdata()[0] for line in axes[0, 0].lines[:2]],
-            [1.5, 2.5],
+            [line.get_xdata()[0] for line in axes[0, 0].lines[:3]],
+            [0.5, 1.5, 2.5],
         )
         np.testing.assert_allclose(
-            [line.get_ydata()[0] for line in axes[0, 0].lines[2:]],
-            [15.0],
+            [line.get_ydata()[0] for line in axes[0, 0].lines[3:]],
+            [0.5, 1.5],
         )
         plt.close(figure)
 

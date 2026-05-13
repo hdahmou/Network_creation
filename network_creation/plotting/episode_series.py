@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from matplotlib.axes import Axes
 import numpy as np
+from numpy.typing import ArrayLike
+
 from network_creation.core.observability import StatisticResult
 from network_creation.observers.agent_payoff_observer import AgentPayoffObserver
 from network_creation.observers.statistics.episode_series import (
@@ -27,6 +29,8 @@ def plot_episode_series_observer(
     band_color: str | None = None,
     label: str | None = None,
     set_title: bool = True,
+    x_values: ArrayLike | None = None,
+    x_label: str | None = None,
 ) -> Axes:
     """Plot one episode-series observer on one explicit matplotlib axis."""
 
@@ -38,6 +42,7 @@ def plot_episode_series_observer(
     ):
         raise ValueError("dimension_name is only supported for tensor-valued observers")
 
+    plot_steps = _plot_steps(observer.steps, x_values=x_values)
     legend_title = None
     if observer.aggregations:
         if _is_agent_payoff_virtual_dimension(observer, dimension_name):
@@ -59,6 +64,7 @@ def plot_episode_series_observer(
             band_color=band_color,
             label=label,
             set_title=set_title,
+            x_values=plot_steps,
         )
     else:
         if isinstance(observer, EpisodeSeriesTensorStatisticObserver):
@@ -66,7 +72,7 @@ def plot_episode_series_observer(
         else:
             selected_values = observer.values
         ax.plot(
-            observer.steps,
+            plot_steps,
             selected_values,
             linewidth=2,
             color=_PRIMARY_COLOR if color is None else color,
@@ -75,11 +81,11 @@ def plot_episode_series_observer(
         if set_title:
             ax.set_title(f"{observer.label} over one episode")
 
-    ax.set_xlabel(observer.x_label)
+    ax.set_xlabel(observer.x_label if x_label is None else x_label)
     ax.set_ylabel(observer.y_label)
     if observer.y_min is not None and observer.y_max is not None:
         ax.set_ylim(observer.y_min, observer.y_max)
-    ax.set_xlim(observer.steps[0], observer.steps[-1])
+    ax.set_xlim(plot_steps[0], plot_steps[-1])
     ax.grid(alpha=0.3)
 
     handles, labels = ax.get_legend_handles_labels()
@@ -124,9 +130,11 @@ def _plot_aggregated_outputs(
     band_color: str | None,
     label: str | None,
     set_title: bool,
+    x_values: np.ndarray,
 ) -> str | None:
     if result.steps is None:
         raise ValueError("episode-series statistic result must include steps")
+    plot_steps = _plot_steps(result.steps, x_values=x_values)
 
     primary_output_name = None
     for output_name in ("mean", "std"):
@@ -146,7 +154,7 @@ def _plot_aggregated_outputs(
             raise ValueError("output 'runs' must be a tuple of series")
         for run_values in runs:
             ax.plot(
-                result.steps,
+                plot_steps,
                 run_values,
                 color=primary_color,
                 alpha=0.02,
@@ -179,7 +187,7 @@ def _plot_aggregated_outputs(
             upper_band = np.minimum(upper_band, observer.y_max)
 
         ax.fill_between(
-            result.steps,
+            plot_steps,
             lower_band,
             upper_band,
             color=fill_color,
@@ -189,7 +197,7 @@ def _plot_aggregated_outputs(
         legend_title = _SPREAD_LEGEND_TITLE
 
     ax.plot(
-        result.steps,
+        plot_steps,
         selected_primary_values,
         color=primary_color,
         linewidth=2.5,
@@ -202,7 +210,6 @@ def _plot_aggregated_outputs(
             }.get(primary_output_name, primary_output_name)
         ),
     )
-    ax.set_xlim(result.steps[0], result.steps[-1])
     if not set_title:
         return legend_title
     if result.n_episodes == 1:
@@ -239,3 +246,24 @@ def _select_tensor_result_dimension(
         sample_shape=(),
         dimension_names=None,
     )
+
+
+def _plot_steps(
+    raw_steps: ArrayLike,
+    *,
+    x_values: ArrayLike | None,
+) -> np.ndarray:
+    steps = np.asarray(raw_steps, dtype=float)
+    if steps.ndim != 1:
+        raise ValueError("observer steps must be one-dimensional")
+    if x_values is None:
+        return steps
+
+    values = np.asarray(x_values, dtype=float)
+    if values.shape != steps.shape:
+        raise ValueError(f"x_values must have shape {steps.shape}")
+    if not np.all(np.isfinite(values)):
+        raise ValueError("x_values must contain only finite values")
+    if values.shape[0] > 1 and not np.all(np.diff(values) > 0.0):
+        raise ValueError("x_values must be strictly increasing")
+    return values

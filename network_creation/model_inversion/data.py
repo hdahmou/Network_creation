@@ -12,6 +12,13 @@ import xarray as xr
 ObservationRepresentation = Literal["final", "timeseries"]
 
 DEFAULT_DISCRETE_THETA_CANDIDATES = ("n_agents", "visibility_distance")
+TIME_METADATA_ATTRS = (
+    "normalize_time",
+    "time_axis",
+    "raw_step_labels",
+    "common_normalized_time_max",
+    "normalized_time_resolution",
+)
 
 
 def filter_inversion_dataset(
@@ -49,9 +56,12 @@ def filter_inversion_dataset(
         dtype=np.float32,
     )
     x_array = ds["x"].sel(observable=list(observable_names))
-    step_labels: tuple[int, ...] | None = tuple(int(v) for v in ds.coords["step"].values)
+    raw_step_labels = np.asarray(ds.coords["step"].values)
+    step_labels: NDArray[np.generic] | None = raw_step_labels
+    final_step_label: int | float | None = None
     if x_representation == "final":
         x_array = x_array.isel(step=-1, drop=True)
+        final_step_label = _numeric_scalar(raw_step_labels[-1])
         step_labels = None
     elif x_representation != "timeseries":
         raise ValueError(f"unsupported x representation: {x_representation}")
@@ -91,7 +101,18 @@ def filter_inversion_dataset(
         x_dims = ("sample", "observable")
     else:
         x_dims = ("sample", "step", "observable")
-        coords["step"] = ("step", list(step_labels))
+        coords["step"] = ("step", step_labels)
+
+    attrs = {
+        "result_store_path": str(ds.attrs["result_store_path"]),
+        "config_path": str(ds.attrs["config_path"]),
+        "constant_theta": constant_theta,
+        "has_failures": bool(ds.attrs["has_failures"]),
+        "x_representation": x_representation,
+        **_source_time_attrs(ds.attrs),
+    }
+    if final_step_label is not None:
+        attrs["final_step_label"] = final_step_label
 
     return xr.Dataset(
         data_vars={
@@ -102,13 +123,7 @@ def filter_inversion_dataset(
             "kept_mask": ("source_sample", kept_mask),
         },
         coords=coords,
-        attrs={
-            "result_store_path": str(ds.attrs["result_store_path"]),
-            "config_path": str(ds.attrs["config_path"]),
-            "constant_theta": constant_theta,
-            "has_failures": bool(ds.attrs["has_failures"]),
-            "x_representation": x_representation,
-        },
+        attrs=attrs,
     )
 
 
@@ -217,10 +232,11 @@ def inversion_dataset_metadata(dataset: xr.Dataset) -> dict[str, Any]:
         "x_representation": dataset.attrs["x_representation"],
         "n_simulations": int(dataset.sizes["sample"]),
     }
+    for key in (*TIME_METADATA_ATTRS, "final_step_label"):
+        if key in dataset.attrs:
+            metadata[key] = _json_value(dataset.attrs[key])
     if "step" in dataset.coords:
-        metadata["step_labels"] = [
-            int(value) for value in dataset.coords["step"].values
-        ]
+        metadata["step_labels"] = _numeric_list(dataset.coords["step"].values)
 
     if "discrete_theta_parameters" in dataset.attrs:
         metadata["continuous_theta_names"] = [
@@ -242,6 +258,40 @@ def inversion_dataset_metadata(dataset: xr.Dataset) -> dict[str, Any]:
         ]
 
     return metadata
+
+
+def _source_time_attrs(attrs: dict[Any, Any]) -> dict[str, Any]:
+    return {
+        key: _json_value(attrs[key])
+        for key in TIME_METADATA_ATTRS
+        if key in attrs
+    }
+
+
+def _json_value(value: Any) -> Any:
+    array = np.asarray(value)
+    if array.ndim == 0:
+        scalar = array.item()
+        if isinstance(scalar, (np.bool_, bool)):
+            return bool(scalar)
+        if isinstance(scalar, (np.integer, int)):
+            return int(scalar)
+        if isinstance(scalar, (np.floating, float)):
+            return float(scalar)
+        return scalar
+    return _numeric_list(array)
+
+
+def _numeric_list(values: Any) -> list[int | float]:
+    array = np.asarray(values)
+    return [_numeric_scalar(value) for value in array.reshape(-1)]
+
+
+def _numeric_scalar(value: Any) -> int | float:
+    scalar = np.asarray(value).item()
+    if isinstance(scalar, (np.integer, int)):
+        return int(scalar)
+    return float(scalar)
 
 
 def _stack_for_inversion(

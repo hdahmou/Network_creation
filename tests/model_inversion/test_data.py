@@ -125,6 +125,7 @@ class ModelDatasetTests(unittest.TestCase):
                 "prior_high",
                 "x_event_shape",
                 "x_representation",
+                "final_step_label",
                 "n_simulations",
             },
         )
@@ -143,6 +144,7 @@ class ModelDatasetTests(unittest.TestCase):
         self.assertEqual(metadata["prior_high"], [20.0, 1.0])
         self.assertEqual(metadata["x_event_shape"], [2])
         self.assertEqual(metadata["x_representation"], "final")
+        self.assertEqual(metadata["final_step_label"], 5)
         self.assertEqual(metadata["n_simulations"], 5)
 
     def test_filter_inversion_dataset_keeps_requested_theta_subset(self) -> None:
@@ -178,6 +180,32 @@ class ModelDatasetTests(unittest.TestCase):
         self.assertEqual(metadata["x_representation"], "timeseries")
         self.assertEqual(metadata["step_labels"], [0, 5])
         self.assertEqual(metadata["n_simulations"], 5)
+
+    def test_filter_inversion_dataset_preserves_normalized_time_metadata(self) -> None:
+        raw = self.formatted_results().assign_coords(
+            step=("step", np.asarray([0.0, 0.5], dtype=np.float64)),
+        ).assign_attrs(
+            normalize_time=True,
+            time_axis="activation_opportunities_per_agent",
+            raw_step_labels=[0.0, 5.0],
+            common_normalized_time_max=0.5,
+            normalized_time_resolution=0.5,
+        )
+
+        dataset = filter_inversion_dataset(
+            raw,
+            observers=("density.mean",),
+            x_representation="timeseries",
+        )
+        metadata = inversion_dataset_metadata(dataset)
+
+        np.testing.assert_allclose(dataset.coords["step"].values, [0.0, 0.5])
+        self.assertEqual(metadata["step_labels"], [0.0, 0.5])
+        self.assertEqual(metadata["normalize_time"], True)
+        self.assertEqual(metadata["time_axis"], "activation_opportunities_per_agent")
+        self.assertEqual(metadata["raw_step_labels"], [0.0, 5.0])
+        self.assertEqual(metadata["common_normalized_time_max"], 0.5)
+        self.assertEqual(metadata["normalized_time_resolution"], 0.5)
 
     def test_filter_inversion_dataset_flattens_dense_policy_axes(self) -> None:
         theta = np.asarray(

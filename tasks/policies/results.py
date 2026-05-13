@@ -12,6 +12,10 @@ from numpy.typing import NDArray
 import xarray as xr
 
 from network_creation.core.observability import ObservationSampling
+from network_creation.time_normalization import (
+    common_normalized_time_grid,
+    normalize_time_tensor,
+)
 
 from ..execution.zarr_store import load_zarr_results
 from .outputs import (
@@ -35,6 +39,7 @@ def load_policy_results(
     zarr_path: str | Path,
     *,
     load_sampled_agent_parameters: bool = False,
+    normalize_time: bool = False,
 ) -> xr.Dataset:
     skip_outputs = (
         ()
@@ -160,7 +165,7 @@ def load_policy_results(
             ),
         )
 
-    return xr.Dataset(
+    dataset = xr.Dataset(
         data_vars=data_vars,
         coords=coords,
         attrs={
@@ -169,6 +174,9 @@ def load_policy_results(
             "has_failures": attrs["has_failures"],
         },
     )
+    if not normalize_time:
+        return dataset
+    return _normalize_time_axis(dataset, policy_config=policy_config)
 
 
 def _result_coordinates(
@@ -513,6 +521,72 @@ def _dense_result_grid(
         result_coordinates.parameter_row,
     ] = array
     return dense
+
+
+def _normalize_time_axis(
+    dataset: xr.Dataset,
+    *,
+    policy_config: Any,
+) -> xr.Dataset:
+    """Return a copy of ``dataset`` resampled onto normalized simulation time."""
+    if "step" not in dataset.coords:
+        raise ValueError("cannot normalize time without a step coordinate")
+    if not isinstance(policy_config, Mapping):
+        raise ValueError("cannot normalize time without policy configuration metadata")
+
+    raw_step_labels = np.asarray(dataset.coords["step"].values, dtype=np.float64)
+    n_agents_values = np.asarray(dataset.coords["n_agents"].values, dtype=np.float64)
+    n_actors = _configured_n_actors(policy_config)
+    grid = common_normalized_time_grid(
+        raw_step_labels,
+        n_agents_values=n_agents_values,
+        n_actors=n_actors,
+    )
+
+    data_vars: dict[str, Any] = {}
+    for name, array in dataset.data_vars.items():
+        if "step" in array.dims:
+            if "n_agents" not in array.dims:
+                raise ValueError(
+                    f"cannot normalize time for {name!r} without an n_agents dimension"
+                )
+            data_vars[name] = (
+                array.dims,
+                normalize_time_tensor(
+                    array.values,
+                    raw_step_labels=raw_step_labels,
+                    n_agents=n_agents_values,
+                    n_actors=n_actors,
+                    n_agents_axis=array.dims.index("n_agents"),
+                    step_axis=array.dims.index("step"),
+                    target_times=grid.step_labels,
+                ).values,
+            )
+        else:
+            data_vars[name] = (array.dims, np.asarray(array.values))
+
+    coords: dict[str, Any] = {
+        name: (coord.dims, np.asarray(coord.values))
+        for name, coord in dataset.coords.items()
+        if name != "step"
+    }
+    coords["step"] = ("step", grid.step_labels)
+
+    attrs = dict(dataset.attrs)
+    attrs.update(grid.attrs())
+    return xr.Dataset(data_vars=data_vars, coords=coords, attrs=attrs)
+
+
+def _configured_n_actors(policy_config: Mapping[str, Any]) -> int:
+    simulator = policy_config.get("simulator", {})
+    if not isinstance(simulator, Mapping):
+        raise ValueError("cannot normalize time without simulator metadata")
+    actor_scheduler = simulator.get("actor_scheduler", {})
+    if not isinstance(actor_scheduler, Mapping) or "n_actors" not in actor_scheduler:
+        raise ValueError(
+            "cannot normalize time without simulator.actor_scheduler.n_actors"
+        )
+    return int(actor_scheduler["n_actors"])
 
 
 def _policy_proportion_name(

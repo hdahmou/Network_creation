@@ -35,6 +35,8 @@ dependencies = [
     "great-tables>=0.21.0",
     "jax>=0.10.0",
     "optax>=0.2.8",
+    "plotly>=6.7.0",
+    "hiplot>=0.1.33",
 ]
 
 [project.scripts]

@@ -3,12 +3,102 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
 from typing import Any
 
 import numpy as np
 from numpy.typing import NDArray
 
+from network_creation.time_normalization import normalize_time_tensor
+
 from .posterior import PosteriorArtifact, category_probabilities
+
+
+def observation_from_policy_outputs(
+    outputs: dict[str, Any],
+    artifact: PosteriorArtifact,
+    *,
+    n_agents: int,
+    n_actors: int,
+) -> NDArray[np.float32]:
+    """Return one recovery observation in the artifact's trained input format."""
+
+    dataset = artifact.metadata["dataset"]
+    representation = str(dataset.get("x_representation", "final"))
+    normalize_time = bool(dataset.get("normalize_time", False))
+
+    if representation == "final":
+        if normalize_time:
+            target_times = np.asarray([float(dataset["final_step_label"])])
+            return _normalized_observer_tensor(
+                outputs,
+                artifact,
+                dataset,
+                n_agents=n_agents,
+                n_actors=n_actors,
+                target_times=target_times,
+            )[0]
+        return np.asarray(
+            [
+                float(np.asarray(outputs[name], dtype=np.float32).reshape(-1)[-1])
+                for name in artifact.observation_order
+            ],
+            dtype=np.float32,
+        )
+
+    if representation == "timeseries":
+        if normalize_time:
+            target_times = np.asarray(dataset["step_labels"], dtype=np.float64)
+            return _normalized_observer_tensor(
+                outputs,
+                artifact,
+                dataset,
+                n_agents=n_agents,
+                n_actors=n_actors,
+                target_times=target_times,
+            )
+        else:
+            return _stack_observer_outputs(outputs, artifact.observation_order)
+
+    raise ValueError(f"unsupported x representation: {representation}")
+
+
+def _normalized_observer_tensor(
+    outputs: dict[str, Any],
+    artifact: PosteriorArtifact,
+    dataset: dict[str, Any],
+    *,
+    n_agents: int,
+    n_actors: int,
+    target_times: NDArray[np.float64],
+) -> NDArray[np.float32]:
+    values = _stack_observer_outputs(outputs, artifact.observation_order)
+    return normalize_time_tensor(
+        values,
+        raw_step_labels=dataset.get("raw_step_labels"),
+        n_agents=n_agents,
+        n_actors=n_actors,
+        step_axis=0,
+        target_times=target_times,
+    ).values
+
+
+def _stack_observer_outputs(
+    outputs: dict[str, Any],
+    observer_order: Sequence[str],
+) -> NDArray[np.float32]:
+    arrays = [
+        _one_dimensional_output(outputs[name], name=name)
+        for name in observer_order
+    ]
+    return np.stack(arrays, axis=-1).astype(np.float32)
+
+
+def _one_dimensional_output(values: Any, *, name: str) -> NDArray[np.float32]:
+    array = np.asarray(values, dtype=np.float32)
+    if array.ndim != 1:
+        raise ValueError(f"{name} recovery output must be a one-dimensional series")
+    return array
 
 
 def theta_metadata_rows(artifact: PosteriorArtifact) -> list[dict[str, Any]]:

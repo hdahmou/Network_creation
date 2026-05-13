@@ -116,6 +116,7 @@ class TrainNPEConfigTests(unittest.TestCase):
         self.assertEqual(config.theta_parameters, ("n_agents", "exploration"))
         self.assertFalse(config.drop_constant_theta)
         self.assertEqual(config.x_representation, "timeseries")
+        self.assertTrue(config.normalize_time)
         self.assertEqual(config.run_name, "manual-run")
         self.assertTrue(config.save_training_data)
         self.assertEqual(config.diagnostics.reserve_count, 7)
@@ -130,6 +131,30 @@ class TrainNPEConfigTests(unittest.TestCase):
         self.assertEqual(config.training.seed, 7)
         self.assertIsNone(config.training.clip_max_norm)
         self.assertFalse(config.training.show_progress_bars)
+
+    def test_load_train_config_allows_explicit_raw_time(self) -> None:
+        config_path = self.write_config(
+            {
+                "dataset": {
+                    "zarr_path": "../artifacts/run.zarr",
+                    "observers": ["density.mean"],
+                    "normalize_time": False,
+                },
+                "artifact": {
+                    "output_root": "../artifacts/model_inversion",
+                },
+                "diagnostics": {
+                    "reserve_count": 1,
+                },
+                "density_estimator": {},
+                "embedding": {"kind": "identity"},
+                "training": {},
+            }
+        )
+
+        config = self.script.load_train_config(config_path)
+
+        self.assertFalse(config.normalize_time)
 
     def test_baseline_config_loads(self) -> None:
         baseline_path = (
@@ -167,6 +192,8 @@ class TrainNPEConfigTests(unittest.TestCase):
             ),
         )
         self.assertEqual(config.x_representation, "final")
+        self.assertTrue(config.normalize_time)
+        self.assertEqual(payload["dataset"]["normalize_time"], True)
         self.assertEqual(
             config.discrete_theta_parameters,
             ("n_agents", "visibility_distance"),
@@ -206,8 +233,32 @@ class TrainNPEConfigTests(unittest.TestCase):
             ("n_agents", "visibility_distance"),
         )
         self.assertEqual(config.x_representation, "timeseries")
+        self.assertTrue(config.normalize_time)
         self.assertEqual(config.embedding.kind, "rnn")
         self.assertEqual(config.density.model, "mnpe")
+
+    def test_load_train_config_rejects_rnn_without_timeseries_inputs(self) -> None:
+        config_path = self.write_config(
+            {
+                "dataset": {
+                    "zarr_path": "../artifacts/run.zarr",
+                    "observers": ["density.mean"],
+                    "x_representation": "final",
+                },
+                "artifact": {
+                    "output_root": "../artifacts/model_inversion",
+                },
+                "diagnostics": {
+                    "reserve_count": 1,
+                },
+                "density_estimator": {},
+                "embedding": {"kind": "rnn"},
+                "training": {},
+            }
+        )
+
+        with self.assertRaisesRegex(ValueError, "requires dataset.x_representation"):
+            self.script.load_train_config(config_path)
 
     def test_load_train_config_requires_diagnostics_reserve_count(self) -> None:
         config_path = self.write_config(
@@ -318,7 +369,11 @@ class TrainNPEConfigTests(unittest.TestCase):
         )
 
         with (
-            patch.object(self.script, "load_policy_results", return_value=raw_results),
+            patch.object(
+                self.script,
+                "load_policy_results",
+                return_value=raw_results,
+            ) as load_policy_results,
             patch.object(
                 self.script,
                 "train_amortized_npe",
@@ -331,7 +386,12 @@ class TrainNPEConfigTests(unittest.TestCase):
         artifact_dir = output_root / "logging-run"
         tensorboard_log_dir = artifact_dir / "sbi_logs"
         logs = "\n".join(captured.output)
+        load_policy_results.assert_called_once_with(
+            config.zarr_path,
+            normalize_time=config.normalize_time,
+        )
         self.assertIn("[stage 2/10] Loading zarr dataset", logs)
+        self.assertIn("normalize_time=True", logs)
         self.assertIn("[stage 3/10] Filtering inversion dataset", logs)
         self.assertIn("[stage 4/10] Creating artifact directory", logs)
         self.assertIn("[stage 5/10] Starting NPE training", logs)
@@ -378,6 +438,7 @@ class TrainNPEConfigTests(unittest.TestCase):
         self.assertEqual(result["train_count"], 3)
         self.assertEqual(result["diagnostic_count"], 1)
         self.assertEqual(result["diagnostic_data_file"], "diagnostic_data.npz")
+        self.assertEqual(result["normalize_time"], True)
         metadata = json.loads(
             (artifact_dir / "metadata.json").read_text(encoding="utf-8")
         )
@@ -391,6 +452,11 @@ class TrainNPEConfigTests(unittest.TestCase):
         self.assertEqual(metadata["dataset"]["train_count"], 3)
         self.assertEqual(metadata["dataset"]["diagnostic_count"], 1)
         self.assertEqual(metadata["dataset"]["path_base"], "project_root")
+        self.assertEqual(metadata["dataset"]["normalize_time"], True)
+        self.assertEqual(
+            metadata["dataset"]["time_axis"],
+            "activation_opportunities_per_agent",
+        )
         self.assert_project_relative_metadata_path(
             metadata["dataset"]["result_store_path"],
             config.zarr_path,
@@ -496,7 +562,11 @@ class TrainNPEConfigTests(unittest.TestCase):
         )
 
         with (
-            patch.object(self.script, "load_policy_results", return_value=raw_results),
+            patch.object(
+                self.script,
+                "load_policy_results",
+                return_value=raw_results,
+            ) as load_policy_results,
             patch.object(
                 self.script,
                 "train_amortized_npe",
@@ -507,6 +577,10 @@ class TrainNPEConfigTests(unittest.TestCase):
             result = self.script.train_from_config(config)
 
         logs = "\n".join(captured.output)
+        load_policy_results.assert_called_once_with(
+            config.zarr_path,
+            normalize_time=config.normalize_time,
+        )
         self.assertIn("[stage 5/10] Starting MNPE training", logs)
         train_indices, diagnostic_indices = self.script.split_diagnostic_holdout(
             n_simulations=4,
@@ -536,6 +610,7 @@ class TrainNPEConfigTests(unittest.TestCase):
             (2, 4),
         )
         self.assertEqual(result["sbi_method"], "MNPE")
+        self.assertEqual(result["normalize_time"], True)
         self.assertEqual(
             result["theta_names"],
             ["alpha", "n_agents", "visibility_distance"],

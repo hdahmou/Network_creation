@@ -5,14 +5,13 @@
     "write_batch_size": 64
   },
   "sampling": {
-    "log2_budget": 12,
+    "log2_budget": 14,
     "seed": 123
   },
   "simulator": {
     "seed": 11,
-    "max_steps": 500,
+    "max_steps": 3000,
     "n_episodes": 32,
-    "stagnation_patience": 100,
     "actor_scheduler": {
       "n_actors": 1
     },
@@ -32,10 +31,12 @@
     }
   },
   "population": {
-    "n_agents": [10, 20, 50],
+    "n_agents": [10, 20, 30, 40, 50],
     "visibility_distance": {
-      "kind": "sampled_choice",
-      "values": [1, 2, 3, 4, 5, 6, 50]
+      "kind": "sampled_discrete_range",
+      "min": 1,
+      "max": 5,
+      "step": 1
     },
     "policies": [
       {
@@ -50,8 +51,8 @@
           },
           "exploration": {
             "kind": "continuous",
-            "min": 0.001,
-            "max": 0.4,
+            "min": 0.0,
+            "max": 0.1,
             "std": 0.0
           }
         }
@@ -71,7 +72,7 @@
     ],
     "policy_proportions": {
       "policy": "best_response",
-      "values": [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+      "values": [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
     }
   },
   "observers": {
@@ -89,10 +90,6 @@
       },
       {
         "name": "indegree",
-        "output": "mean"
-      },
-      {
-        "name": "distance",
         "output": "mean"
       },
       {

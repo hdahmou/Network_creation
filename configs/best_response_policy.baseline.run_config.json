@@ -10,9 +10,8 @@
   },
   "simulator": {
     "seed": 11,
-    "max_steps": 500,
+    "max_steps": 3000,
     "n_episodes": 32,
-    "stagnation_patience": 100,
     "actor_scheduler": {
       "n_actors": 1
     },
@@ -52,8 +51,8 @@
           },
           "exploration": {
             "kind": "continuous",
-            "min": 0.001,
-            "max": 0.3,
+            "min": 0.0,
+            "max": 0.1,
             "std": 0.0
           }
         }
@@ -68,7 +67,7 @@
     "defaults": {
       "sampling": {
         "kind": "periodic",
-        "every": 1
+        "every": 5
       },
       "aggregations": ["mean", "std"]
     },

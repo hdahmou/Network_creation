@@ -1,6 +1,6 @@
 {
   "dataset": {
-    "zarr_path": "../artifacts/simulation_runs/run-20260430T133102.zarr",
+    "zarr_path": "../artifacts/simulation_runs/run-xxx.zarr",
     "observers": [
       "central_point_of_dominance.mean",
       "indegree.mean",
@@ -14,10 +14,8 @@
     ],
     "drop_constant_theta": true,
     "x_representation": "final",
-    "discrete_theta_parameters": [
-      "n_agents",
-      "visibility_distance"
-    ]
+    "normalize_time": true,
+    "discrete_theta_parameters": ["n_agents", "visibility_distance"]
   },
   "artifact": {
     "output_root": "../artifacts/model_inversion",

@@ -12,6 +12,7 @@
     ],
     "drop_constant_theta": true,
     "x_representation": "timeseries",
+    "normalize_time": true,
     "discrete_theta_parameters": [
       "n_agents",
       "visibility_distance"

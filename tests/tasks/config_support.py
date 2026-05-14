@@ -57,6 +57,7 @@ def task_config(
     visibility_distance: Mapping[str, object] | None = None,
     policies: Sequence[Mapping[str, Any]] | None = None,
     policy_proportions: Mapping[str, object] | None = None,
+    policy_counts: Mapping[str, object] | None = None,
     observers: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     policy_configs = list(
@@ -66,11 +67,14 @@ def task_config(
         "n_agents": list(n_agents) if not isinstance(n_agents, int) else n_agents,
         "visibility_distance": dict(visibility_distance or fixed(4)),
         "policies": policy_configs,
-        "policy_proportions": dict(
+    }
+    if policy_counts is None:
+        population["policy_proportions"] = dict(
             policy_proportions
             or {"policy": str(policy_configs[0]["id"]), "values": [1.0]}
-        ),
-    }
+        )
+    else:
+        population["policy_counts"] = dict(policy_counts)
 
     return {
         "sampling": {"log2_budget": log2_budget, "seed": seed},

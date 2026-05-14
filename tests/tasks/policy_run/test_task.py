@@ -6,6 +6,7 @@ import unittest
 
 import numpy as np
 
+from network_creation.policies.best_response import BestResponsePolicy
 from network_creation.policies.myopic_payoff import MyopicPayoffPolicy
 from network_creation.policies.random import RandomPolicy
 from network_creation.policies.threshold_link import ThresholdLinkPolicy
@@ -256,6 +257,85 @@ class PolicyRunTest(unittest.TestCase):
         self.assertIsInstance(agent_policy, ThresholdLinkPolicy)
         self.assertEqual(agent_policy.link_threshold, 0.5)
         self.assertEqual(agent_policy.p_act, 0.75)
+
+    def test_policy_counts_assign_exact_target_count_across_n_agents(self) -> None:
+        config = task_config(
+            n_agents=[10, 50],
+            n_actors=2,
+            log2_budget=0,
+            policies=[
+                policy(
+                    "threshold_link",
+                    "threshold-link",
+                    {
+                        "link_threshold": fixed(0.5),
+                        "p_act": fixed(1.0),
+                    },
+                ),
+                policy(
+                    "best_response",
+                    "best-response",
+                    {
+                        "outside_optimism": fixed(0.25),
+                        "exploration": fixed(0.01),
+                    },
+                ),
+            ],
+            policy_counts={"policy": "threshold_link", "values": [1]},
+        )
+
+        prepared = prepare_policy_run(config)
+        _, sweep, sampled_parameter_plan, agent_builder = _policy_components(config)
+
+        self.assertEqual(prepared.inputs, (0, 1))
+        self.assertEqual(
+            sweep.configuration_names[:3],
+            ("n_agents", "threshold_link_count", "best_response_count"),
+        )
+        np.testing.assert_allclose(
+            sweep.configuration_values[
+                :,
+                0,
+                0,
+                sweep.column_index_by_name["threshold_link_count"],
+            ],
+            np.asarray([1.0, 1.0], dtype=np.float32),
+        )
+        np.testing.assert_allclose(
+            sweep.configuration_values[
+                :,
+                0,
+                0,
+                sweep.column_index_by_name["best_response_count"],
+            ],
+            np.asarray([9.0, 49.0], dtype=np.float32),
+        )
+
+        for input_index, last_agent_id in ((0, 9), (1, 49)):
+            configuration = sweep.configuration_at(input_index)
+            simulation_settings = sweep.resolve(configuration)
+            sampled = sampled_parameter_plan.sample(
+                input_index,
+                configuration,
+                simulation_settings,
+                max(sweep.n_agents_values),
+                agent_builder.policy_entry_for_node,
+            )
+
+            first_agent = agent_builder.build_agent(
+                0,
+                configuration,
+                simulation_settings,
+                sampled_agent_parameters=sampled,
+            )
+            last_agent = agent_builder.build_agent(
+                last_agent_id,
+                configuration,
+                simulation_settings,
+                sampled_agent_parameters=sampled,
+            )
+            self.assertIsInstance(first_agent.policy, ThresholdLinkPolicy)
+            self.assertIsInstance(last_agent.policy, BestResponsePolicy)
 
     def test_agent_builder_assigns_policies_by_id_order(self) -> None:
         config = self._base_config()

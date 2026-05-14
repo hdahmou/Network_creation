@@ -75,16 +75,19 @@ def load_policy_results(
         step_labels=step_labels,
     )
 
-    proportion_name = _policy_proportion_name(policy_config, parameter_names)
+    composition_axis_name = _policy_composition_axis_name(
+        policy_config,
+        parameter_names,
+    )
     keep_parameter_names, keep_parameter_indices = _theta_parameter_columns(
         parameter_names,
         policy_config=policy_config,
-        proportion_name=proportion_name,
+        composition_axis_name=composition_axis_name,
     )
-    proportion_values = _proportion_values(
+    composition_axis_values = _composition_axis_values(
         raw_parameters,
         parameter_names,
-        proportion_name=proportion_name,
+        composition_axis_name=composition_axis_name,
     )
     theta, prior_low, prior_high = _theta_arrays(
         metadata,
@@ -101,10 +104,10 @@ def load_policy_results(
     input_index_grid = np.arange(np.prod(grid_shape), dtype=np.int64).reshape(
         grid_shape,
     )
-    dense_dims = ("n_agents", proportion_name, "parameter_row")
+    dense_dims = ("n_agents", composition_axis_name, "parameter_row")
     coords: dict[str, Any] = {
         "n_agents": ("n_agents", n_agents_values),
-        proportion_name: (proportion_name, proportion_values),
+        composition_axis_name: (composition_axis_name, composition_axis_values),
         "parameter_row": ("parameter_row", parameter_rows),
         "input_index": (dense_dims, input_index_grid),
         "theta_parameter": (
@@ -414,14 +417,14 @@ def _step_labels(
     return np.arange(count, dtype=np.int64) * int(observation_sampling.every)
 
 
-def _proportion_values(
+def _composition_axis_values(
     raw_parameters: NDArray[np.float32],
     parameter_names: list[str],
     *,
-    proportion_name: str,
+    composition_axis_name: str,
 ) -> NDArray[np.float32]:
-    proportion_column = parameter_names.index(proportion_name)
-    return raw_parameters[0, :, 0, proportion_column].astype(
+    composition_column = parameter_names.index(composition_axis_name)
+    return raw_parameters[0, :, 0, composition_column].astype(
         np.float32,
         copy=False,
     )
@@ -589,7 +592,7 @@ def _configured_n_actors(policy_config: Mapping[str, Any]) -> int:
     return int(actor_scheduler["n_actors"])
 
 
-def _policy_proportion_name(
+def _policy_composition_axis_name(
     policy_config: Any,
     parameter_names: list[str],
 ) -> str:
@@ -599,11 +602,14 @@ def _policy_proportion_name(
             proportions = population.get("policy_proportions")
             if isinstance(proportions, dict) and "policy" in proportions:
                 return f"{proportions['policy']}_proportion"
+            counts = population.get("policy_counts")
+            if isinstance(counts, dict) and "policy" in counts:
+                return f"{counts['policy']}_count"
 
     matches = [name for name in parameter_names if name.endswith("_proportion")]
     if len(matches) != 1:
         raise ValueError(
-            "could not infer policy proportion axis from result metadata"
+            "could not infer policy composition axis from result metadata"
         )
     return matches[0]
 
@@ -612,7 +618,7 @@ def _theta_parameter_columns(
     parameter_names: list[str],
     *,
     policy_config: Any,
-    proportion_name: str,
+    composition_axis_name: str,
 ) -> tuple[list[str], list[int]]:
     policy_ids: list[str] = []
     if isinstance(policy_config, dict):
@@ -624,7 +630,7 @@ def _theta_parameter_columns(
                     if isinstance(policy, dict) and "id" in policy:
                         policy_ids.append(str(policy["id"]))
 
-    bookkeeping_names = {proportion_name}
+    bookkeeping_names = {composition_axis_name}
     bookkeeping_names.update(f"{policy_id}_count" for policy_id in policy_ids)
     keep = [
         (index, name)

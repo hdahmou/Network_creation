@@ -109,6 +109,77 @@ class PolicyRunResultFormatterTest(unittest.TestCase):
             equal_nan=True,
         )
 
+    def test_from_zarr_reconstructs_policy_count_axis(self) -> None:
+        config = task_config(
+            n_agents=[10, 50],
+            n_actors=2,
+            log2_budget=0,
+            policies=[
+                policy(
+                    "threshold_link",
+                    "threshold-link",
+                    {
+                        "link_threshold": fixed(0.5),
+                        "p_act": fixed(1.0),
+                    },
+                ),
+                policy(
+                    "best_response",
+                    "best-response",
+                    {
+                        "outside_optimism": fixed(0.25),
+                        "exploration": fixed(0.01),
+                    },
+                ),
+            ],
+            policy_counts={"policy": "threshold_link", "values": [1]},
+            observers={
+                "defaults": {
+                    "sampling": {"kind": "periodic", "every": 1},
+                    "aggregations": ["mean"],
+                },
+                "outputs": [{"name": "density", "output": "mean"}],
+            },
+        )
+        prepared = prepare_policy_run(config)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store_path = Path(tmpdir) / "policy-count-run.zarr"
+            writer = ZarrResultStore(
+                str(store_path),
+                output_schema=prepared.output_schema,
+                batch_size=2,
+                total_inputs=len(prepared.inputs),
+                metadata_attrs={
+                    **dict(prepared.result_attrs),
+                    "config_path": str(store_path.with_suffix(".run_config.json")),
+                },
+                metadata_arrays=prepared.result_arrays,
+            )
+            writer.add_success(
+                input_index=0,
+                output={
+                    "density.mean": np.asarray([0.0, 1.0, 2.0, 3.0], dtype=np.float32)
+                },
+            )
+            writer.add_success(
+                input_index=1,
+                output={
+                    "density.mean": np.asarray(
+                        [10.0, 11.0, 12.0, 13.0],
+                        dtype=np.float32,
+                    )
+                },
+            )
+            writer.flush()
+
+            ds = load_policy_results(store_path)
+
+        np.testing.assert_allclose(ds.coords["threshold_link_count"].values, [1.0])
+        self.assertEqual(ds["x"].shape, (2, 1, 1, 4, 1))
+        self.assertNotIn("threshold_link_count", ds.coords["theta_parameter"].values)
+        self.assertNotIn("best_response_count", ds.coords["theta_parameter"].values)
+
 
 if __name__ == "__main__":
     unittest.main()

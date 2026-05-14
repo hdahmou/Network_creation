@@ -16,11 +16,10 @@ from .parameter_space import generate_parameter_space
 type ParameterSpec = Mapping[str, object]
 type ParameterConfig = Mapping[str, ParameterSpec]
 type PolicyEntry = tuple[str, str]
-type PolicyProportionSweep = tuple[str, tuple[float, ...]]
 
 
 _POPULATION_STRUCTURAL_KEYS = frozenset(
-    {"n_agents", "policies", "policy_proportions"}
+    {"n_agents", "policies", "policy_proportions", "policy_counts"}
 )
 
 
@@ -31,17 +30,33 @@ class ParameterSamples:
     column_index_by_name: Mapping[str, int]
 
 
+@dataclass(frozen=True)
+class PolicyCompositionSweep:
+    policy_id: str
+    values: tuple[float, ...]
+    unit: str
+
+    @property
+    def axis_name(self) -> str:
+        suffix = "proportion" if self.unit == "proportion" else "count"
+        return f"{self.policy_id}_{suffix}"
+
+
 def _input_coordinates(
     input_index: int,
     *,
-    n_policy_proportions: int,
+    n_policy_compositions: int,
     n_parameter_rows: int,
 ) -> tuple[int, int, int]:
     parameter_row_index = input_index % n_parameter_rows
     outer_index = input_index // n_parameter_rows
-    policy_proportion_index = outer_index % n_policy_proportions
-    n_agents_index = outer_index // n_policy_proportions
-    return n_agents_index, policy_proportion_index, parameter_row_index
+    policy_composition_index = outer_index % n_policy_compositions
+    n_agents_index = outer_index // n_policy_compositions
+    return n_agents_index, policy_composition_index, parameter_row_index
+
+
+def _round_policy_counts(values: NDArray[np.float32]) -> NDArray[np.float32]:
+    return np.rint(values).astype(np.float32, copy=False)
 
 
 @dataclass(frozen=True)
@@ -51,7 +66,7 @@ class SweepPlan:
     configuration_values: NDArray[np.float32]
     column_index_by_name: Mapping[str, int]
     n_agents_values: tuple[int, ...]
-    policy_proportions: PolicyProportionSweep
+    policy_composition: PolicyCompositionSweep
     n_actors: int
     seed: int
     max_steps: int
@@ -65,22 +80,25 @@ class SweepPlan:
         return int(self.parameter_samples.parameter_values.shape[0])
 
     @property
+    def n_policy_compositions(self) -> int:
+        return len(self.policy_composition.values)
+
+    @property
     def n_policy_proportions(self) -> int:
-        _, values = self.policy_proportions
-        return len(values)
+        return self.n_policy_compositions
 
     @property
     def total_inputs(self) -> int:
         return (
             len(self.n_agents_values)
-            * self.n_policy_proportions
+            * self.n_policy_compositions
             * self.n_parameter_rows
         )
 
     def coordinates(self, input_index: int) -> tuple[int, int, int]:
         return _input_coordinates(
             input_index,
-            n_policy_proportions=self.n_policy_proportions,
+            n_policy_compositions=self.n_policy_compositions,
             n_parameter_rows=self.n_parameter_rows,
         )
 
@@ -194,11 +212,28 @@ def _resolve_scaled_inverse_agents(
             raise ValueError("configuration_values must be 3D or 4D")
 
 
+def _load_policy_composition(
+    raw: Mapping[str, Any],
+    *,
+    policy_ids: Sequence[str],
+) -> PolicyCompositionSweep:
+    has_proportions = "policy_proportions" in raw
+    has_counts = "policy_counts" in raw
+    if has_proportions == has_counts:
+        raise ValueError(
+            "population must define exactly one of policy_proportions or policy_counts"
+        )
+
+    if has_proportions:
+        return _load_policy_proportions(raw, policy_ids=policy_ids)
+    return _load_policy_counts(raw, policy_ids=policy_ids)
+
+
 def _load_policy_proportions(
     raw: Mapping[str, Any],
     *,
     policy_ids: Sequence[str],
-) -> PolicyProportionSweep:
+) -> PolicyCompositionSweep:
     raw_proportions = cast(Mapping[str, Any], raw["policy_proportions"])
     policy_id = str(raw_proportions["policy"])
     if policy_id not in policy_ids:
@@ -219,7 +254,42 @@ def _load_policy_proportions(
                 f"[{index}] must be in [0, 1]"
             )
 
-    return policy_id, proportions
+    return PolicyCompositionSweep(
+        policy_id=policy_id,
+        values=proportions,
+        unit="proportion",
+    )
+
+
+def _load_policy_counts(
+    raw: Mapping[str, Any],
+    *,
+    policy_ids: Sequence[str],
+) -> PolicyCompositionSweep:
+    raw_counts = cast(Mapping[str, Any], raw["policy_counts"])
+    policy_id = str(raw_counts["policy"])
+    if policy_id not in policy_ids:
+        raise ValueError("population.policy_counts.policy must match one policy id")
+
+    values = cast(Sequence[Any], raw_counts["values"])
+    counts: list[float] = []
+    for index, value in enumerate(values):
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, Integral)
+            or int(value) < 0
+        ):
+            raise ValueError(
+                "population.policy_counts.values"
+                f"[{index}] must be a non-negative integer"
+            )
+        counts.append(float(value))
+
+    return PolicyCompositionSweep(
+        policy_id=policy_id,
+        values=tuple(counts),
+        unit="count",
+    )
 
 
 def _load_initial_graph(raw: Mapping[str, Any]) -> tuple[str, float | None]:
@@ -283,15 +353,20 @@ def _load_n_agents_values(raw_n_agents: Any) -> tuple[int, ...]:
 def _build_configuration_grid(
     *,
     n_agents_values: Sequence[int],
-    target_id: str,
-    proportions: Sequence[float],
+    policy_composition: PolicyCompositionSweep,
     policy_ids: Sequence[str],
     parameter_samples: ParameterSamples,
 ) -> tuple[tuple[str, ...], NDArray[np.float32]]:
-    count_names = tuple(f"{policy_id}_count" for policy_id in policy_ids)
+    target_id = policy_composition.policy_id
+    axis_name = policy_composition.axis_name
+    count_names = tuple(
+        f"{policy_id}_count"
+        for policy_id in policy_ids
+        if f"{policy_id}_count" != axis_name
+    )
     configuration_names = (
         "n_agents",
-        f"{target_id}_proportion",
+        axis_name,
         *count_names,
         *parameter_samples.parameter_names,
     )
@@ -299,22 +374,42 @@ def _build_configuration_grid(
     configuration_values: NDArray[np.float32] = np.empty(
         (
             len(n_agents_values),
-            len(proportions),
+            len(policy_composition.values),
             n_parameter_rows,
             len(configuration_names),
         ),
         dtype=np.float32,
     )
     n_agents_array = np.asarray(n_agents_values, dtype=np.float32)
-    proportions_array = np.asarray(proportions, dtype=np.float32)
-    target_counts = np.rint(
-        proportions_array[None, :] * n_agents_array[:, None]
-    ).astype(np.float32)
+    composition_values = np.asarray(policy_composition.values, dtype=np.float32)
+    if policy_composition.unit == "proportion":
+        target_counts = _round_policy_counts(
+            composition_values[None, :] * n_agents_array[:, None]
+        )
+        axis_values = composition_values[None, :]
+    elif policy_composition.unit == "count":
+        target_counts = np.broadcast_to(
+            composition_values[None, :],
+            (len(n_agents_values), len(policy_composition.values)),
+        ).astype(np.float32, copy=False)
+        if np.any(target_counts > n_agents_array[:, None]):
+            raise ValueError(
+                "population.policy_counts.values must not exceed population.n_agents"
+            )
+        axis_values = target_counts
+    else:
+        raise ValueError(
+            f"unsupported policy composition unit {policy_composition.unit!r}"
+        )
     configuration_values[:, :, :, 0] = n_agents_array[:, None, None]
-    configuration_values[:, :, :, 1] = proportions_array[None, :, None]
+    configuration_values[:, :, :, 1] = axis_values[:, :, None]
 
     count_start = 2
-    for offset, policy_id in enumerate(policy_ids):
+    for offset, policy_id in enumerate(
+        policy_id
+        for policy_id in policy_ids
+        if f"{policy_id}_count" != axis_name
+    ):
         if len(policy_ids) == 1 or policy_id == target_id:
             counts = target_counts
         else:
@@ -344,15 +439,13 @@ def build_sweep(
     stagnation_patience = simulator.get("stagnation_patience")
     n_agents_values = _load_n_agents_values(population["n_agents"])
 
-    policy_proportions = _load_policy_proportions(
+    policy_composition = _load_policy_composition(
         population,
         policy_ids=policy_ids,
     )
-    target_id, proportions = policy_proportions
     configuration_names, configuration_values = _build_configuration_grid(
         n_agents_values=n_agents_values,
-        target_id=target_id,
-        proportions=proportions,
+        policy_composition=policy_composition,
         policy_ids=policy_ids,
         parameter_samples=parameter_samples,
     )
@@ -371,7 +464,7 @@ def build_sweep(
             name: index for index, name in enumerate(configuration_names)
         },
         n_agents_values=n_agents_values,
-        policy_proportions=policy_proportions,
+        policy_composition=policy_composition,
         n_actors=int(simulator["actor_scheduler"]["n_actors"]),
         seed=int(simulator["seed"]),
         max_steps=int(simulator["max_steps"]),

@@ -51,7 +51,7 @@
           },
           "exploration": {
             "kind": "continuous",
-            "min": 0.0,
+            "min": 0.0001,
             "max": 0.1,
             "std": 0.0
           }

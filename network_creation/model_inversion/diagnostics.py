@@ -41,9 +41,19 @@ def run_expected_coverage(
     import torch
     from sbi.diagnostics import run_sbc
 
+    torch_device = artifact.to_device(device)
+
     ranks, dap_samples = run_sbc(
-        torch.as_tensor(diagnostic_data.theta, dtype=torch.float32, device=device),
-        torch.as_tensor(diagnostic_data.x, dtype=torch.float32, device=device),
+        torch.as_tensor(
+            diagnostic_data.theta,
+            dtype=torch.float32,
+            device=torch_device,
+        ),
+        torch.as_tensor(
+            diagnostic_data.x,
+            dtype=torch.float32,
+            device=torch_device,
+        ),
         artifact.posterior,
         num_posterior_samples=num_posterior_samples,
         num_workers=num_workers,

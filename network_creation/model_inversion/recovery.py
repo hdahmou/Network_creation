@@ -30,7 +30,7 @@ def observation_from_policy_outputs(
     if representation == "final":
         if normalize_time:
             target_times = np.asarray([float(dataset["final_step_label"])])
-            return _normalized_observer_tensor(
+            values = _normalized_observer_tensor(
                 outputs,
                 artifact,
                 dataset,
@@ -38,18 +38,20 @@ def observation_from_policy_outputs(
                 n_actors=n_actors,
                 target_times=target_times,
             )[0]
-        return np.asarray(
+            return _append_input_parameters(values, dataset, n_agents=n_agents)
+        values = np.asarray(
             [
                 float(np.asarray(outputs[name], dtype=np.float32).reshape(-1)[-1])
-                for name in artifact.observation_order
+                for name in _observer_order(artifact)
             ],
             dtype=np.float32,
         )
+        return _append_input_parameters(values, dataset, n_agents=n_agents)
 
     if representation == "timeseries":
         if normalize_time:
             target_times = np.asarray(dataset["step_labels"], dtype=np.float64)
-            return _normalized_observer_tensor(
+            values = _normalized_observer_tensor(
                 outputs,
                 artifact,
                 dataset,
@@ -57,8 +59,10 @@ def observation_from_policy_outputs(
                 n_actors=n_actors,
                 target_times=target_times,
             )
+            return _append_input_parameters(values, dataset, n_agents=n_agents)
         else:
-            return _stack_observer_outputs(outputs, artifact.observation_order)
+            values = _stack_observer_outputs(outputs, _observer_order(artifact))
+            return _append_input_parameters(values, dataset, n_agents=n_agents)
 
     raise ValueError(f"unsupported x representation: {representation}")
 
@@ -72,7 +76,7 @@ def _normalized_observer_tensor(
     n_actors: int,
     target_times: NDArray[np.float64],
 ) -> NDArray[np.float32]:
-    values = _stack_observer_outputs(outputs, artifact.observation_order)
+    values = _stack_observer_outputs(outputs, _observer_order(artifact))
     return normalize_time_tensor(
         values,
         raw_step_labels=dataset.get("raw_step_labels"),
@@ -81,6 +85,45 @@ def _normalized_observer_tensor(
         step_axis=0,
         target_times=target_times,
     ).values
+
+
+def _observer_order(artifact: PosteriorArtifact) -> list[str]:
+    dataset = artifact.metadata["dataset"]
+    if "observer_names" in dataset:
+        return list(dataset["observer_names"])
+    return artifact.observation_order
+
+
+def _append_input_parameters(
+    values: NDArray[np.float32],
+    dataset: dict[str, Any],
+    *,
+    n_agents: int,
+) -> NDArray[np.float32]:
+    input_parameter_names = [
+        str(name) for name in dataset.get("input_parameter_names", [])
+    ]
+    if not input_parameter_names:
+        return np.asarray(values, dtype=np.float32)
+
+    input_values = [
+        _recovery_input_parameter_value(name, n_agents=n_agents)
+        for name in input_parameter_names
+    ]
+    input_array = np.asarray(input_values, dtype=np.float32)
+    values = np.asarray(values, dtype=np.float32)
+    if values.ndim == 1:
+        return np.concatenate((values, input_array), axis=0).astype(np.float32)
+    if values.ndim == 2:
+        repeated = np.repeat(input_array[None, :], values.shape[0], axis=0)
+        return np.concatenate((values, repeated), axis=1).astype(np.float32)
+    raise ValueError("recovery observation values must be one- or two-dimensional")
+
+
+def _recovery_input_parameter_value(name: str, *, n_agents: int) -> float:
+    if name == "n_agents":
+        return float(n_agents)
+    raise ValueError(f"unsupported recovery input parameter: {name}")
 
 
 def _stack_observer_outputs(

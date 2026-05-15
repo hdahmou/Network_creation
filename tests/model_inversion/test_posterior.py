@@ -130,6 +130,38 @@ class PosteriorArtifactHelpersTest(unittest.TestCase):
         self.assertEqual(theta_names, ["alpha", "n_agents"])
         np.testing.assert_allclose(samples, [[0.25, 10.0]])
 
+    def test_posterior_artifact_sample_moves_posterior_to_requested_device(
+        self,
+    ) -> None:
+        class DeviceRecordingPosterior:
+            def __init__(self) -> None:
+                self.device: torch.device | None = None
+                self.x_device: torch.device | None = None
+
+            def to(self, device):  # noqa: ANN001
+                self.device = torch.device(device)
+
+            def sample(self, sample_shape, x, **kwargs):  # noqa: ANN001, ANN003
+                self.x_device = x.device
+                return torch.as_tensor([[0.25]], dtype=torch.float32, device=x.device)
+
+        posterior = DeviceRecordingPosterior()
+        artifact = PosteriorArtifact(
+            artifact_dir=Path("."),
+            posterior=posterior,
+            metadata={
+                "dataset": {
+                    "x_event_shape": [1],
+                    "theta_names": ["alpha"],
+                }
+            },
+        )
+
+        artifact.sample([1.0], num_samples=1, device="cpu")
+
+        self.assertEqual(posterior.device, torch.device("cpu"))
+        self.assertEqual(posterior.x_device, torch.device("cpu"))
+
     def test_posterior_artifact_sample_retries_known_mnpe_broadcast_bug(self) -> None:
         class BroadcastBugPosterior:
             def __init__(self) -> None:

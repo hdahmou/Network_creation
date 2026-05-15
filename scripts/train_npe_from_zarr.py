@@ -87,12 +87,29 @@ class TrainNPEConfig:
     discrete_theta_parameters: tuple[str, ...] | None = None
     prior_sample_count: int = 4096
     normalize_time: bool = True
+    input_parameters: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if self.embedding.kind == "rnn" and self.x_representation != "timeseries":
             raise ValueError(
                 "embedding.kind='rnn' requires dataset.x_representation='timeseries'"
             )
+        if self.input_parameters and self.theta_parameters is None:
+            raise ValueError(
+                "dataset.theta_parameters must be explicit when "
+                "dataset.input_parameters is set"
+            )
+        if self.theta_parameters is not None:
+            overlapping_names = tuple(
+                name
+                for name in self.input_parameters
+                if name in set(self.theta_parameters)
+            )
+            if overlapping_names:
+                raise ValueError(
+                    "dataset.input_parameters cannot also appear in "
+                    f"dataset.theta_parameters: {list(overlapping_names)}"
+                )
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -128,6 +145,7 @@ def load_train_config(config_path: str | Path) -> TrainNPEConfig:
 
     observers = tuple(str(observer) for observer in dataset["observers"])
     theta_parameters = _optional_str_tuple(dataset.get("theta_parameters"))
+    input_parameters = _optional_str_tuple(dataset.get("input_parameters")) or ()
     discrete_theta_parameters = _optional_str_tuple(
         dataset.get("discrete_theta_parameters")
     )
@@ -146,6 +164,7 @@ def load_train_config(config_path: str | Path) -> TrainNPEConfig:
         zarr_path=_resolve_config_path(config_dir, dataset["zarr_path"]),
         observers=observers,
         theta_parameters=theta_parameters,
+        input_parameters=input_parameters,
         discrete_theta_parameters=discrete_theta_parameters,
         drop_constant_theta=dataset.get("drop_constant_theta", True),
         x_representation=x_representation,
@@ -238,11 +257,12 @@ def train_from_config(config: TrainNPEConfig) -> dict[str, Any]:
     LOGGER.info(
         "[stage 3/10] Filtering inversion dataset: observers=%s "
         "x_representation=%s normalize_time=%s theta_parameters=%s "
-        "discrete_theta_parameters=%s drop_constant_theta=%s",
+        "input_parameters=%s discrete_theta_parameters=%s drop_constant_theta=%s",
         list(config.observers),
         config.x_representation,
         config.normalize_time,
         None if config.theta_parameters is None else list(config.theta_parameters),
+        list(config.input_parameters),
         (
             "auto"
             if config.discrete_theta_parameters is None
@@ -254,6 +274,7 @@ def train_from_config(config: TrainNPEConfig) -> dict[str, Any]:
         raw_results,
         observers=config.observers,
         theta_parameters=config.theta_parameters,
+        input_parameters=config.input_parameters,
         drop_constant_theta=config.drop_constant_theta,
         x_representation=config.x_representation,
     )
@@ -418,6 +439,7 @@ def train_from_config(config: TrainNPEConfig) -> dict[str, Any]:
         "diagnostic_data_file": DIAGNOSTIC_DATA_FILENAME,
         "prior_sample_count": int(prior_samples.shape[0]),
         "theta_names": list(dataset_metadata["theta_names"]),
+        "input_parameters": list(config.input_parameters),
         "continuous_theta_names": list(
             dataset_metadata.get("continuous_theta_names", [])
         ),

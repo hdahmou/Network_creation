@@ -26,12 +26,14 @@ def filter_inversion_dataset(
     *,
     observers: Sequence[str],
     theta_parameters: Sequence[str] | None = None,
+    input_parameters: Sequence[str] | None = None,
     drop_constant_theta: bool = True,
     x_representation: ObservationRepresentation = "final",
 ) -> xr.Dataset:
+    available_theta_names = tuple(str(v) for v in ds.coords["theta_parameter"].values)
     theta_names = _resolve_names(
         theta_parameters,
-        tuple(str(v) for v in ds.coords["theta_parameter"].values),
+        available_theta_names,
         kind="theta parameter",
     )
     observable_names = _resolve_names(
@@ -39,6 +41,23 @@ def filter_inversion_dataset(
         tuple(str(v) for v in ds.coords["observable"].values),
         kind="observable",
     )
+    input_parameter_names = (
+        ()
+        if input_parameters is None
+        else _resolve_names(
+            input_parameters,
+            available_theta_names,
+            kind="input parameter",
+        )
+    )
+    overlapping_names = tuple(
+        name for name in input_parameter_names if name in set(theta_names)
+    )
+    if overlapping_names:
+        raise ValueError(
+            "input parameters cannot also be inferred theta parameters: "
+            f"{list(overlapping_names)}"
+        )
 
     theta = np.asarray(
         _stack_for_inversion(
@@ -68,6 +87,25 @@ def filter_inversion_dataset(
     feature_dims = ("observable",) if step_labels is None else ("step", "observable")
     x_stacked = _stack_for_inversion(x_array, feature_dims=feature_dims)
     x = np.asarray(x_stacked.values, dtype=np.float32)
+    if input_parameter_names:
+        input_parameter_values = np.asarray(
+            _stack_for_inversion(
+                ds["theta"].sel(theta_parameter=list(input_parameter_names)),
+                feature_dims=("theta_parameter",),
+            ).values,
+            dtype=np.float32,
+        )
+        if input_parameter_values.shape[0] != x.shape[0]:
+            raise ValueError("input parameter samples do not align with observations")
+        if step_labels is None:
+            x = np.concatenate((x, input_parameter_values), axis=1)
+        else:
+            repeated_inputs = np.repeat(
+                input_parameter_values[:, None, :],
+                x.shape[1],
+                axis=1,
+            )
+            x = np.concatenate((x, repeated_inputs), axis=2)
     source_sample = np.arange(theta.shape[0], dtype=np.int64)
 
     kept_mask = np.isfinite(theta).all(axis=1)
@@ -87,7 +125,7 @@ def filter_inversion_dataset(
     coords: dict[str, Any] = {
         "sample": ("sample", source_sample[kept_mask]),
         "theta_parameter": ("theta_parameter", list(theta_names)),
-        "observable": ("observable", list(observable_names)),
+        "observable": ("observable", list(observable_names + input_parameter_names)),
         "source_sample": ("source_sample", source_sample),
     }
     for coord_name in _sample_coordinate_names(x_stacked):
@@ -109,6 +147,8 @@ def filter_inversion_dataset(
         "constant_theta": constant_theta,
         "has_failures": bool(ds.attrs["has_failures"]),
         "x_representation": x_representation,
+        "observer_names": list(observable_names),
+        "input_parameter_names": list(input_parameter_names),
         **_source_time_attrs(ds.attrs),
     }
     if final_step_label is not None:
@@ -225,6 +265,12 @@ def inversion_dataset_metadata(dataset: xr.Dataset) -> dict[str, Any]:
             str(value) for value in dataset.coords["theta_parameter"].values
         ],
         "x_names": [str(value) for value in dataset.coords["observable"].values],
+        "observer_names": [
+            str(value) for value in dataset.attrs.get("observer_names", [])
+        ],
+        "input_parameter_names": [
+            str(value) for value in dataset.attrs.get("input_parameter_names", [])
+        ],
         "constant_theta": dict(dataset.attrs["constant_theta"]),
         "prior_low": np.asarray(dataset["prior_low"].values, dtype=np.float32).tolist(),
         "prior_high": np.asarray(dataset["prior_high"].values, dtype=np.float32).tolist(),

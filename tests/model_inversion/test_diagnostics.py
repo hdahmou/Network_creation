@@ -42,6 +42,13 @@ class FakeArtifact:
     def category_values(self, name: str) -> NDArray[np.int64]:
         return np.asarray(self.categories_by_name.get(name, []), dtype=np.int64)
 
+    def to_device(self, device: str | torch.device) -> torch.device:
+        torch_device = torch.device(device)
+        move = getattr(self.posterior, "to", None)
+        if callable(move):
+            move(torch_device)
+        return torch_device
+
 
 class SbiDiagnosticTests(unittest.TestCase):
     def test_load_diagnostic_data_reads_artifact_holdout(self) -> None:
@@ -67,7 +74,14 @@ class SbiDiagnosticTests(unittest.TestCase):
         np.testing.assert_array_equal(data.source_sample, [3, 5])
 
     def test_run_expected_coverage_delegates_to_sbi_with_tensors(self) -> None:
-        posterior = object()
+        class DeviceRecordingPosterior:
+            def __init__(self) -> None:
+                self.device: torch.device | None = None
+
+            def to(self, device):  # noqa: ANN001
+                self.device = torch.device(device)
+
+        posterior = DeviceRecordingPosterior()
         artifact = FakeArtifact(
             theta_order=["alpha", "beta"],
             categories_by_name={},
@@ -103,6 +117,7 @@ class SbiDiagnosticTests(unittest.TestCase):
         self.assertEqual(call_args.kwargs["num_posterior_samples"], 17)
         self.assertEqual(call_args.kwargs["num_workers"], 2)
         self.assertFalse(call_args.kwargs["show_progress_bar"])
+        self.assertEqual(posterior.device, torch.device("cpu"))
         self.assertIs(result["ranks"], ranks)
         self.assertIs(result["dap_samples"], dap_samples)
         self.assertEqual(result["n_diagnostic_simulations"], 2)

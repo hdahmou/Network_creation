@@ -5,16 +5,17 @@
       "centered_mean_welfare.mean"
     ],
     "theta_parameters": [
-      "n_agents",
       "visibility_distance",
       "outside_optimism",
       "exploration"
+    ],
+    "input_parameters": [
+      "n_agents"
     ],
     "drop_constant_theta": true,
     "x_representation": "timeseries",
     "normalize_time": true,
     "discrete_theta_parameters": [
-      "n_agents",
       "visibility_distance"
     ]
   },

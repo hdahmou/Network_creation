@@ -120,6 +120,8 @@ class ModelDatasetTests(unittest.TestCase):
                 "config_path",
                 "theta_names",
                 "x_names",
+                "observer_names",
+                "input_parameter_names",
                 "constant_theta",
                 "prior_low",
                 "prior_high",
@@ -136,6 +138,11 @@ class ModelDatasetTests(unittest.TestCase):
         )
         self.assertEqual(metadata["x_names"], ["density.mean", "distance.mean"])
         self.assertEqual(
+            metadata["observer_names"],
+            ["density.mean", "distance.mean"],
+        )
+        self.assertEqual(metadata["input_parameter_names"], [])
+        self.assertEqual(
             list(dataset.coords["observable"].values),
             ["density.mean", "distance.mean"],
         )
@@ -146,6 +153,30 @@ class ModelDatasetTests(unittest.TestCase):
         self.assertEqual(metadata["x_representation"], "final")
         self.assertEqual(metadata["final_step_label"], 5)
         self.assertEqual(metadata["n_simulations"], 5)
+
+    def test_filter_inversion_dataset_appends_final_input_parameters(self) -> None:
+        dataset = self.filter_results(
+            observers=("density.mean",),
+            theta_parameters=("alpha",),
+            input_parameters=("n_agents",),
+            drop_constant_theta=False,
+        )
+        x = dataset["x"].values
+        metadata = inversion_dataset_metadata(dataset)
+
+        expected_density = self.formatted_results()["x"].isel(step=-1).values[:, [0]]
+        expected_n_agents = self.formatted_results()["theta"].sel(
+            theta_parameter=["n_agents"],
+        ).values
+        np.testing.assert_allclose(
+            x,
+            np.concatenate((expected_density, expected_n_agents), axis=1),
+        )
+        self.assertEqual(metadata["theta_names"], ["alpha"])
+        self.assertEqual(metadata["x_names"], ["density.mean", "n_agents"])
+        self.assertEqual(metadata["observer_names"], ["density.mean"])
+        self.assertEqual(metadata["input_parameter_names"], ["n_agents"])
+        self.assertEqual(metadata["x_event_shape"], [2])
 
     def test_filter_inversion_dataset_keeps_requested_theta_subset(self) -> None:
         dataset = self.filter_results(
@@ -176,10 +207,43 @@ class ModelDatasetTests(unittest.TestCase):
         np.testing.assert_allclose(x[0], expected_first)
         self.assertEqual(dataset["x"].dims, ("sample", "step", "observable"))
         self.assertEqual(metadata["x_names"], ["indegree.mean", "density.mean"])
+        self.assertEqual(
+            metadata["observer_names"],
+            ["indegree.mean", "density.mean"],
+        )
+        self.assertEqual(metadata["input_parameter_names"], [])
         self.assertEqual(metadata["x_event_shape"], [2, 2])
         self.assertEqual(metadata["x_representation"], "timeseries")
         self.assertEqual(metadata["step_labels"], [0, 5])
         self.assertEqual(metadata["n_simulations"], 5)
+
+    def test_filter_inversion_dataset_appends_timeseries_input_parameters(self) -> None:
+        dataset = self.filter_results(
+            observers=("indegree",),
+            theta_parameters=("alpha",),
+            input_parameters=("n_agents",),
+            x_representation="timeseries",
+            drop_constant_theta=False,
+        )
+        x = dataset["x"].values
+        metadata = inversion_dataset_metadata(dataset)
+
+        raw = self.formatted_results()["x"].values
+        expected_first = np.asarray(
+            [
+                [raw[0, 0, 2], 10.0],
+                [raw[0, 1, 2], 10.0],
+            ],
+            dtype=np.float32,
+        )
+        self.assertEqual(x.shape, (5, 2, 2))
+        np.testing.assert_allclose(x[0], expected_first)
+        self.assertEqual(dataset["x"].dims, ("sample", "step", "observable"))
+        self.assertEqual(metadata["theta_names"], ["alpha"])
+        self.assertEqual(metadata["x_names"], ["indegree.mean", "n_agents"])
+        self.assertEqual(metadata["observer_names"], ["indegree.mean"])
+        self.assertEqual(metadata["input_parameter_names"], ["n_agents"])
+        self.assertEqual(metadata["x_event_shape"], [2, 2])
 
     def test_filter_inversion_dataset_preserves_normalized_time_metadata(self) -> None:
         raw = self.formatted_results().assign_coords(

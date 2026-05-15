@@ -97,6 +97,11 @@ class PosteriorArtifact:
     def is_discrete_theta(self, name: str) -> bool:
         return name in set(self.discrete_theta_order)
 
+    def to_device(self, device: str | torch.device) -> torch.device:
+        torch_device = torch.device(device)
+        _move_posterior_to_device(self.posterior, torch_device)
+        return torch_device
+
     def sample(
         self,
         x: NDArray[np.floating[Any]] | list[float],
@@ -112,13 +117,15 @@ class PosteriorArtifact:
             torch.manual_seed(seed)
             np.random.seed(seed)
 
+        torch_device = self.to_device(device)
+
         dataset_meta = self.metadata["dataset"]
         x_event_shape = tuple(dataset_meta["x_event_shape"])
         x_array = np.asarray(x, dtype=np.float32).reshape(x_event_shape)
         x_tensor = torch.as_tensor(
             x_array[None, ...],
             dtype=torch.float32,
-            device=torch.device(device),
+            device=torch_device,
         )
 
         try:
@@ -323,6 +330,12 @@ def _posterior_value(posterior: Any, name: str) -> Any:
     if isinstance(posterior, dict):
         return posterior.get(name)
     return getattr(posterior, name, None)
+
+
+def _move_posterior_to_device(posterior: Any, device: torch.device) -> None:
+    move = getattr(posterior, "to", None)
+    if callable(move):
+        move(device)
 
 
 def _should_retry_with_batched_sampling(

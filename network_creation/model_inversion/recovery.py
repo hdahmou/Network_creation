@@ -38,7 +38,7 @@ def observation_from_policy_outputs(
                 n_actors=n_actors,
                 target_times=target_times,
             )[0]
-            return _append_input_parameters(values, dataset, n_agents=n_agents)
+            return _append_input_parameter_values(values, dataset, n_agents=n_agents)
         values = np.asarray(
             [
                 float(np.asarray(outputs[name], dtype=np.float32).reshape(-1)[-1])
@@ -46,7 +46,7 @@ def observation_from_policy_outputs(
             ],
             dtype=np.float32,
         )
-        return _append_input_parameters(values, dataset, n_agents=n_agents)
+        return _append_input_parameter_values(values, dataset, n_agents=n_agents)
 
     if representation == "timeseries":
         if normalize_time:
@@ -59,10 +59,10 @@ def observation_from_policy_outputs(
                 n_actors=n_actors,
                 target_times=target_times,
             )
-            return _append_input_parameters(values, dataset, n_agents=n_agents)
+            return _append_input_parameter_values(values, dataset, n_agents=n_agents)
         else:
             values = _stack_observer_outputs(outputs, _observer_order(artifact))
-            return _append_input_parameters(values, dataset, n_agents=n_agents)
+            return _append_input_parameter_values(values, dataset, n_agents=n_agents)
 
     raise ValueError(f"unsupported x representation: {representation}")
 
@@ -94,14 +94,14 @@ def _observer_order(artifact: PosteriorArtifact) -> list[str]:
     return artifact.observation_order
 
 
-def _append_input_parameters(
+def _append_input_parameter_values(
     values: NDArray[np.float32],
     dataset: dict[str, Any],
     *,
     n_agents: int,
 ) -> NDArray[np.float32]:
     input_parameter_names = [
-        str(name) for name in dataset.get("input_parameter_names", [])
+        str(name) for name in dataset["input_parameter_names"]
     ]
     if not input_parameter_names:
         return np.asarray(values, dtype=np.float32)

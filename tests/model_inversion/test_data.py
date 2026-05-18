@@ -154,11 +154,11 @@ class ModelDatasetTests(unittest.TestCase):
         self.assertEqual(metadata["final_step_label"], 5)
         self.assertEqual(metadata["n_simulations"], 5)
 
-    def test_filter_inversion_dataset_appends_final_input_parameters(self) -> None:
+    def test_filter_inversion_dataset_appends_final_input_parameter_names(self) -> None:
         dataset = self.filter_results(
             observers=("density.mean",),
             theta_parameters=("alpha",),
-            input_parameters=("n_agents",),
+            input_parameter_names=("n_agents",),
             drop_constant_theta=False,
         )
         x = dataset["x"].values
@@ -217,11 +217,13 @@ class ModelDatasetTests(unittest.TestCase):
         self.assertEqual(metadata["step_labels"], [0, 5])
         self.assertEqual(metadata["n_simulations"], 5)
 
-    def test_filter_inversion_dataset_appends_timeseries_input_parameters(self) -> None:
+    def test_filter_inversion_dataset_appends_timeseries_input_parameter_names(
+        self,
+    ) -> None:
         dataset = self.filter_results(
             observers=("indegree",),
             theta_parameters=("alpha",),
-            input_parameters=("n_agents",),
+            input_parameter_names=("n_agents",),
             x_representation="timeseries",
             drop_constant_theta=False,
         )

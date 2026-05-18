@@ -1,23 +1,21 @@
 {
   "dataset": {
-    "zarr_path": "../artifacts/simulation_runs/run-20260507T191251.zarr",
+    "zarr_path": "../artifacts/simulation_runs/run-20260518T165723.zarr",
     "observers": [
-      "centered_mean_welfare.mean"
+      "centered_mean_welfare.mean",
+      "indegree.mean",
+      "central_point_of_dominance.mean"
     ],
     "theta_parameters": [
       "visibility_distance",
       "outside_optimism",
       "exploration"
     ],
-    "input_parameters": [
-      "n_agents"
-    ],
+    "input_parameter_names": ["n_agents"],
     "drop_constant_theta": true,
     "x_representation": "timeseries",
     "normalize_time": true,
-    "discrete_theta_parameters": [
-      "visibility_distance"
-    ]
+    "discrete_theta_parameters": ["visibility_distance"]
   },
   "artifact": {
     "output_root": "../artifacts/model_inversion",
@@ -47,7 +45,7 @@
   },
   "training": {
     "seed": 0,
-    "device": "cpu",
+    "device": "cuda",
     "training_batch_size": 200,
     "learning_rate": 0.0005,
     "validation_fraction": 0.1,

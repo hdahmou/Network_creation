@@ -61,6 +61,7 @@ class TrainNPEConfigTests(unittest.TestCase):
                     "zarr_path": "../artifacts/run.zarr",
                     "observers": ["density.mean", "distance.mean"],
                     "theta_parameters": ["n_agents", "exploration"],
+                    "input_parameter_names": [],
                     "drop_constant_theta": False,
                     "x_representation": "timeseries",
                 },
@@ -114,7 +115,7 @@ class TrainNPEConfigTests(unittest.TestCase):
         )
         self.assertEqual(config.observers, ("density.mean", "distance.mean"))
         self.assertEqual(config.theta_parameters, ("n_agents", "exploration"))
-        self.assertEqual(config.input_parameters, ())
+        self.assertEqual(config.input_parameter_names, ())
         self.assertFalse(config.drop_constant_theta)
         self.assertEqual(config.x_representation, "timeseries")
         self.assertTrue(config.normalize_time)
@@ -139,6 +140,7 @@ class TrainNPEConfigTests(unittest.TestCase):
                 "dataset": {
                     "zarr_path": "../artifacts/run.zarr",
                     "observers": ["density.mean"],
+                    "input_parameter_names": [],
                     "normalize_time": False,
                 },
                 "artifact": {
@@ -194,7 +196,7 @@ class TrainNPEConfigTests(unittest.TestCase):
         )
         self.assertEqual(config.x_representation, "final")
         self.assertTrue(config.normalize_time)
-        self.assertEqual(config.input_parameters, ())
+        self.assertEqual(config.input_parameter_names, ())
         self.assertEqual(payload["dataset"]["normalize_time"], True)
         self.assertEqual(
             config.discrete_theta_parameters,
@@ -233,13 +235,90 @@ class TrainNPEConfigTests(unittest.TestCase):
             config.discrete_theta_parameters,
             ("visibility_distance",),
         )
-        self.assertEqual(config.input_parameters, ("n_agents",))
+        self.assertEqual(config.input_parameter_names, ("n_agents",))
         self.assertEqual(config.x_representation, "timeseries")
         self.assertTrue(config.normalize_time)
         self.assertEqual(config.embedding.kind, "rnn")
         self.assertEqual(config.density.model, "mnpe")
 
-    def test_load_train_config_rejects_overlapping_theta_and_input_parameters(
+    def test_load_train_config_requires_input_parameter_names(self) -> None:
+        config_path = self.write_config(
+            {
+                "dataset": {
+                    "zarr_path": "../artifacts/run.zarr",
+                    "observers": ["density.mean"],
+                },
+                "artifact": {
+                    "output_root": "../artifacts/model_inversion",
+                },
+                "diagnostics": {
+                    "reserve_count": 1,
+                },
+                "density_estimator": {},
+                "embedding": {"kind": "identity"},
+                "training": {},
+            }
+        )
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "dataset.input_parameter_names is required",
+        ):
+            self.script.load_train_config(config_path)
+
+    def test_load_train_config_rejects_legacy_input_parameters_key(self) -> None:
+        config_path = self.write_config(
+            {
+                "dataset": {
+                    "zarr_path": "../artifacts/run.zarr",
+                    "observers": ["density.mean"],
+                    "input_parameters": [],
+                },
+                "artifact": {
+                    "output_root": "../artifacts/model_inversion",
+                },
+                "diagnostics": {
+                    "reserve_count": 1,
+                },
+                "density_estimator": {},
+                "embedding": {"kind": "identity"},
+                "training": {},
+            }
+        )
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "dataset.input_parameters is not supported",
+        ):
+            self.script.load_train_config(config_path)
+
+    def test_load_train_config_rejects_null_input_parameter_names(self) -> None:
+        config_path = self.write_config(
+            {
+                "dataset": {
+                    "zarr_path": "../artifacts/run.zarr",
+                    "observers": ["density.mean"],
+                    "input_parameter_names": None,
+                },
+                "artifact": {
+                    "output_root": "../artifacts/model_inversion",
+                },
+                "diagnostics": {
+                    "reserve_count": 1,
+                },
+                "density_estimator": {},
+                "embedding": {"kind": "identity"},
+                "training": {},
+            }
+        )
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "dataset.input_parameter_names must be a list",
+        ):
+            self.script.load_train_config(config_path)
+
+    def test_load_train_config_rejects_overlapping_theta_and_input_parameter_names(
         self,
     ) -> None:
         config_path = self.write_config(
@@ -248,7 +327,7 @@ class TrainNPEConfigTests(unittest.TestCase):
                     "zarr_path": "../artifacts/run.zarr",
                     "observers": ["density.mean"],
                     "theta_parameters": ["n_agents", "alpha"],
-                    "input_parameters": ["n_agents"],
+                    "input_parameter_names": ["n_agents"],
                 },
                 "artifact": {
                     "output_root": "../artifacts/model_inversion",
@@ -271,6 +350,7 @@ class TrainNPEConfigTests(unittest.TestCase):
                 "dataset": {
                     "zarr_path": "../artifacts/run.zarr",
                     "observers": ["density.mean"],
+                    "input_parameter_names": [],
                     "x_representation": "final",
                 },
                 "artifact": {
@@ -294,6 +374,7 @@ class TrainNPEConfigTests(unittest.TestCase):
                 "dataset": {
                     "zarr_path": "../artifacts/run.zarr",
                     "observers": ["density.mean"],
+                    "input_parameter_names": [],
                 },
                 "artifact": {
                     "output_root": "../artifacts/model_inversion",
@@ -312,6 +393,7 @@ class TrainNPEConfigTests(unittest.TestCase):
             "dataset": {
                 "zarr_path": "../artifacts/run.zarr",
                 "observers": ["density.mean"],
+                "input_parameter_names": [],
             },
             "artifact": {
                 "output_root": "../artifacts/model_inversion",
@@ -703,7 +785,7 @@ class TrainNPEConfigTests(unittest.TestCase):
             zarr_path=(self.config_dir / "../artifacts/run.zarr").resolve(),
             observers=("density.mean",),
             theta_parameters=("alpha", "visibility_distance"),
-            input_parameters=("n_agents",),
+            input_parameter_names=("n_agents",),
             drop_constant_theta=False,
             x_representation="timeseries",
             output_root=output_root,
@@ -828,7 +910,7 @@ class TrainNPEConfigTests(unittest.TestCase):
         self.assertEqual(result["sbi_method"], "MNPE")
         self.assertEqual(result["theta_names"], ["alpha", "visibility_distance"])
         self.assertEqual(result["discrete_theta_names"], ["visibility_distance"])
-        self.assertEqual(result["input_parameters"], ["n_agents"])
+        self.assertEqual(result["input_parameter_names"], ["n_agents"])
 
         metadata = json.loads(
             (output_root / "input-run" / "metadata.json").read_text(encoding="utf-8")

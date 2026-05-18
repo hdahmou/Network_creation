@@ -26,7 +26,7 @@ def filter_inversion_dataset(
     *,
     observers: Sequence[str],
     theta_parameters: Sequence[str] | None = None,
-    input_parameters: Sequence[str] | None = None,
+    input_parameter_names: Sequence[str] | None = None,
     drop_constant_theta: bool = True,
     x_representation: ObservationRepresentation = "final",
 ) -> xr.Dataset:
@@ -43,9 +43,9 @@ def filter_inversion_dataset(
     )
     input_parameter_names = (
         ()
-        if input_parameters is None
+        if input_parameter_names is None
         else _resolve_names(
-            input_parameters,
+            input_parameter_names,
             available_theta_names,
             kind="input parameter",
         )
@@ -55,7 +55,7 @@ def filter_inversion_dataset(
     )
     if overlapping_names:
         raise ValueError(
-            "input parameters cannot also be inferred theta parameters: "
+            "input parameter names cannot also be inferred theta parameters: "
             f"{list(overlapping_names)}"
         )
 
@@ -269,7 +269,7 @@ def inversion_dataset_metadata(dataset: xr.Dataset) -> dict[str, Any]:
             str(value) for value in dataset.attrs.get("observer_names", [])
         ],
         "input_parameter_names": [
-            str(value) for value in dataset.attrs.get("input_parameter_names", [])
+            str(value) for value in dataset.attrs["input_parameter_names"]
         ],
         "constant_theta": dict(dataset.attrs["constant_theta"]),
         "prior_low": np.asarray(dataset["prior_low"].values, dtype=np.float32).tolist(),

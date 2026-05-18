@@ -12,6 +12,7 @@
       "outside_optimism",
       "exploration"
     ],
+    "input_parameter_names": [],
     "drop_constant_theta": true,
     "x_representation": "final",
     "normalize_time": true,

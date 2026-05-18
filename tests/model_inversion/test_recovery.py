@@ -24,6 +24,7 @@ class RecoveryObservationTests(unittest.TestCase):
         artifact = artifact_with_dataset(
             {
                 "x_names": ["density.mean", "welfare.mean"],
+                "input_parameter_names": [],
                 "x_representation": "timeseries",
                 "x_event_shape": [3, 2],
                 "normalize_time": True,
@@ -100,6 +101,7 @@ class RecoveryObservationTests(unittest.TestCase):
         artifact = artifact_with_dataset(
             {
                 "x_names": ["density.mean", "welfare.mean"],
+                "input_parameter_names": [],
                 "x_representation": "final",
                 "x_event_shape": [2],
                 "normalize_time": True,
@@ -128,6 +130,7 @@ class RecoveryObservationTests(unittest.TestCase):
         artifact = artifact_with_dataset(
             {
                 "x_names": ["density.mean", "welfare.mean"],
+                "input_parameter_names": [],
                 "x_representation": "final",
                 "x_event_shape": [2],
             }
@@ -176,12 +179,36 @@ class RecoveryObservationTests(unittest.TestCase):
             np.asarray([3.0, 6.0, 3.0], dtype=np.float32),
         )
 
+    def test_observation_from_policy_outputs_requires_input_parameter_names(
+        self,
+    ) -> None:
+        artifact = artifact_with_dataset(
+            {
+                "x_names": ["density.mean", "welfare.mean"],
+                "x_representation": "final",
+                "x_event_shape": [2],
+            }
+        )
+        outputs = {
+            "density.mean": np.asarray([1.0, 2.0, 3.0], dtype=np.float32),
+            "welfare.mean": np.asarray([4.0, 5.0, 6.0], dtype=np.float32),
+        }
+
+        with self.assertRaises(KeyError):
+            observation_from_policy_outputs(
+                outputs,
+                artifact,
+                n_agents=3,
+                n_actors=1,
+            )
+
     def test_observation_from_policy_outputs_preserves_raw_timeseries_behavior(
         self,
     ) -> None:
         artifact = artifact_with_dataset(
             {
                 "x_names": ["density.mean", "welfare.mean"],
+                "input_parameter_names": [],
                 "x_representation": "timeseries",
                 "x_event_shape": [3, 2],
             }

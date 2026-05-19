@@ -262,6 +262,15 @@ namespace Observers {
         +degree_ranked_result(dimension_name: str) StatisticResult
     }
 
+    class PolicyWelfareObserver {
+        +benefit_to_cost_ratio: float
+        +distance_discount: float
+        +policy_ids: tuple[str, ...]
+        +policy_slot_by_agent: NDArray
+        +n_policy_slots: int
+        +dimension_names: tuple[str, ...]
+    }
+
     class StateHistoryResult {
         +steps: NDArray
         +graphs: tuple[Graph, ...]
@@ -335,6 +344,7 @@ HubPersistenceObserver --|> EpisodeSeriesStatisticObserver : extends
 TriadCensusObserver --|> EpisodeSeriesTensorStatisticObserver : extends
 AgentPayoffObserver --|> EpisodeSeriesTensorStatisticObserver : extends
 AgentPayoffObserver ..> StatisticResult : degree_ranked_result
+PolicyWelfareObserver --|> EpisodeSeriesTensorStatisticObserver : extends
 StateHistoryObserver ..|> SimulationObserver : implements
 StateHistoryObserver ..> StateHistoryResult : returns
 ActionPrintObserver ..|> SimulationObserver : implements

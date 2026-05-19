@@ -10,6 +10,7 @@ from network_creation.core.observability import ObservationSampling
 from tasks.execution.schema import OutputArraySpec
 
 AGENT_PAYOFF_OBSERVER_NAME = "agent_payoff"
+POLICY_WELFARE_OBSERVER_NAME = "policy_welfare"
 
 if TYPE_CHECKING:
     from network_creation.observers.statistics.episode import EpisodeStatisticObserver
@@ -39,6 +40,7 @@ def build_observer_specs(
     max_steps: int,
     n_episodes: int,
     n_agent_slots: int | None = None,
+    policy_ids: Sequence[str] = (),
 ) -> tuple[ObserverOutputSpec, ...]:
     from network_creation.observers.grimoire import OBSERVER_GRIMOIRE
     from network_creation.observers.statistics.episode import EpisodeStatisticObserver
@@ -65,6 +67,10 @@ def build_observer_specs(
             if n_agent_slots is None:
                 raise ValueError("agent_payoff observer requires n_agent_slots")
             kwargs["n_agent_slots"] = int(n_agent_slots)
+        if name == POLICY_WELFARE_OBSERVER_NAME:
+            if not policy_ids:
+                raise ValueError("policy_welfare observer requires policy_ids")
+            kwargs["n_policy_slots"] = len(tuple(policy_ids))
         observation_sampling = _load_observation_sampling(
             cast(Mapping[str, object], kwargs["observation_sampling"])
         )
@@ -74,6 +80,12 @@ def build_observer_specs(
                 max_steps=max_steps,
                 observation_sampling=observation_sampling,
                 n_agent_slots=int(cast(Any, kwargs["n_agent_slots"])),
+            )
+        elif name == POLICY_WELFARE_OBSERVER_NAME:
+            base_shape = cast(Any, observer_class).fixed_output_shape_for_policy_slots(
+                max_steps=max_steps,
+                observation_sampling=observation_sampling,
+                n_policy_slots=int(cast(Any, kwargs["n_policy_slots"])),
             )
         else:
             base_shape = observer_class.fixed_output_shape(
@@ -104,6 +116,7 @@ def build_observer_instance(
     configuration: Any,
     *,
     column_index_by_name: Mapping[str, int],
+    policy_assignment: Any | None = None,
 ) -> Any:
     from network_creation.observers.statistics.episode import (
         EpisodeStatisticObserver,
@@ -112,7 +125,11 @@ def build_observer_instance(
     kwargs = dict(spec.kwargs)
     if issubclass(spec.observer_class, EpisodeStatisticObserver):
         kwargs["n_agents"] = int(configuration[column_index_by_name["n_agents"]])
-    if spec.name in {AGENT_PAYOFF_OBSERVER_NAME, "centered_mean_welfare"}:
+    if spec.name in {
+        AGENT_PAYOFF_OBSERVER_NAME,
+        POLICY_WELFARE_OBSERVER_NAME,
+        "centered_mean_welfare",
+    }:
         for parameter_name in (
             "benefit_to_cost_ratio",
             "distance_discount",
@@ -122,5 +139,10 @@ def build_observer_instance(
             kwargs[parameter_name] = float(
                 configuration[column_index_by_name[parameter_name]]
             )
+    if spec.name == POLICY_WELFARE_OBSERVER_NAME:
+        if policy_assignment is None:
+            raise ValueError("policy_welfare observer requires policy_assignment")
+        kwargs["policy_ids"] = policy_assignment.policy_ids
+        kwargs["policy_slot_by_agent"] = policy_assignment.policy_slot_by_agent
 
     return spec.observer_class(**kwargs)

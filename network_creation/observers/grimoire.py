@@ -11,6 +11,7 @@ from .distance_observer import DistanceObserver
 from .global_closeness_centrality_observer import GlobalClosenessCentralityObserver
 from .hub_persistence_observer import HubPersistenceObserver
 from .indegree_observer import IndegreeObserver
+from .policy_welfare_observer import PolicyWelfareObserver
 from .social_welfare_observer import CenteredMeanWelfareObserver
 from .state_history_observer import StateHistoryObserver
 from .triad_census_observer import TriadCensusObserver
@@ -26,6 +27,7 @@ OBSERVER_GRIMOIRE = {
     "hub_persistence": HubPersistenceObserver,
     "indegree": IndegreeObserver,
     "agent_payoff": AgentPayoffObserver,
+    "policy_welfare": PolicyWelfareObserver,
     "centered_mean_welfare": CenteredMeanWelfareObserver,
     "state_history": StateHistoryObserver,
     "triad_census": TriadCensusObserver,

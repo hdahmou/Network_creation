@@ -180,6 +180,79 @@ class PolicyRunResultFormatterTest(unittest.TestCase):
         self.assertNotIn("threshold_link_count", ds.coords["theta_parameter"].values)
         self.assertNotIn("best_response_count", ds.coords["theta_parameter"].values)
 
+    def test_from_zarr_preserves_policy_welfare_axis(self) -> None:
+        config = task_config(
+            n_agents=4,
+            n_actors=2,
+            log2_budget=0,
+            policies=[
+                policy(
+                    "myopic",
+                    "myopic",
+                    {"bridge_probability": fixed(0.5)},
+                ),
+                policy("random", "random"),
+            ],
+            policy_proportions={"policy": "myopic", "values": [0.5]},
+            observers={
+                "defaults": {
+                    "sampling": {"kind": "periodic", "every": 1},
+                    "aggregations": ["mean"],
+                },
+                "outputs": [{"name": "policy_welfare", "output": "mean"}],
+            },
+        )
+        prepared = prepare_policy_run(config)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store_path = Path(tmpdir) / "policy-welfare-run.zarr"
+            writer = ZarrResultStore(
+                str(store_path),
+                output_schema=prepared.output_schema,
+                batch_size=2,
+                total_inputs=len(prepared.inputs),
+                metadata_attrs={
+                    **dict(prepared.result_attrs),
+                    "config_path": str(store_path.with_suffix(".run_config.json")),
+                },
+                metadata_arrays=prepared.result_arrays,
+            )
+            writer.add_success(
+                input_index=0,
+                output={
+                    "policy_welfare.mean": np.asarray(
+                        [
+                            [0.0, 0.0],
+                            [0.1, 0.2],
+                            [0.3, 0.4],
+                            [0.5, 0.6],
+                        ],
+                        dtype=np.float32,
+                    )
+                },
+            )
+            writer.flush()
+
+            ds = load_policy_results(store_path)
+
+        self.assertEqual(
+            ds["policy_welfare.mean"].dims,
+            (
+                "n_agents",
+                "myopic_proportion",
+                "parameter_row",
+                "step",
+                "policy_class",
+            ),
+        )
+        self.assertEqual(tuple(ds.coords["policy_class"].values), ("myopic", "random"))
+        self.assertEqual(ds["policy_welfare.mean"].shape, (1, 1, 1, 4, 2))
+        self.assertEqual(tuple(ds.coords["observable"].values), ())
+        np.testing.assert_allclose(
+            ds["policy_welfare.mean"].isel(step=-1).values,
+            np.asarray([[[[0.5, 0.6]]]], dtype=np.float32),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

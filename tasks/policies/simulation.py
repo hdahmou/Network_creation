@@ -9,7 +9,11 @@ import numpy as np
 
 from .agent_parameters import SampledAgentParameterPlan
 from .agents import PolicyAgentBuilder
-from .observers import ObserverOutputSpec, build_observer_instance
+from .observers import (
+    POLICY_WELFARE_OBSERVER_NAME,
+    ObserverOutputSpec,
+    build_observer_instance,
+)
 from .outputs import SAMPLED_AGENT_PARAMETERS_FIELD
 from .sweep import SweepPlan
 
@@ -39,11 +43,23 @@ class PolicySimulationRuntime:
             self.max_n_agents,
             self.agent_builder.policy_entry_for_node,
         )
+        policy_assignment = (
+            self.agent_builder.policy_assignment_for_configuration(
+                configuration,
+                n_agents=simulation_settings.n_agents,
+            )
+            if any(
+                spec.name == POLICY_WELFARE_OBSERVER_NAME
+                for spec in self.observer_specs
+            )
+            else None
+        )
         observers = tuple(
             build_observer_instance(
                 spec,
                 configuration,
                 column_index_by_name=self.sweep.column_index_by_name,
+                policy_assignment=policy_assignment,
             )
             for spec in self.observer_specs
         )

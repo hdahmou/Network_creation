@@ -20,6 +20,12 @@ if TYPE_CHECKING:
 
 
 @dataclass(frozen=True)
+class PolicyAssignment:
+    policy_ids: tuple[str, ...]
+    policy_slot_by_agent: NDArray[np.int32]
+
+
+@dataclass(frozen=True)
 class PolicyAgentBuilder:
     policy_entries: tuple[PolicyEntry, ...]
     configuration_names: tuple[str, ...]
@@ -44,6 +50,28 @@ class PolicyAgentBuilder:
         if node_id < first_count:
             return self.policy_entries[0]
         return self.policy_entries[1]
+
+    def policy_assignment_for_configuration(
+        self,
+        configuration: NDArray[np.float32],
+        *,
+        n_agents: int,
+    ) -> PolicyAssignment:
+        policy_ids = tuple(policy_id for policy_id, _ in self.policy_entries)
+        policy_slot_by_id = {
+            policy_id: slot for slot, policy_id in enumerate(policy_ids)
+        }
+        policy_slot_by_agent: NDArray[np.int32] = np.empty(
+            int(n_agents),
+            dtype=np.int32,
+        )
+        for node_id in range(int(n_agents)):
+            policy_id, _ = self.policy_entry_for_node(node_id, configuration)
+            policy_slot_by_agent[node_id] = policy_slot_by_id[policy_id]
+        return PolicyAssignment(
+            policy_ids=policy_ids,
+            policy_slot_by_agent=policy_slot_by_agent,
+        )
 
     def build_agent(
         self,

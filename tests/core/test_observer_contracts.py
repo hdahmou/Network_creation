@@ -178,6 +178,15 @@ def _build_contract_test_observer(name: str):
             "distance_discount": 0.5,
             "aggregations": (),
         },
+        "policy_welfare": {
+            "n_agents": 3,
+            "observation_sampling": periodic,
+            "benefit_to_cost_ratio": 1.0,
+            "distance_discount": 0.5,
+            "aggregations": (),
+            "policy_ids": ("first", "second"),
+            "policy_slot_by_agent": np.asarray([0, 1, 0], dtype=np.int32),
+        },
         "centered_mean_welfare": {
             "n_agents": 3,
             "observation_sampling": periodic,

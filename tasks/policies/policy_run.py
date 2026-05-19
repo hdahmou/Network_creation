@@ -23,6 +23,7 @@ from .sweep import (
 def prepare_policy_run(config: Mapping[str, Any]) -> PreparedRun[int]:
     policy_config = cast(Mapping[str, Any], config)
     policy_entries = parse_policy_entries(policy_config)
+    policy_ids = tuple(policy_id for policy_id, _ in policy_entries)
     input_spec = collect_parameter_specs(policy_config)
     parameter_specs = cast(Mapping[str, ParameterSpec], input_spec["parameters"])
     parameter_samples = sample_parameters(input_spec)
@@ -30,7 +31,7 @@ def prepare_policy_run(config: Mapping[str, Any]) -> PreparedRun[int]:
         policy_config,
         parameter_samples,
         parameter_specs=parameter_specs,
-        policy_ids=tuple(policy_id for policy_id, _ in policy_entries),
+        policy_ids=policy_ids,
     )
     max_n_agents = max(sweep.n_agents_values)
     observer_specs = build_observer_specs(
@@ -38,6 +39,7 @@ def prepare_policy_run(config: Mapping[str, Any]) -> PreparedRun[int]:
         max_steps=sweep.max_steps,
         n_episodes=sweep.n_episodes,
         n_agent_slots=max_n_agents,
+        policy_ids=policy_ids,
     )
     sampled_parameter_plan = build_sampled_agent_parameter_plan(
         parameter_specs,

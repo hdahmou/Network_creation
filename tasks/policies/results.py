@@ -26,6 +26,7 @@ from .outputs import (
 )
 
 AGENT_PAYOFF_OBSERVER_NAME = "agent_payoff"
+POLICY_WELFARE_OBSERVER_NAME = "policy_welfare"
 
 
 @dataclass(frozen=True)
@@ -58,14 +59,16 @@ def load_policy_results(
     result_coordinates = _result_coordinates(raw, metadata)
     grid_shape = _parameter_grid_shape(raw_parameters)
     n_agents_values = np.asarray(metadata["n_agents"], dtype=np.int64)
-    parameter_rows = np.arange(grid_shape[2], dtype=np.int64)
+    parameter_rows: NDArray[np.int64] = np.arange(grid_shape[2], dtype=np.int64)
     raw_outputs = _raw_outputs(raw, output_schema)
     sampled_agent_parameters = raw_outputs.get(SAMPLED_AGENT_PARAMETERS_FIELD)
     agent_payoff_outputs = _agent_payoff_outputs(raw_outputs)
+    policy_welfare_outputs = _policy_welfare_outputs(raw_outputs)
     regular_outputs = {
         name: values
         for name, values in raw_outputs.items()
         if name not in agent_payoff_outputs
+        and name not in policy_welfare_outputs
         and name != SAMPLED_AGENT_PARAMETERS_FIELD
     }
     step_labels = _shared_step_labels(policy_config, raw_outputs)
@@ -123,7 +126,15 @@ def load_policy_results(
             "agent_slot",
             np.arange(agent_slot_count, dtype=np.int64),
         )
-    episode_count = _agent_payoff_episode_count(agent_payoff_outputs)
+    policy_class_count = _policy_class_count(policy_welfare_outputs)
+    if policy_class_count is not None:
+        coords["policy_class"] = (
+            "policy_class",
+            _policy_class_labels(policy_config, policy_class_count),
+        )
+    episode_count = _tensor_episode_count(
+        {**agent_payoff_outputs, **policy_welfare_outputs}
+    )
     if episode_count is not None:
         coords["episode"] = ("episode", np.arange(episode_count, dtype=np.int64))
     if sampled_agent_parameters is not None:
@@ -156,6 +167,14 @@ def load_policy_results(
             dense_dims=dense_dims,
             result_coordinates=result_coordinates,
             outputs=agent_payoff_outputs,
+        )
+    )
+    data_vars.update(
+        _dense_policy_welfare_data_vars(
+            grid_shape=grid_shape,
+            dense_dims=dense_dims,
+            result_coordinates=result_coordinates,
+            outputs=policy_welfare_outputs,
         )
     )
     if sampled_agent_parameters is not None:
@@ -228,6 +247,16 @@ def _agent_payoff_outputs(
     }
 
 
+def _policy_welfare_outputs(
+    outputs: Mapping[str, NDArray[np.generic]],
+) -> dict[str, NDArray[np.generic]]:
+    return {
+        name: values
+        for name, values in outputs.items()
+        if _is_policy_welfare_output(name)
+    }
+
+
 def _validate_sampled_agent_parameter_names(
     values: NDArray[np.generic],
     names: Sequence[str],
@@ -253,6 +282,10 @@ def _is_agent_payoff_output(name: str) -> bool:
     return str(name).split(".", maxsplit=1)[0] == AGENT_PAYOFF_OBSERVER_NAME
 
 
+def _is_policy_welfare_output(name: str) -> bool:
+    return str(name).split(".", maxsplit=1)[0] == POLICY_WELFARE_OBSERVER_NAME
+
+
 def _agent_slot_count(
     outputs: Mapping[str, NDArray[np.generic]],
 ) -> int | None:
@@ -264,7 +297,36 @@ def _agent_slot_count(
     return counts.pop()
 
 
-def _agent_payoff_episode_count(
+def _policy_class_count(
+    outputs: Mapping[str, NDArray[np.generic]],
+) -> int | None:
+    if not outputs:
+        return None
+    counts = {int(np.asarray(values).shape[-1]) for values in outputs.values()}
+    if len(counts) != 1:
+        raise ValueError("policy_welfare outputs must share the same policy axis length")
+    return counts.pop()
+
+
+def _policy_class_labels(
+    policy_config: Any,
+    policy_class_count: int,
+) -> NDArray[np.str_]:
+    policy_ids: list[str] = []
+    if isinstance(policy_config, Mapping):
+        population = policy_config.get("population")
+        if isinstance(population, Mapping):
+            policies = population.get("policies")
+            if isinstance(policies, Sequence):
+                for policy in policies:
+                    if isinstance(policy, Mapping) and "id" in policy:
+                        policy_ids.append(str(policy["id"]))
+    if len(policy_ids) != policy_class_count:
+        policy_ids = [f"policy_{index}" for index in range(policy_class_count)]
+    return np.asarray(policy_ids, dtype=np.str_)
+
+
+def _tensor_episode_count(
     outputs: Mapping[str, NDArray[np.generic]],
 ) -> int | None:
     counts = {
@@ -358,6 +420,11 @@ def _step_axis_length(
     if array.ndim == 2:
         return int(array.shape[1])
     if _is_agent_payoff_output(name):
+        if array.ndim == 3:
+            return int(array.shape[1])
+        if array.ndim == 4:
+            return int(array.shape[2])
+    if _is_policy_welfare_output(name):
         if array.ndim == 3:
             return int(array.shape[1])
         if array.ndim == 4:
@@ -506,6 +573,35 @@ def _dense_agent_payoff_data_vars(
     return data_vars
 
 
+def _dense_policy_welfare_data_vars(
+    *,
+    grid_shape: tuple[int, int, int],
+    dense_dims: tuple[str, str, str],
+    result_coordinates: _ResultCoordinates,
+    outputs: Mapping[str, NDArray[np.generic]],
+) -> dict[str, Any]:
+    data_vars: dict[str, Any] = {}
+    for name, values in outputs.items():
+        array = np.asarray(values, dtype=np.float32)
+        dense = _dense_result_grid(
+            grid_shape=grid_shape,
+            result_coordinates=result_coordinates,
+            values=array,
+        )
+        if array.ndim == 3:
+            data_vars[name] = ((*dense_dims, "step", "policy_class"), dense)
+        elif array.ndim == 4:
+            data_vars[name] = (
+                (*dense_dims, "episode", "step", "policy_class"),
+                dense,
+            )
+        else:
+            raise ValueError(
+                f"policy_welfare outputs must have rank 3 or 4, got {array.ndim}"
+            )
+    return data_vars
+
+
 def _dense_result_grid(
     *,
     grid_shape: tuple[int, int, int],
@@ -547,7 +643,8 @@ def _normalize_time_axis(
     )
 
     data_vars: dict[str, Any] = {}
-    for name, array in dataset.data_vars.items():
+    for raw_name, array in dataset.data_vars.items():
+        name = str(raw_name)
         if "step" in array.dims:
             if "n_agents" not in array.dims:
                 raise ValueError(
@@ -568,11 +665,11 @@ def _normalize_time_axis(
         else:
             data_vars[name] = (array.dims, np.asarray(array.values))
 
-    coords: dict[str, Any] = {
-        name: (coord.dims, np.asarray(coord.values))
-        for name, coord in dataset.coords.items()
-        if name != "step"
-    }
+    coords: dict[str, Any] = {}
+    for raw_name, coord in dataset.coords.items():
+        name = str(raw_name)
+        if name != "step":
+            coords[name] = (coord.dims, np.asarray(coord.values))
     coords["step"] = ("step", grid.step_labels)
 
     attrs = dict(dataset.attrs)

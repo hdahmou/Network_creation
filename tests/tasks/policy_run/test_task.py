@@ -26,6 +26,16 @@ from tasks.policies.sweep import (
 from tests.tasks.config_support import continuous, fixed, policy, task_config
 
 
+class AlternatingPolicyAgentBuilder(PolicyAgentBuilder):
+    def policy_entry_for_node(
+        self,
+        node_id: int,
+        configuration: np.ndarray,
+    ):
+        del configuration
+        return self.policy_entries[node_id % len(self.policy_entries)]
+
+
 def _policy_components(config: dict[str, object]):
     policy_entries = parse_policy_entries(config)
     input_spec = collect_parameter_specs(config)
@@ -130,6 +140,53 @@ class PolicyRunTest(unittest.TestCase):
                 "myopic.bridge_probability",
                 "random.p_act",
             ),
+        )
+
+    def test_policy_assignment_uses_policy_selection_logic(self) -> None:
+        builder = AlternatingPolicyAgentBuilder(
+            policy_entries=(("first", "random"), ("second", "random")),
+            configuration_names=("n_agents",),
+            column_index_by_name={"n_agents": 0},
+            sampled_parameters_by_policy_id={"first": (), "second": ()},
+        )
+
+        assignment = builder.policy_assignment_for_configuration(
+            np.asarray([5.0], dtype=np.float32),
+            n_agents=5,
+        )
+
+        self.assertEqual(assignment.policy_ids, ("first", "second"))
+        np.testing.assert_array_equal(
+            assignment.policy_slot_by_agent,
+            np.asarray([0, 1, 0, 1, 0], dtype=np.int32),
+        )
+
+    def test_run_records_policy_welfare_observer(self) -> None:
+        config = task_config(
+            n_agents=4,
+            n_actors=2,
+            log2_budget=0,
+            n_episodes=1,
+            policies=[
+                policy("first", "random", {"p_act": fixed(0.0)}),
+                policy("second", "random", {"p_act": fixed(0.0)}),
+            ],
+            policy_proportions={"policy": "first", "values": [0.5]},
+            observers={
+                "defaults": {
+                    "sampling": {"kind": "periodic", "every": 1},
+                    "aggregations": ["mean"],
+                },
+                "outputs": [{"name": "policy_welfare", "output": "mean"}],
+            },
+        )
+
+        output = prepare_policy_run(config).run(0)
+
+        self.assertEqual(output["policy_welfare.mean"].shape, (4, 2))
+        np.testing.assert_allclose(
+            output["policy_welfare.mean"],
+            np.zeros((4, 2), dtype=np.float32),
         )
 
     def test_run_records_sampled_agent_parameters_for_nonzero_std(self) -> None:

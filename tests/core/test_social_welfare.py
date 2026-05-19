@@ -23,6 +23,7 @@ from network_creation.core.observability import (
 )
 from network_creation.core.simulator import Simulator
 from network_creation.observers.agent_payoff_observer import AgentPayoffObserver
+from network_creation.observers.policy_welfare_observer import PolicyWelfareObserver
 from network_creation.observers.social_welfare_observer import (
     CenteredMeanWelfareObserver,
 )
@@ -307,6 +308,44 @@ class SocialWelfareTest(unittest.TestCase):
             np.array([[0.0, 0.0], [0.0, 1.0]], dtype=np.float32),
         )
         self.assertEqual(observer.y_label, "normalized payoff")
+
+    def test_policy_welfare_observer_averages_payoff_by_assignment(self) -> None:
+        observer = PolicyWelfareObserver(
+            n_agents=3,
+            observation_sampling=ObservationSampling.periodic(1),
+            benefit_to_cost_ratio=2.0,
+            distance_discount=0.5,
+            aggregations=(),
+            policy_ids=("first", "missing", "second"),
+            policy_slot_by_agent=np.asarray([0, 2, 0], dtype=np.int32),
+        )
+        graph = graph_from_adjacency_matrix(
+            np.array(
+                [
+                    [0, 1, 0],
+                    [0, 0, 0],
+                    [0, 0, 0],
+                ],
+                dtype=np.int8,
+            )
+        )
+
+        observer.on_episode_start(
+            EpisodeStartEvent(
+                episode_index=0,
+                seed=17,
+                max_steps=0,
+                n_agents=3,
+                initial_state=StateView(graph),
+            )
+        )
+
+        self.assertEqual(observer.values.shape, (1, 3))
+        np.testing.assert_allclose(
+            observer.values[:, [0, 2]],
+            np.asarray([[0.0, 0.5]], dtype=np.float32),
+        )
+        self.assertTrue(np.isnan(observer.values[:, 1]).all())
 
     def test_agent_payoff_observer_pads_agent_slots(self) -> None:
         observer = AgentPayoffObserver(

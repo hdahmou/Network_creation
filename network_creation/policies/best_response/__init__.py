@@ -143,11 +143,7 @@ class BestResponsePolicy(Policy):
                 self.distance_discount
                 + self.outside_optimism * spillover_targets * self.distance_discount**2
             )
-            bridge_value = (
-                self.benefit_to_cost_ratio
-                * (expected_bridge_gain - base_score_excluding_self)
-                - 1.0
-            )
+            bridge_value = self.benefit_to_cost_ratio * expected_bridge_gain - 1.0
             self.candidate_actions[candidate_idx] = bridge_action
             self.candidate_values[candidate_idx] = bridge_value
             candidate_idx += 1

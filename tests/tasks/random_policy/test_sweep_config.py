@@ -25,7 +25,7 @@ class RandomPolicyPreparationTest(unittest.TestCase):
                     "sampling": {"kind": "periodic", "every": 1},
                     "aggregations": ["mean"],
                 },
-                "outputs": [{"name": "density", "output": "mean"}],
+                "outputs": [{"name": "density"}],
             },
         )
 

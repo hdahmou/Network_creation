@@ -149,8 +149,8 @@ class MyopicPolicyTaskTest(unittest.TestCase):
     def test_prepare_supports_series_and_tensor_observers_in_one_schema(self) -> None:
         config = self._base_config()
         config["observers"]["outputs"] = [
-            {"name": "density", "output": "mean"},
-            {"name": "triad_census", "output": "mean"},
+            {"name": "density"},
+            {"name": "triad_census"},
         ]
         prepared = prepare_policy_run(config)
 
@@ -172,7 +172,7 @@ class MyopicPolicyTaskTest(unittest.TestCase):
                 "sampling": {"kind": "terminal"},
                 "aggregations": ["mean"],
             },
-            "outputs": [{"name": "triad_census", "output": "mean"}],
+            "outputs": [{"name": "triad_census"}],
         }
         prepared = prepare_policy_run(config)
 

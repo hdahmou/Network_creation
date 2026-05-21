@@ -10,7 +10,7 @@
   },
   "simulator": {
     "seed": 11,
-    "max_steps": 3000,
+    "max_steps": 4000,
     "n_episodes": 32,
     "actor_scheduler": {
       "n_actors": 1
@@ -67,22 +67,19 @@
     "defaults": {
       "sampling": {
         "kind": "periodic",
-        "every": 5
+        "every": 1
       },
       "aggregations": ["mean", "std"]
     },
     "outputs": [
       {
-        "name": "central_point_of_dominance",
-        "output": "mean"
+        "name": "central_point_of_dominance"
       },
       {
-        "name": "indegree",
-        "output": "mean"
+        "name": "indegree"
       },
       {
-        "name": "centered_mean_welfare",
-        "output": "mean"
+        "name": "centered_mean_welfare"
       }
     ]
   }

@@ -19,10 +19,9 @@ if TYPE_CHECKING:
 @dataclass(frozen=True)
 class ObserverOutputSpec:
     name: str
-    output: str
     observer_class: type[EpisodeStatisticObserver]
     kwargs: dict[str, Any]
-    field: OutputArraySpec
+    fields: tuple[OutputArraySpec, ...]
 
 
 def _load_observation_sampling(raw: Mapping[str, object]) -> ObservationSampling:
@@ -55,8 +54,16 @@ def build_observer_specs(
     observer_specs: list[ObserverOutputSpec] = []
     for observer in outputs:
         name = str(observer["name"])
-        output = str(observer["output"])
         observer_class = cast(type[EpisodeStatisticObserver], OBSERVER_GRIMOIRE[name])
+        if not issubclass(observer_class, EpisodeStatisticObserver):
+            raise ValueError(
+                f"observer {name!r} is not a statistic observer and cannot be saved"
+            )
+        if "output" in observer:
+            raise ValueError(
+                "observer output entries no longer use 'output'; "
+                "set saved outputs with 'aggregations'"
+            )
         kwargs = dict(default_settings)
         if "sampling" in observer:
             kwargs["observation_sampling"] = observer["sampling"]
@@ -92,19 +99,29 @@ def build_observer_specs(
                 max_steps=max_steps,
                 observation_sampling=observation_sampling,
             )
-        field_shape = (n_episodes, *base_shape) if output == "runs" else base_shape
+        aggregations = tuple(
+            str(value) for value in cast(Sequence[Any], kwargs["aggregations"])
+        )
+        kwargs["aggregations"] = aggregations
+        fields = tuple(
+            OutputArraySpec(
+                name=f"{name}.{aggregation}",
+                shape=(
+                    (n_episodes, *base_shape)
+                    if aggregation == "runs"
+                    else base_shape
+                ),
+                dtype=observer_class.fixed_output_dtype(),
+            )
+            for aggregation in aggregations
+        )
 
         observer_specs.append(
             ObserverOutputSpec(
                 name=name,
-                output=output,
                 observer_class=observer_class,
                 kwargs=kwargs,
-                field=OutputArraySpec(
-                    name=f"{name}.{output}",
-                    shape=field_shape,
-                    dtype=observer_class.fixed_output_dtype(),
-                ),
+                fields=fields,
             )
         )
 

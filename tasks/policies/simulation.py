@@ -79,17 +79,15 @@ class PolicySimulationRuntime:
             reset_observers=True,
         )
 
-        output = {
-            spec.field.name: np.asarray(
-                observer.get().outputs[spec.output],
-                dtype=spec.observer_class.fixed_output_dtype(),
-            )
-            for spec, observer in zip(
-                self.observer_specs,
-                observers,
-                strict=True,
-            )
-        }
+        output = {}
+        for spec, observer in zip(self.observer_specs, observers, strict=True):
+            result = observer.get()
+            for field in spec.fields:
+                aggregation = field.name.split(".", maxsplit=1)[1]
+                output[field.name] = np.asarray(
+                    result.outputs[aggregation],
+                    dtype=spec.observer_class.fixed_output_dtype(),
+                )
         if self.sampled_agent_parameter_plan.names:
             output[SAMPLED_AGENT_PARAMETERS_FIELD] = sampled_agent_parameters
         return output

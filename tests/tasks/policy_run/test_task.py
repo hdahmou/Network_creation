@@ -86,7 +86,7 @@ class PolicyRunTest(unittest.TestCase):
                     "sampling": {"kind": "periodic", "every": 1},
                     "aggregations": ["mean"],
                 },
-                "outputs": [{"name": "density", "output": "mean"}],
+                "outputs": [{"name": "density"}],
             },
         )
 
@@ -177,7 +177,7 @@ class PolicyRunTest(unittest.TestCase):
                     "sampling": {"kind": "periodic", "every": 1},
                     "aggregations": ["mean"],
                 },
-                "outputs": [{"name": "policy_welfare", "output": "mean"}],
+                "outputs": [{"name": "policy_welfare"}],
             },
         )
 
@@ -212,7 +212,7 @@ class PolicyRunTest(unittest.TestCase):
                     "sampling": {"kind": "periodic", "every": 1},
                     "aggregations": ["mean"],
                 },
-                "outputs": [{"name": "density", "output": "mean"}],
+                "outputs": [{"name": "density"}],
             },
         )
 

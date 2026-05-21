@@ -46,6 +46,30 @@ class RandomPolicyTaskTest(unittest.TestCase):
         self.assertEqual(output["density.mean"].dtype, np.float32)
         self.assertEqual(output["centered_mean_welfare.mean"].dtype, np.float32)
 
+    def test_prepare_saves_all_configured_observer_aggregations(self) -> None:
+        config = self._base_config()
+        config["observers"] = {
+            "defaults": {
+                "sampling": {"kind": "periodic", "every": 1},
+                "aggregations": ["mean", "std"],
+            },
+            "outputs": [{"name": "density"}],
+        }
+
+        prepared = prepare_policy_run(config)
+
+        self.assertEqual(
+            prepared.output_schema.metadata(),
+            [
+                {"name": "density.mean", "shape": [4], "dtype": "float32"},
+                {"name": "density.std", "shape": [4], "dtype": "float32"},
+            ],
+        )
+        output = prepared.run(prepared.inputs[0])
+        self.assertEqual(set(output), {"density.mean", "density.std"})
+        self.assertEqual(output["density.mean"].shape, output["density.std"].shape)
+        self.assertEqual(output["density.std"].shape, (4,))
+
     def test_prepared_run_is_deterministic_for_fixed_seed(self) -> None:
         prepared = prepare_policy_run(self._base_config())
 
@@ -121,8 +145,8 @@ class RandomPolicyTaskTest(unittest.TestCase):
     def test_prepare_supports_series_and_tensor_observers_in_one_schema(self) -> None:
         config = self._base_config()
         config["observers"]["outputs"] = [
-            {"name": "density", "output": "mean"},
-            {"name": "triad_census", "output": "mean"},
+            {"name": "density"},
+            {"name": "triad_census"},
         ]
         prepared = prepare_policy_run(config)
 
@@ -141,7 +165,7 @@ class RandomPolicyTaskTest(unittest.TestCase):
         config = self._base_config()
         config["population"]["n_agents"] = [2, 4]
         config["observers"]["outputs"] = [
-            {"name": "agent_payoff", "output": "mean"},
+            {"name": "agent_payoff"},
         ]
         prepared = prepare_policy_run(config)
 
@@ -166,7 +190,7 @@ class RandomPolicyTaskTest(unittest.TestCase):
                 "sampling": {"kind": "terminal"},
                 "aggregations": ["mean"],
             },
-            "outputs": [{"name": "density", "output": "mean"}],
+            "outputs": [{"name": "density"}],
         }
         prepared = prepare_policy_run(config)
 

@@ -47,12 +47,16 @@ class PolicyTaskConfigTest(unittest.TestCase):
                         "sampling": {"kind": "periodic", "every": 1},
                         "aggregations": ["mean"],
                     },
-                    "outputs": [{"name": "density", "output": "mean"}],
+                    "outputs": [{"name": "density"}],
                 },
             }
         )
 
         self.assertEqual(policy_task.inputs, (0,))
+        self.assertEqual(
+            policy_task.output_schema.metadata(),
+            [{"name": "density.mean", "shape": [2], "dtype": "float32"}],
+        )
 
     def test_prepare_policy_run_accepts_erdos_renyi_initial_graph(self) -> None:
         config = cast(dict[str, Any], task_config())

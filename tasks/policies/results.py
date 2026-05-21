@@ -455,10 +455,12 @@ def _configured_output_step_labels(
         sampling = _load_observation_sampling(
             observer.get("sampling", default_sampling)
         )
-        labels[f"{observer['name']}.{observer['output']}"] = _step_labels(
-            max_steps,
-            sampling,
-        )
+        aggregations = observer.get("aggregations", defaults.get("aggregations", ()))
+        for aggregation in cast(Sequence[Any], aggregations):
+            labels[f"{observer['name']}.{aggregation}"] = _step_labels(
+                max_steps,
+                sampling,
+            )
     return labels
 
 

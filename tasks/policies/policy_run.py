@@ -66,7 +66,7 @@ def prepare_policy_run(config: Mapping[str, Any]) -> PreparedRun[int]:
         sampled_agent_parameter_names=sampled_parameter_plan.names,
     )
     output_schema = build_policy_output_spec(
-        tuple(spec.field for spec in observer_specs),
+        tuple(field for spec in observer_specs for field in spec.fields),
         sampled_agent_parameter_names=sampled_parameter_plan.names,
         max_n_agents=max_n_agents,
     )

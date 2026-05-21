@@ -135,7 +135,7 @@ def default_observers() -> dict[str, object]:
             "aggregations": ["mean"],
         },
         "outputs": [
-            {"name": "density", "output": "mean"},
-            {"name": "centered_mean_welfare", "output": "mean"},
+            {"name": "density"},
+            {"name": "centered_mean_welfare"},
         ],
     }

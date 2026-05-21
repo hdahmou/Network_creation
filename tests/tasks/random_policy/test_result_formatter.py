@@ -72,8 +72,8 @@ class RandomPolicyResultFormatterTest(unittest.TestCase):
         config["population"]["n_agents"] = [2, 4]
         config["simulator"]["max_steps"] = 2
         config["observers"]["outputs"] = [
-            {"name": "density", "output": "mean"},
-            {"name": "agent_payoff", "output": "mean"},
+            {"name": "density"},
+            {"name": "agent_payoff"},
         ]
         outputs_by_index = [
             (
@@ -333,8 +333,8 @@ class RandomPolicyResultFormatterTest(unittest.TestCase):
         config["simulator"]["max_steps"] = 2
         config["simulator"]["actor_scheduler"]["n_actors"] = 1
         config["observers"]["outputs"] = [
-            {"name": "density", "output": "mean"},
-            {"name": "agent_payoff", "output": "mean"},
+            {"name": "density"},
+            {"name": "agent_payoff"},
         ]
         outputs_by_index = [
             (

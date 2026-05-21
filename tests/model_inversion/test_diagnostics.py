@@ -137,12 +137,14 @@ class SbiDiagnosticTests(unittest.TestCase):
             result = plot_expected_coverage(
                 artifact,
                 coverage,
+                num_bins=5,
             )
 
         self.assertEqual(result, ("figure", "axis"))
         self.assertIs(rank_plot.call_args.args[0], coverage["ranks"])
         self.assertEqual(rank_plot.call_args.args[1], 5)
         self.assertEqual(rank_plot.call_args.kwargs["parameter_labels"], ["alpha"])
+        self.assertEqual(rank_plot.call_args.kwargs["num_bins"], 5)
 
     def test_marginal_sbc_ranks_use_strict_ranks_for_continuous_theta(self) -> None:
         artifact = FakeArtifact(theta_order=["alpha"], categories_by_name={})

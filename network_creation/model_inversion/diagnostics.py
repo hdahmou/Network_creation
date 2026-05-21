@@ -122,11 +122,16 @@ def marginal_sbc_ranks(
     return ranks
 
 
-def plot_expected_coverage(artifact: PosteriorArtifact, coverage: dict[str, Any]):
+def plot_expected_coverage(
+    artifact: PosteriorArtifact,
+    coverage: dict[str, Any],
+    **plot_kwargs: Any,
+):
     from sbi.analysis.plot import sbc_rank_plot
 
     return sbc_rank_plot(
         coverage["ranks"],
         coverage["num_posterior_samples"],
         parameter_labels=list(artifact.theta_order),
+        **plot_kwargs,
     )

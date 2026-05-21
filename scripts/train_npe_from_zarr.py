@@ -18,7 +18,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import numpy as np
 from numpy.typing import NDArray
@@ -28,6 +28,7 @@ LOGGER = logging.getLogger(__name__)
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SBI_LOG_DIRNAME = "sbi_logs"
 DIAGNOSTIC_DATA_FILENAME = "diagnostic_data.npz"
+TRAINING_METRICS_FILENAME = "training_metrics.json"
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
@@ -39,12 +40,8 @@ from network_creation.model_inversion.data import (  # noqa: E402
     move_discrete_theta_to_end,
 )
 from network_creation.model_inversion.networks import (  # noqa: E402
-    ContinuousDensityEstimatorName,
     DensityEstimatorConfig,
-    DensityEstimatorName,
     EmbeddingConfig,
-    EmbeddingKind,
-    RNNKind,
 )
 from network_creation.model_inversion.posterior import (  # noqa: E402
     attach_prior_samples_to_posterior,
@@ -89,28 +86,6 @@ class TrainNPEConfig:
     normalize_time: bool = True
     input_parameter_names: tuple[str, ...] = ()
 
-    def __post_init__(self) -> None:
-        if self.embedding.kind == "rnn" and self.x_representation != "timeseries":
-            raise ValueError(
-                "embedding.kind='rnn' requires dataset.x_representation='timeseries'"
-            )
-        if self.input_parameter_names and self.theta_parameters is None:
-            raise ValueError(
-                "dataset.theta_parameters must be explicit when "
-                "dataset.input_parameter_names is set"
-            )
-        if self.theta_parameters is not None:
-            overlapping_names = tuple(
-                name
-                for name in self.input_parameter_names
-                if name in set(self.theta_parameters)
-            )
-            if overlapping_names:
-                raise ValueError(
-                    "dataset.input_parameter_names cannot also appear in "
-                    f"dataset.theta_parameters: {list(overlapping_names)}"
-                )
-
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -139,36 +114,19 @@ def load_train_config(config_path: str | Path) -> TrainNPEConfig:
     density = data["density_estimator"]
     embedding = data["embedding"]
     training = data["training"]
-    diagnostics = data.get("diagnostics")
-    if not isinstance(diagnostics, dict) or "reserve_count" not in diagnostics:
-        raise ValueError("diagnostics.reserve_count is required")
+    diagnostics = data["diagnostics"]
 
     observers = tuple(str(observer) for observer in dataset["observers"])
-    theta_parameters = _optional_str_tuple(dataset.get("theta_parameters"))
-    if "input_parameters" in dataset:
-        raise ValueError(
-            "dataset.input_parameters is not supported; "
-            "use dataset.input_parameter_names"
-        )
-    if "input_parameter_names" not in dataset:
-        raise ValueError("dataset.input_parameter_names is required")
-    input_parameter_names = _required_str_tuple(
-        dataset["input_parameter_names"],
-        key="dataset.input_parameter_names",
+    theta_parameters = _optional_name_tuple(dataset.get("theta_parameters"))
+    input_parameter_names = tuple(
+        str(item) for item in dataset.get("input_parameter_names", ())
     )
-    discrete_theta_parameters = _optional_str_tuple(
+    discrete_theta_parameters = _optional_name_tuple(
         dataset.get("discrete_theta_parameters")
     )
-    x_representation = cast(
-        ObservationRepresentation,
-        dataset.get("x_representation", "final"),
-    )
+    x_representation = dataset.get("x_representation", "final")
     normalize_time = bool(dataset.get("normalize_time", True))
-    embedding_kind = cast(EmbeddingKind, embedding.get("kind", "identity"))
-    if embedding_kind == "rnn" and x_representation != "timeseries":
-        raise ValueError(
-            "embedding.kind='rnn' requires dataset.x_representation='timeseries'"
-        )
+    embedding_kind = embedding.get("kind", "identity")
 
     return TrainNPEConfig(
         zarr_path=_resolve_config_path(config_dir, dataset["zarr_path"]),
@@ -183,61 +141,75 @@ def load_train_config(config_path: str | Path) -> TrainNPEConfig:
             config_dir,
             artifact.get("output_root", "artifacts/model_inversion"),
         ),
-        run_name=_optional_str(artifact.get("run_name")),
+        run_name=(
+            None if artifact.get("run_name") is None else str(artifact.get("run_name"))
+        ),
         save_training_data=artifact.get("save_training_data", False),
         prior_sample_count=int(artifact.get("prior_sample_count", 4096)),
         density=DensityEstimatorConfig(
-            model=cast(DensityEstimatorName, density.get("model", "nsf")),
-            flow_model=cast(
-                ContinuousDensityEstimatorName,
-                density.get("flow_model", "nsf"),
-            ),
+            model=density.get("model", "nsf"),
+            flow_model=density.get("flow_model", "nsf"),
             hidden_features=density.get("hidden_features", 50),
             num_transforms=density.get("num_transforms", 5),
             num_bins=density.get("num_bins", 10),
-            discrete_hidden_features=_optional_int(
-                density.get("discrete_hidden_features")
+            discrete_hidden_features=(
+                None
+                if density.get("discrete_hidden_features") is None
+                else int(density["discrete_hidden_features"])
             ),
             discrete_hidden_layers=density.get("discrete_hidden_layers", 2),
-            continuous_hidden_features=_optional_int(
-                density.get("continuous_hidden_features")
+            continuous_hidden_features=(
+                None
+                if density.get("continuous_hidden_features") is None
+                else int(density["continuous_hidden_features"])
             ),
             z_score_theta=density.get("z_score_theta", "independent"),
             z_score_x=density.get("z_score_x", "independent"),
+            sbi_kwargs=dict(density.get("sbi_kwargs", {})),
         ),
         embedding=EmbeddingConfig(
             kind=embedding_kind,
             output_dim=embedding.get("output_dim", 32),
             rnn_hidden_size=embedding.get("rnn_hidden_size", 64),
             rnn_num_layers=embedding.get("rnn_num_layers", 1),
-            rnn_type=cast(RNNKind, embedding.get("rnn_type", "gru")),
+            rnn_type=embedding.get("rnn_type", "gru"),
             rnn_bidirectional=embedding.get("rnn_bidirectional", False),
         ),
         training=NPETrainingConfig(
             seed=training.get("seed", 0),
             device=training.get("device", "cpu"),
+            data_device=training.get("data_device", "cpu"),
             training_batch_size=training.get("training_batch_size", 200),
             learning_rate=training.get("learning_rate", 5e-4),
             validation_fraction=training.get("validation_fraction", 0.1),
             stop_after_epochs=training.get("stop_after_epochs", 20),
             max_num_epochs=training.get("max_num_epochs", 500),
-            clip_max_norm=_optional_float(training.get("clip_max_norm", 5.0)),
+            clip_max_norm=(
+                None
+                if training.get("clip_max_norm", 5.0) is None
+                else float(training.get("clip_max_norm", 5.0))
+            ),
             show_progress_bars=training.get("show_progress_bars", True),
+            dataloader_kwargs=dict(training.get("dataloader_kwargs", {})),
         ),
         diagnostics=DiagnosticsConfig(
-            reserve_count=_positive_int(
-                diagnostics["reserve_count"],
-                field_name="diagnostics.reserve_count",
-            ),
+            reserve_count=int(diagnostics["reserve_count"]),
         ),
     )
 
 
 def train_from_config(config: TrainNPEConfig) -> dict[str, Any]:
     np.random.seed(config.training.seed)
+    run = _prepare_run(config)
+    _train_run(run)
+    _write_run_artifacts(run)
+    LOGGER.info("[complete] Training run complete: artifact_dir=%s", run["artifact_dir"])
+    return _run_result(run)
 
+
+def _prepare_run(config: TrainNPEConfig) -> dict[str, Any]:
     LOGGER.info(
-        "[stage 2/10] Loading zarr dataset from %s normalize_time=%s",
+        "[data] Loading zarr dataset from %s normalize_time=%s",
         config.zarr_path,
         config.normalize_time,
     )
@@ -260,12 +232,12 @@ def train_from_config(config: TrainNPEConfig) -> dict[str, Any]:
         }
     )
     LOGGER.info(
-        "[stage 2/10] Loaded zarr dataset with dimensions %s",
+        "[data] Loaded zarr dataset with dimensions %s",
         _format_mapping(raw_results.sizes),
     )
 
     LOGGER.info(
-        "[stage 3/10] Filtering inversion dataset: observers=%s "
+        "[data] Filtering inversion dataset: observers=%s "
         "x_representation=%s normalize_time=%s theta_parameters=%s "
         "input_parameter_names=%s discrete_theta_parameters=%s drop_constant_theta=%s",
         list(config.observers),
@@ -295,6 +267,7 @@ def train_from_config(config: TrainNPEConfig) -> dict[str, Any]:
     theta = np.asarray(dataset["theta"].values, dtype=np.float32)
     x = np.asarray(dataset["x"].values, dtype=np.float32)
     source_sample = np.asarray(dataset.coords["sample"].values, dtype=np.int64)
+    kept_mask = np.asarray(dataset["kept_mask"].values, dtype=np.bool_)
     dataset_metadata = inversion_dataset_metadata(dataset)
     train_indices, diagnostic_indices = split_diagnostic_holdout(
         n_simulations=theta.shape[0],
@@ -317,7 +290,7 @@ def train_from_config(config: TrainNPEConfig) -> dict[str, Any]:
         seed=config.training.seed,
     )
     LOGGER.info(
-        "[stage 3/10] Prepared inversion tensors: theta_shape=%s x_shape=%s "
+        "[data] Prepared inversion tensors: theta_shape=%s x_shape=%s "
         "n_simulations=%s train_count=%s diagnostic_count=%s x_event_shape=%s "
         "theta_order=%s discrete_theta=%s stored_prior_samples=%s",
         theta.shape,
@@ -330,179 +303,204 @@ def train_from_config(config: TrainNPEConfig) -> dict[str, Any]:
         list(dataset_metadata.get("discrete_theta_names", [])),
         int(prior_samples.shape[0]),
     )
-
     run_name = config.run_name
     if run_name is None:
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         run_name = f"{sbi_method.lower()}-{stamp}"
     artifact_dir = config.output_root / run_name
-    LOGGER.info(
-        "[stage 4/10] Creating artifact directory %s",
-        artifact_dir,
-    )
+    LOGGER.info("[artifacts] Creating artifact directory %s", artifact_dir)
     artifact_dir.mkdir(parents=True, exist_ok=False)
-    tensorboard_log_dir = artifact_dir / SBI_LOG_DIRNAME
+    return {
+        "config": config,
+        "dataset_metadata": dataset_metadata,
+        "theta": theta,
+        "x": x,
+        "train_theta": train_theta,
+        "train_x": train_x,
+        "diagnostic_theta": diagnostic_theta,
+        "diagnostic_x": diagnostic_x,
+        "diagnostic_source_sample": diagnostic_source_sample,
+        "source_sample": source_sample,
+        "kept_mask": kept_mask,
+        "train_indices": train_indices,
+        "diagnostic_indices": diagnostic_indices,
+        "category_counts": category_counts,
+        "sbi_method": sbi_method,
+        "prior_samples": prior_samples,
+        "prior_sample_indices": prior_sample_indices,
+        "artifact_dir": artifact_dir,
+        "posterior_path": artifact_dir / "posterior.pkl",
+        "metadata_path": artifact_dir / "metadata.json",
+        "tensorboard_log_dir": artifact_dir / SBI_LOG_DIRNAME,
+        "training_metrics_path": artifact_dir / TRAINING_METRICS_FILENAME,
+        "diagnostic_data_path": artifact_dir / DIAGNOSTIC_DATA_FILENAME,
+    }
+
+
+def _train_run(run: dict[str, Any]) -> None:
+    config = run["config"]
     LOGGER.info(
-        "[stage 5/10] Starting %s training: device=%s batch_size=%s "
+        "[training] Starting %s training: device=%s data_device=%s batch_size=%s "
         "max_num_epochs=%s stop_after_epochs=%s density=%s flow_model=%s "
         "embedding=%s tensorboard_log_dir=%s",
-        sbi_method,
+        run["sbi_method"],
         config.training.device,
+        config.training.data_device,
         config.training.training_batch_size,
         config.training.max_num_epochs,
         config.training.stop_after_epochs,
         config.density.model,
         config.density.flow_model,
         config.embedding.kind,
-        tensorboard_log_dir,
+        run["tensorboard_log_dir"],
     )
-    posterior = train_amortized_npe(
-        theta=train_theta,
-        x=train_x,
-        prior_low=dataset_metadata["prior_low"],
-        prior_high=dataset_metadata["prior_high"],
-        x_event_shape=tuple(dataset_metadata["x_event_shape"]),
-        tensorboard_log_dir=tensorboard_log_dir,
+    training_result = train_amortized_npe(
+        theta=run["train_theta"],
+        x=run["train_x"],
+        prior_low=run["dataset_metadata"]["prior_low"],
+        prior_high=run["dataset_metadata"]["prior_high"],
+        x_event_shape=tuple(run["dataset_metadata"]["x_event_shape"]),
+        tensorboard_log_dir=run["tensorboard_log_dir"],
         training=config.training,
         density=config.density,
         embedding=config.embedding,
-        num_categories_per_discrete_theta=category_counts,
+        num_categories_per_discrete_theta=run["category_counts"],
     )
-    posterior = attach_prior_samples_to_posterior(
-        posterior,
-        prior_samples=prior_samples,
-        prior_sample_indices=prior_sample_indices,
-        theta_names=list(dataset_metadata["theta_names"]),
+    run["training_summary"] = training_result.training_summary
+    run["posterior"] = attach_prior_samples_to_posterior(
+        training_result.posterior,
+        prior_samples=run["prior_samples"],
+        prior_sample_indices=run["prior_sample_indices"],
+        theta_names=list(run["dataset_metadata"]["theta_names"]),
         seed=config.training.seed,
     )
     LOGGER.info(
-        "[stage 6/10] Finished %s training and attached %s prior samples",
-        sbi_method,
-        int(prior_samples.shape[0]),
+        "[training] Finished %s training and attached %s prior samples",
+        run["sbi_method"],
+        int(run["prior_samples"].shape[0]),
     )
 
-    metadata = build_metadata(
-        dataset_metadata,
-        theta_dim=theta.shape[1],
-        sbi_method=sbi_method,
-        prior_sample_count=int(prior_samples.shape[0]),
-        train_count=int(train_theta.shape[0]),
-        diagnostic_count=int(diagnostic_theta.shape[0]),
-        diagnostics=config.diagnostics,
-        training=config.training,
-        density=config.density,
-        embedding=config.embedding,
-    )
 
-    metadata_path = artifact_dir / "metadata.json"
-    posterior_path = artifact_dir / "posterior.pkl"
-    LOGGER.info("[stage 7/10] Writing metadata to %s", metadata_path)
+def _write_run_artifacts(run: dict[str, Any]) -> None:
+    config = run["config"]
+    metadata = _build_metadata(run)
+
+    metadata_path = run["metadata_path"]
+    posterior_path = run["posterior_path"]
+    training_metrics_path = run["training_metrics_path"]
+    LOGGER.info("[artifacts] Writing metadata to %s", metadata_path)
     write_json(metadata_path, metadata)
-    LOGGER.info("[stage 8/10] Writing posterior to %s", posterior_path)
+    LOGGER.info("[artifacts] Writing training metrics to %s", training_metrics_path)
+    write_json(training_metrics_path, run["training_summary"])
+    LOGGER.info("[artifacts] Writing posterior to %s", posterior_path)
     with posterior_path.open("wb") as handle:
-        pickle.dump(posterior, handle)
-    diagnostic_data_path = artifact_dir / DIAGNOSTIC_DATA_FILENAME
-    LOGGER.info("[stage 9/10] Writing diagnostic holdout to %s", diagnostic_data_path)
+        pickle.dump(run["posterior"], handle)
+    diagnostic_data_path = run["diagnostic_data_path"]
+    LOGGER.info("[artifacts] Writing diagnostic holdout to %s", diagnostic_data_path)
     np.savez_compressed(
         diagnostic_data_path,
-        theta=diagnostic_theta,
-        x=diagnostic_x,
-        source_sample=diagnostic_source_sample,
-        theta_names=np.asarray(dataset_metadata["theta_names"]),
-        x_names=np.asarray(dataset_metadata["x_names"]),
+        theta=run["diagnostic_theta"],
+        x=run["diagnostic_x"],
+        source_sample=run["diagnostic_source_sample"],
+        theta_names=np.asarray(run["dataset_metadata"]["theta_names"]),
+        x_names=np.asarray(run["dataset_metadata"]["x_names"]),
         continuous_theta_names=np.asarray(
-            dataset_metadata.get("continuous_theta_names", [])
+            run["dataset_metadata"].get("continuous_theta_names", [])
         ),
-        discrete_theta_names=np.asarray(dataset_metadata.get("discrete_theta_names", [])),
+        discrete_theta_names=np.asarray(
+            run["dataset_metadata"].get("discrete_theta_names", [])
+        ),
     )
     if config.save_training_data:
-        training_data_path = artifact_dir / "training_data.npz"
-        LOGGER.info("[stage 9/10] Writing training data to %s", training_data_path)
+        training_data_path = run["artifact_dir"] / "training_data.npz"
+        run["training_data_path"] = training_data_path
+        LOGGER.info("[artifacts] Writing training data to %s", training_data_path)
         np.savez_compressed(
             training_data_path,
-            theta=train_theta,
-            x=train_x,
-            kept_mask=np.asarray(dataset["kept_mask"].values, dtype=np.bool_),
-            source_sample=source_sample[train_indices],
-            theta_names=np.asarray(dataset_metadata["theta_names"]),
-            x_names=np.asarray(dataset_metadata["x_names"]),
+            theta=run["train_theta"],
+            x=run["train_x"],
+            kept_mask=run["kept_mask"],
+            source_sample=run["source_sample"][run["train_indices"]],
+            theta_names=np.asarray(run["dataset_metadata"]["theta_names"]),
+            x_names=np.asarray(run["dataset_metadata"]["x_names"]),
             continuous_theta_names=np.asarray(
-                dataset_metadata.get("continuous_theta_names", [])
+                run["dataset_metadata"].get("continuous_theta_names", [])
             ),
             discrete_theta_names=np.asarray(
-                dataset_metadata.get("discrete_theta_names", [])
+                run["dataset_metadata"].get("discrete_theta_names", [])
             ),
         )
     else:
-        LOGGER.info("[stage 9/10] Skipping training data write")
-    LOGGER.info("[stage 10/10] Training run complete: artifact_dir=%s", artifact_dir)
+        LOGGER.info("[artifacts] Skipping training data write")
 
+
+def _run_result(run: dict[str, Any]) -> dict[str, Any]:
+    config = run["config"]
+    training_summary = run["training_summary"]
     return {
-        "artifact_dir": str(artifact_dir),
-        "posterior_file": str(posterior_path),
-        "metadata_file": str(metadata_path),
-        "tensorboard_log_dir": str(tensorboard_log_dir),
-        "sbi_method": sbi_method,
-        "n_simulations": dataset_metadata["n_simulations"],
-        "train_count": int(train_theta.shape[0]),
-        "diagnostic_count": int(diagnostic_theta.shape[0]),
+        "artifact_dir": str(run["artifact_dir"]),
+        "posterior_file": str(run["posterior_path"]),
+        "metadata_file": str(run["metadata_path"]),
+        "tensorboard_log_dir": str(run["tensorboard_log_dir"]),
+        "training_metrics_file": TRAINING_METRICS_FILENAME,
+        "best_validation_loss": training_summary.get("best_validation_loss"),
+        "final_validation_loss": training_summary.get("final_validation_loss"),
+        "best_validation_log_prob": training_summary.get("best_validation_log_prob"),
+        "final_validation_log_prob": training_summary.get("final_validation_log_prob"),
+        "sbi_method": run["sbi_method"],
+        "n_simulations": run["dataset_metadata"]["n_simulations"],
+        "train_count": int(run["train_theta"].shape[0]),
+        "diagnostic_count": int(run["diagnostic_theta"].shape[0]),
         "diagnostic_data_file": DIAGNOSTIC_DATA_FILENAME,
-        "prior_sample_count": int(prior_samples.shape[0]),
-        "theta_names": list(dataset_metadata["theta_names"]),
+        "prior_sample_count": int(run["prior_samples"].shape[0]),
+        "theta_names": list(run["dataset_metadata"]["theta_names"]),
         "input_parameter_names": list(config.input_parameter_names),
         "continuous_theta_names": list(
-            dataset_metadata.get("continuous_theta_names", [])
+            run["dataset_metadata"].get("continuous_theta_names", [])
         ),
-        "discrete_theta_names": list(dataset_metadata.get("discrete_theta_names", [])),
-        "x_names": list(dataset_metadata["x_names"]),
-        "x_representation": dataset_metadata["x_representation"],
+        "discrete_theta_names": list(
+            run["dataset_metadata"].get("discrete_theta_names", [])
+        ),
+        "x_names": list(run["dataset_metadata"]["x_names"]),
+        "x_representation": run["dataset_metadata"]["x_representation"],
         "normalize_time": bool(config.normalize_time),
     }
 
 
-def build_metadata(
-    dataset_metadata: dict[str, Any],
-    *,
-    theta_dim: int,
-    sbi_method: str,
-    prior_sample_count: int,
-    train_count: int,
-    diagnostic_count: int,
-    diagnostics: DiagnosticsConfig,
-    training: NPETrainingConfig,
-    density: DensityEstimatorConfig,
-    embedding: EmbeddingConfig,
-) -> dict[str, Any]:
+def _build_metadata(run: dict[str, Any]) -> dict[str, Any]:
+    config = run["config"]
+    dataset_metadata = run["dataset_metadata"]
     artifact_dataset_metadata = _artifact_dataset_metadata(dataset_metadata)
     return {
         "created_at": datetime.now(timezone.utc).isoformat(),
         "sbi": {
-            "method": sbi_method,
+            "method": run["sbi_method"],
             "amortized": True,
-            "mixed_parameters": sbi_method == "MNPE",
+            "mixed_parameters": run["sbi_method"] == "MNPE",
             "posterior_file": "posterior.pkl",
+            "training_metrics_file": TRAINING_METRICS_FILENAME,
             "tensorboard_log_dir": SBI_LOG_DIRNAME,
             "prior_samples": {
-                "stored_in_posterior": prior_sample_count > 0,
+                "stored_in_posterior": int(run["prior_samples"].shape[0]) > 0,
                 "source": "training_theta_rows",
-                "count": int(prior_sample_count),
+                "count": int(run["prior_samples"].shape[0]),
             },
         },
         "dataset": {
             **artifact_dataset_metadata,
-            "theta_dim": theta_dim,
-            "train_count": int(train_count),
-            "diagnostic_count": int(diagnostic_count),
+            "theta_dim": int(run["theta"].shape[1]),
+            "train_count": int(run["train_theta"].shape[0]),
+            "diagnostic_count": int(run["diagnostic_theta"].shape[0]),
         },
         "diagnostics": {
-            **diagnostics.to_metadata(),
+            **config.diagnostics.to_metadata(),
             "file": DIAGNOSTIC_DATA_FILENAME,
-            "train_count": int(train_count),
-            "diagnostic_count": int(diagnostic_count),
+            "train_count": int(run["train_theta"].shape[0]),
+            "diagnostic_count": int(run["diagnostic_theta"].shape[0]),
         },
-        "density_estimator": density.to_metadata(),
-        "embedding": embedding.to_metadata(),
-        "training": training.to_metadata(),
+        "density_estimator": config.density.to_metadata(),
+        "embedding": config.embedding.to_metadata(),
+        "training": config.training.to_metadata(),
         "notebook_usage": {
             "load": "from network_creation.model_inversion import load_posterior_artifact",
             "observation_order": list(dataset_metadata["x_names"]),
@@ -553,47 +551,12 @@ def split_diagnostic_holdout(
     return train_indices, diagnostic_indices
 
 
-def _optional_str_tuple(value: Any) -> tuple[str, ...] | None:
+def _optional_name_tuple(value: Any) -> tuple[str, ...] | None:
     if value is None:
         return None
     if isinstance(value, str):
         return (value,)
     return tuple(str(item) for item in value)
-
-
-def _required_str_tuple(value: Any, *, key: str) -> tuple[str, ...]:
-    if (
-        value is None
-        or isinstance(value, str)
-        or not isinstance(value, Sequence)
-    ):
-        raise ValueError(f"{key} must be a list")
-    return tuple(str(item) for item in value)
-
-
-def _optional_str(value: Any) -> str | None:
-    if value is None:
-        return None
-    return str(value)
-
-
-def _optional_int(value: Any) -> int | None:
-    if value is None:
-        return None
-    return int(value)
-
-
-def _optional_float(value: Any) -> float | None:
-    if value is None:
-        return None
-    return float(value)
-
-
-def _positive_int(value: Any, *, field_name: str) -> int:
-    parsed = int(value)
-    if parsed <= 0:
-        raise ValueError(f"{field_name} must be > 0")
-    return parsed
 
 
 def _resolve_config_path(config_dir: Path, raw_path: Any) -> Path:
@@ -622,10 +585,10 @@ def main(argv: Sequence[str] | None = None) -> None:
     args = parse_args(argv)
     _configure_logging(args.log_level)
     config_path = args.config_path.expanduser().resolve()
-    LOGGER.info("[stage 1/10] Loading config from %s", config_path)
+    LOGGER.info("[config] Loading config from %s", config_path)
     config = load_train_config(config_path)
     LOGGER.info(
-        "[stage 1/10] Loaded config: zarr_path=%s observers=%s "
+        "[config] Loaded config: zarr_path=%s observers=%s "
         "x_representation=%s output_root=%s",
         config.zarr_path,
         list(config.observers),

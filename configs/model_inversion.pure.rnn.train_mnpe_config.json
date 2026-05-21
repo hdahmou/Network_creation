@@ -1,6 +1,6 @@
 {
   "dataset": {
-    "zarr_path": "../artifacts/simulation_runs/run-20260518T165723.zarr",
+    "zarr_path": "../artifacts/simulation_runs/run-20260521T000104.zarr",
     "observers": [
       "centered_mean_welfare.mean",
       "indegree.mean",
@@ -24,33 +24,33 @@
     "prior_sample_count": 4096
   },
   "diagnostics": {
-    "reserve_count": 200
+    "reserve_count": 256
   },
   "density_estimator": {
     "model": "mnpe",
-    "hidden_features": 50,
-    "num_transforms": 5,
-    "num_bins": 10,
+    "hidden_features": 96,
+    "num_transforms": 8,
+    "num_bins": 16,
     "z_score_theta": "independent",
     "z_score_x": "structured",
     "flow_model": "nsf"
   },
   "embedding": {
     "kind": "rnn",
-    "output_dim": 32,
-    "rnn_hidden_size": 64,
-    "rnn_num_layers": 1,
+    "output_dim": 64,
+    "rnn_hidden_size": 96,
+    "rnn_num_layers": 2,
     "rnn_type": "gru",
-    "rnn_bidirectional": false
+    "rnn_bidirectional": true
   },
   "training": {
     "seed": 0,
     "device": "cuda",
-    "training_batch_size": 200,
+    "training_batch_size": 1024,
     "learning_rate": 0.0005,
     "validation_fraction": 0.1,
-    "stop_after_epochs": 20,
-    "max_num_epochs": 500,
+    "stop_after_epochs": 50,
+    "max_num_epochs": 1500,
     "clip_max_norm": 5.0,
     "show_progress_bars": true
   }

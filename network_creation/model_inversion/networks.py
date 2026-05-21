@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import asdict, dataclass
-from typing import Literal
+from dataclasses import asdict, dataclass, field
+from typing import Any, Literal
 
 import torch
 from torch import nn
@@ -40,6 +40,7 @@ class DensityEstimatorConfig:
     continuous_hidden_features: int | None = None
     z_score_theta: str = "independent"
     z_score_x: str = "independent"
+    sbi_kwargs: dict[str, Any] = field(default_factory=dict)
 
     def to_metadata(self) -> dict[str, object]:
         return asdict(self)
@@ -63,7 +64,9 @@ class RNNEmbedding(nn.Module):
         bidirectional: bool = False,
     ) -> None:
         super().__init__()
-        rnn_class: type[nn.GRU] | type[nn.LSTM] = nn.GRU if rnn_type == "gru" else nn.LSTM
+        rnn_class: type[nn.GRU] | type[nn.LSTM] = (
+            nn.GRU if rnn_type == "gru" else nn.LSTM
+        )
         self.rnn = rnn_class(
             input_size=input_size,
             hidden_size=hidden_size,
@@ -117,34 +120,42 @@ def build_density_estimator(
     from sbi.neural_nets import posterior_nn
 
     embedding_net = build_embedding_net(embedding, x_event_shape=x_event_shape)
-    category_counts = tuple(int(value) for value in (num_categories_per_discrete_theta or ()))
+    category_counts = tuple(
+        int(value) for value in (num_categories_per_discrete_theta or ())
+    )
+    builder_kwargs: dict[str, Any] = {
+        "hidden_features": density.hidden_features,
+        "num_transforms": density.num_transforms,
+        "num_bins": density.num_bins,
+        "z_score_theta": density.z_score_theta,
+        "z_score_x": density.z_score_x,
+    }
+    builder_kwargs.update({
+        key: value
+        for key, value in density.sbi_kwargs.items()
+        if key not in {"embedding_net", "num_categories_per_variable"}
+    })
 
     if category_counts:
         flow_model = density.flow_model if density.model == "mnpe" else density.model
-        return posterior_nn(
-            model="mnpe",
-            embedding_net=embedding_net,
-            flow_model=flow_model,
-            num_categories_per_variable=torch.as_tensor(category_counts, dtype=torch.long),
-            hidden_features=density.hidden_features,
-            discrete_hidden_features=density.discrete_hidden_features,
-            discrete_hidden_layers=density.discrete_hidden_layers,
-            continuous_hidden_features=density.continuous_hidden_features,
-            num_transforms=density.num_transforms,
-            num_bins=density.num_bins,
-            z_score_theta=density.z_score_theta,
-            z_score_x=density.z_score_x,
+        builder_kwargs = {
+            "flow_model": flow_model,
+            "discrete_hidden_features": density.discrete_hidden_features,
+            "discrete_hidden_layers": density.discrete_hidden_layers,
+            "continuous_hidden_features": density.continuous_hidden_features,
+            **builder_kwargs,
+        }
+        builder_kwargs["embedding_net"] = embedding_net
+        builder_kwargs["num_categories_per_variable"] = torch.as_tensor(
+            category_counts,
+            dtype=torch.long,
         )
+        return posterior_nn(model="mnpe", **builder_kwargs)
 
     if density.model == "mnpe":
-        raise ValueError("density model 'mnpe' requires at least one discrete theta parameter")
+        raise ValueError(
+            "density model 'mnpe' requires at least one discrete theta parameter"
+        )
 
-    return posterior_nn(
-        model=density.model,
-        embedding_net=embedding_net,
-        hidden_features=density.hidden_features,
-        num_transforms=density.num_transforms,
-        num_bins=density.num_bins,
-        z_score_theta=density.z_score_theta,
-        z_score_x=density.z_score_x,
-    )
+    builder_kwargs["embedding_net"] = embedding_net
+    return posterior_nn(model=density.model, **builder_kwargs)

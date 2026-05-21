@@ -18,6 +18,7 @@ import torch
 from network_creation.model_inversion.diagnostics import (
     DiagnosticData,
     load_diagnostic_data,
+    marginal_sbc_ranks,
     plot_expected_coverage,
     run_expected_coverage,
 )
@@ -142,6 +143,55 @@ class SbiDiagnosticTests(unittest.TestCase):
         self.assertIs(rank_plot.call_args.args[0], coverage["ranks"])
         self.assertEqual(rank_plot.call_args.args[1], 5)
         self.assertEqual(rank_plot.call_args.kwargs["parameter_labels"], ["alpha"])
+
+    def test_marginal_sbc_ranks_use_strict_ranks_for_continuous_theta(self) -> None:
+        artifact = FakeArtifact(theta_order=["alpha"], categories_by_name={})
+        posterior_samples = np.asarray(
+            [
+                [[0.1], [0.4], [0.5], [0.8]],
+                [[0.3], [0.1], [0.2], [0.0]],
+            ],
+            dtype=np.float32,
+        )
+        true_theta = np.asarray([[0.5], [0.2]], dtype=np.float32)
+
+        ranks = marginal_sbc_ranks(artifact, posterior_samples, true_theta, seed=3)
+
+        np.testing.assert_array_equal(ranks, [[2], [2]])
+
+    def test_marginal_sbc_ranks_randomize_discrete_ties(self) -> None:
+        class MaxTieRng:
+            def integers(self, low, high):  # noqa: ANN001
+                return high - 1
+
+        artifact = FakeArtifact(
+            theta_order=["alpha", "n_agents"],
+            categories_by_name={"n_agents": [10, 20]},
+        )
+        posterior_samples = np.asarray(
+            [
+                [[0.1, 10.0], [0.5, 20.0], [0.8, 20.0]],
+                [[0.3, 10.0], [0.1, 10.0], [0.2, 20.0]],
+            ],
+            dtype=np.float32,
+        )
+        true_theta = np.asarray(
+            [
+                [0.5, 20.0],
+                [0.2, 10.0],
+            ],
+            dtype=np.float32,
+        )
+
+        ranks = marginal_sbc_ranks(
+            artifact,
+            posterior_samples,
+            true_theta,
+            rng=MaxTieRng(),
+        )
+
+        np.testing.assert_array_equal(ranks, [[1, 3], [1, 2]])
+
 
 class PlotParameterPairsTests(unittest.TestCase):
     def three_parameter_plot(self):

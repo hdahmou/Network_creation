@@ -67,6 +67,61 @@ def run_expected_coverage(
     }
 
 
+def marginal_sbc_ranks(
+    artifact: PosteriorArtifact,
+    posterior_samples: Any,
+    true_theta: Any,
+    *,
+    seed: int | None = None,
+    rng: np.random.Generator | None = None,
+) -> NDArray[np.int64]:
+    """Rank posterior samples against true theta with random ties for discrete theta."""
+
+    if seed is not None and rng is not None:
+        raise ValueError("Pass either seed or rng, not both.")
+
+    samples = np.asarray(posterior_samples)
+    theta = np.asarray(true_theta)
+    if samples.ndim != 3:
+        raise ValueError(
+            "posterior_samples must have shape "
+            "(n_cases, n_posterior_samples, n_theta)"
+        )
+    if theta.shape != (samples.shape[0], samples.shape[2]):
+        raise ValueError(
+            "true_theta must have shape (n_cases, n_theta) matching posterior_samples"
+        )
+
+    theta_order = list(artifact.theta_order)
+    if len(theta_order) != samples.shape[2]:
+        raise ValueError(
+            "artifact.theta_order length must match the posterior sample theta dimension"
+        )
+
+    ranks = (samples < theta[:, None, :]).sum(axis=1).astype(np.int64)
+    discrete_indices = [
+        index
+        for index, name in enumerate(theta_order)
+        if artifact.is_discrete_theta(name)
+    ]
+    if not discrete_indices:
+        return ranks
+
+    rank_rng = np.random.default_rng(seed) if rng is None else rng
+    for index in discrete_indices:
+        tie_counts = np.isclose(samples[:, :, index], theta[:, None, index]).sum(
+            axis=1
+        )
+        ranks[:, index] += np.asarray(
+            [
+                rank_rng.integers(0, int(tie_count) + 1)
+                for tie_count in tie_counts
+            ],
+            dtype=np.int64,
+        )
+    return ranks
+
+
 def plot_expected_coverage(artifact: PosteriorArtifact, coverage: dict[str, Any]):
     from sbi.analysis.plot import sbc_rank_plot
 

@@ -118,10 +118,9 @@ class TrainNPEConfigTests(unittest.TestCase):
                     "max_num_epochs": 9,
                     "clip_max_norm": None,
                     "show_progress_bars": False,
-                    "dataloader_kwargs": {
-                        "num_workers": 0,
-                        "pin_memory": False,
-                    },
+                    "num_workers": 2,
+                    "pin_memory": True,
+                    "persistent_workers": True,
                 },
             }
         )
@@ -160,10 +159,9 @@ class TrainNPEConfigTests(unittest.TestCase):
         self.assertEqual(config.training.seed, 7)
         self.assertIsNone(config.training.clip_max_norm)
         self.assertFalse(config.training.show_progress_bars)
-        self.assertEqual(
-            config.training.dataloader_kwargs,
-            {"num_workers": 0, "pin_memory": False},
-        )
+        self.assertEqual(config.training.num_workers, 2)
+        self.assertIs(config.training.pin_memory, True)
+        self.assertTrue(config.training.persistent_workers)
 
     def test_load_train_config_allows_explicit_raw_time(self) -> None:
         config_path = self.write_config(
@@ -244,6 +242,10 @@ class TrainNPEConfigTests(unittest.TestCase):
         self.assertNotIn("rnn_type", payload["embedding"])
         self.assertNotIn("rnn_bidirectional", payload["embedding"])
         self.assertEqual(config.training.training_batch_size, 200)
+        self.assertTrue(config.training.show_progress_bars)
+        self.assertEqual(config.training.num_workers, 0)
+        self.assertIsNone(config.training.pin_memory)
+        self.assertFalse(config.training.persistent_workers)
 
     def test_centered_mean_welfare_rnn_config_loads_mixed_parameters(self) -> None:
         config_path = self.write_config(
@@ -307,6 +309,18 @@ class TrainNPEConfigTests(unittest.TestCase):
                 reserve_count=3,
                 seed=1,
             )
+
+    def test_split_diagnostic_holdout_uses_seeded_random_reserve(self) -> None:
+        train_indices, diagnostic_indices = self.script.split_diagnostic_holdout(
+            n_simulations=5,
+            reserve_count=2,
+            seed=2,
+        )
+
+        self.assertEqual(len(diagnostic_indices), 2)
+        self.assertEqual(len(train_indices), 3)
+        self.assertTrue(set(train_indices).isdisjoint(set(diagnostic_indices)))
+        np.testing.assert_array_equal(diagnostic_indices, np.sort(diagnostic_indices))
 
     def test_write_run_artifacts_writes_expected_files(self) -> None:
         artifact_dir = Path(self.temp_dir.name) / "artifact-writer"
@@ -414,7 +428,6 @@ class TrainNPEConfigTests(unittest.TestCase):
                 device="cpu",
                 training_batch_size=2,
                 max_num_epochs=3,
-                dataloader_kwargs={"num_workers": 0},
             ),
             diagnostics=self.script.DiagnosticsConfig(reserve_count=1),
         )
@@ -545,10 +558,6 @@ class TrainNPEConfigTests(unittest.TestCase):
             metadata["density_estimator"]["sbi_kwargs"],
             {"dropout_probability": 0.05},
         )
-        self.assertEqual(
-            metadata["training"]["dataloader_kwargs"],
-            {"num_workers": 0},
-        )
         self.assertEqual(metadata["diagnostics"]["file"], "diagnostic_data.npz")
         self.assertEqual(metadata["diagnostics"]["reserve_count"], 1)
         self.assertEqual(metadata["diagnostics"]["train_count"], 3)
@@ -630,6 +639,7 @@ class TrainNPEConfigTests(unittest.TestCase):
                             [20.0, 0.2, 2.0],
                             [10.0, 0.3, 3.0],
                             [20.0, 0.4, 4.0],
+                            [10.0, 0.5, 1.0],
                         ],
                         dtype=np.float32,
                     ),
@@ -650,13 +660,14 @@ class TrainNPEConfigTests(unittest.TestCase):
                             [[3.0], [4.0]],
                             [[5.0], [6.0]],
                             [[7.0], [8.0]],
+                            [[9.0], [10.0]],
                         ],
                         dtype=np.float32,
                     ),
                 ),
             },
             coords={
-                "sample": np.asarray([0, 1, 2, 3], dtype=np.int64),
+                "sample": np.asarray([0, 1, 2, 3, 4], dtype=np.int64),
                 "theta_parameter": (
                     "theta_parameter",
                     ["n_agents", "alpha", "visibility_distance"],
@@ -693,21 +704,25 @@ class TrainNPEConfigTests(unittest.TestCase):
             normalize_time=config.normalize_time,
         )
         self.assertIn("[training] Starting MNPE training", logs)
-        train_indices, diagnostic_indices = self.script.split_diagnostic_holdout(
-            n_simulations=4,
-            reserve_count=1,
-            seed=1,
-        )
         expected_reordered_theta = np.asarray(
             [
                 [0.1, 10.0, 1.0],
                 [0.2, 20.0, 2.0],
                 [0.3, 10.0, 3.0],
                 [0.4, 20.0, 4.0],
+                [0.5, 10.0, 1.0],
             ],
             dtype=np.float32,
         )
-        expected_x = np.asarray([[2.0], [4.0], [6.0], [8.0]], dtype=np.float32)
+        train_indices, diagnostic_indices = self.script.split_diagnostic_holdout(
+            n_simulations=5,
+            reserve_count=1,
+            seed=1,
+        )
+        expected_x = np.asarray(
+            [[2.0], [4.0], [6.0], [8.0], [10.0]],
+            dtype=np.float32,
+        )
         np.testing.assert_allclose(
             train_amortized_npe.call_args.kwargs["theta"],
             expected_reordered_theta[train_indices],
@@ -730,14 +745,14 @@ class TrainNPEConfigTests(unittest.TestCase):
             result["discrete_theta_names"],
             ["n_agents", "visibility_distance"],
         )
-        self.assertEqual(result["train_count"], 3)
+        self.assertEqual(result["train_count"], 4)
         self.assertEqual(result["diagnostic_count"], 1)
 
         metadata = json.loads(
             (output_root / "mixed-run" / "metadata.json").read_text(encoding="utf-8")
         )
         self.assertEqual(metadata["sbi"]["method"], "MNPE")
-        self.assertEqual(metadata["sbi"]["prior_samples"]["count"], 3)
+        self.assertEqual(metadata["sbi"]["prior_samples"]["count"], 4)
         self.assertEqual(metadata["dataset"]["path_base"], "project_root")
         self.assert_project_relative_metadata_path(
             metadata["dataset"]["result_store_path"],
@@ -814,6 +829,7 @@ class TrainNPEConfigTests(unittest.TestCase):
                             [20.0, 0.2, 2.0],
                             [10.0, 0.3, 3.0],
                             [20.0, 0.4, 4.0],
+                            [10.0, 0.5, 1.0],
                         ],
                         dtype=np.float32,
                     ),
@@ -834,13 +850,14 @@ class TrainNPEConfigTests(unittest.TestCase):
                             [[3.0], [4.0]],
                             [[5.0], [6.0]],
                             [[7.0], [8.0]],
+                            [[9.0], [10.0]],
                         ],
                         dtype=np.float32,
                     ),
                 ),
             },
             coords={
-                "sample": np.asarray([0, 1, 2, 3], dtype=np.int64),
+                "sample": np.asarray([0, 1, 2, 3, 4], dtype=np.int64),
                 "theta_parameter": (
                     "theta_parameter",
                     ["n_agents", "alpha", "visibility_distance"],
@@ -869,19 +886,20 @@ class TrainNPEConfigTests(unittest.TestCase):
         ):
             result = self.script.train_from_config(config)
 
-        train_indices, diagnostic_indices = self.script.split_diagnostic_holdout(
-            n_simulations=4,
-            reserve_count=1,
-            seed=1,
-        )
         expected_theta = np.asarray(
             [
                 [0.1, 1.0],
                 [0.2, 2.0],
                 [0.3, 3.0],
                 [0.4, 4.0],
+                [0.5, 1.0],
             ],
             dtype=np.float32,
+        )
+        train_indices, diagnostic_indices = self.script.split_diagnostic_holdout(
+            n_simulations=5,
+            reserve_count=1,
+            seed=1,
         )
         expected_x = np.asarray(
             [
@@ -889,6 +907,7 @@ class TrainNPEConfigTests(unittest.TestCase):
                 [[3.0, 20.0], [4.0, 20.0]],
                 [[5.0, 10.0], [6.0, 10.0]],
                 [[7.0, 20.0], [8.0, 20.0]],
+                [[9.0, 10.0], [10.0, 10.0]],
             ],
             dtype=np.float32,
         )

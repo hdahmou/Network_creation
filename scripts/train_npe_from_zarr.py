@@ -198,8 +198,14 @@ def load_train_config(config_path: str | Path) -> TrainNPEConfig:
                 if training.get("clip_max_norm", 5.0) is None
                 else float(training.get("clip_max_norm", 5.0))
             ),
-            show_progress_bars=training.get("show_progress_bars", True),
-            dataloader_kwargs=dict(training.get("dataloader_kwargs", {})),
+            show_progress_bars=bool(training.get("show_progress_bars", True)),
+            num_workers=int(training.get("num_workers", 0)),
+            pin_memory=(
+                None
+                if training.get("pin_memory") is None
+                else bool(training.get("pin_memory"))
+            ),
+            persistent_workers=bool(training.get("persistent_workers", False)),
         ),
         diagnostics=DiagnosticsConfig(
             reserve_count=int(diagnostics["reserve_count"]),
@@ -208,7 +214,6 @@ def load_train_config(config_path: str | Path) -> TrainNPEConfig:
 
 
 def train_from_config(config: TrainNPEConfig) -> dict[str, Any]:
-    np.random.seed(config.training.seed)
     run = _prepare_run(config)
     _train_run(run)
     _write_run_artifacts(run)
@@ -279,6 +284,10 @@ def _prepare_run(config: TrainNPEConfig) -> dict[str, Any]:
     source_sample = np.asarray(dataset.coords["sample"].values, dtype=np.int64)
     kept_mask = np.asarray(dataset["kept_mask"].values, dtype=np.bool_)
     dataset_metadata = inversion_dataset_metadata(dataset)
+    category_counts = tuple(
+        int(value)
+        for value in dataset_metadata.get("num_categories_per_discrete_theta", [])
+    )
     train_indices, diagnostic_indices = split_diagnostic_holdout(
         n_simulations=theta.shape[0],
         reserve_count=config.diagnostics.reserve_count,
@@ -289,10 +298,6 @@ def _prepare_run(config: TrainNPEConfig) -> dict[str, Any]:
     diagnostic_theta = theta[diagnostic_indices]
     diagnostic_x = x[diagnostic_indices]
     diagnostic_source_sample = source_sample[diagnostic_indices]
-    category_counts = tuple(
-        int(value)
-        for value in dataset_metadata.get("num_categories_per_discrete_theta", [])
-    )
     sbi_method = "MNPE" if category_counts else "NPE"
     prior_samples, prior_sample_indices = select_prior_samples(
         train_theta,

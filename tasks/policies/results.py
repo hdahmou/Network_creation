@@ -39,15 +39,33 @@ class _ResultCoordinates:
 def load_policy_results(
     zarr_path: str | Path,
     *,
+    stats: str | Sequence[str] | None = None,
     load_sampled_agent_parameters: bool = False,
     normalize_time: bool = False,
 ) -> xr.Dataset:
+    requested_stats = _requested_stats(stats)
+    if (
+        requested_stats is not None
+        and SAMPLED_AGENT_PARAMETERS_FIELD in requested_stats
+    ):
+        raise ValueError(
+            f"{SAMPLED_AGENT_PARAMETERS_FIELD!r} is controlled by "
+            "load_sampled_agent_parameters; set "
+            "load_sampled_agent_parameters=True instead of including it in stats"
+        )
+    load_outputs = requested_stats
+    if load_sampled_agent_parameters and load_outputs is not None:
+        load_outputs = (*load_outputs, SAMPLED_AGENT_PARAMETERS_FIELD)
     skip_outputs = (
         ()
         if load_sampled_agent_parameters
         else (SAMPLED_AGENT_PARAMETERS_FIELD,)
     )
-    raw = load_zarr_results(zarr_path, skip_outputs=skip_outputs)
+    raw = load_zarr_results(
+        zarr_path,
+        skip_outputs=skip_outputs,
+        load_outputs=load_outputs,
+    )
     result_store_path = Path(raw.attrs["path"])
     metadata = raw.attrs["metadata"]
     attrs = raw.attrs
@@ -76,6 +94,7 @@ def load_policy_results(
         regular_outputs,
         all_outputs=raw_outputs,
         step_labels=step_labels,
+        result_count=int(raw.sizes["result"]),
     )
 
     composition_axis_name = _policy_composition_axis_name(
@@ -199,6 +218,14 @@ def load_policy_results(
     if not normalize_time:
         return dataset
     return _normalize_time_axis(dataset, policy_config=policy_config)
+
+
+def _requested_stats(stats: str | Sequence[str] | None) -> tuple[str, ...] | None:
+    if stats is None:
+        return None
+    if isinstance(stats, str):
+        return (stats,)
+    return tuple(str(name) for name in stats)
 
 
 def _result_coordinates(
@@ -361,6 +388,7 @@ def _build_policy_output_or_empty(
     *,
     all_outputs: Mapping[str, NDArray[np.generic]],
     step_labels: NDArray[np.int64] | None,
+    result_count: int | None = None,
 ) -> PolicyOutput:
     if outputs:
         labels = step_labels if _has_step_axis(outputs) else None
@@ -371,7 +399,8 @@ def _build_policy_output_or_empty(
         if step_labels is None
         else np.asarray(step_labels, dtype=np.int64)
     )
-    result_count = _infer_result_count(all_outputs)
+    if result_count is None:
+        result_count = _infer_result_count(all_outputs)
     return PolicyOutput(
         timeseries=np.empty((result_count, labels.shape[0], 0), dtype=np.float32),
         observable_names=(),

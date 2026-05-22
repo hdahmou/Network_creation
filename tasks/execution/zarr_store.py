@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Collection, Mapping
+from collections.abc import Collection, Mapping, Sequence
 from pathlib import Path
 from typing import Any, cast
 
@@ -17,6 +17,7 @@ def load_zarr_results(
     path: str | Path,
     *,
     skip_outputs: Collection[str] = (),
+    load_outputs: Collection[str] | None = None,
 ) -> xr.Dataset:
     """Load one run result Zarr store into an in-memory xarray dataset."""
     store_path = Path(path).expanduser()
@@ -30,6 +31,11 @@ def load_zarr_results(
     input_index = np.asarray(results_group["input_index"])
     order = np.argsort(input_index)
     output_schema = list(root.attrs["output_schema"])
+    output_names = [str(field["name"]) for field in output_schema]
+    requested_outputs = _requested_outputs(
+        load_outputs,
+        available_outputs=output_names,
+    )
     root_attrs = dict(root.attrs)
     metadata_group = root["metadata"]
     metadata = {
@@ -43,6 +49,8 @@ def load_zarr_results(
     data_vars: dict[str, Any] = {}
     for field in output_schema:
         name = str(field["name"])
+        if requested_outputs is not None and name not in requested_outputs:
+            continue
         if name in skip_outputs:
             continue
         values = np.asarray(outputs_group[name])[order]
@@ -64,6 +72,29 @@ def load_zarr_results(
             "metadata": metadata,
         },
     )
+
+
+def _requested_outputs(
+    load_outputs: Collection[str] | None,
+    *,
+    available_outputs: Sequence[str],
+) -> set[str] | None:
+    if load_outputs is None:
+        return None
+
+    requested = (
+        {str(load_outputs)}
+        if isinstance(load_outputs, str)
+        else {str(name) for name in load_outputs}
+    )
+    available = set(available_outputs)
+    unknown = sorted(requested - available)
+    if unknown:
+        raise ValueError(
+            "unknown output(s) requested via load_outputs: "
+            f"{unknown}; available outputs are {list(available_outputs)}"
+        )
+    return requested
 
 
 class ZarrResultStore:

@@ -473,6 +473,7 @@ class TrainNPEConfigTests(unittest.TestCase):
         logs = "\n".join(captured.output)
         load_policy_results.assert_called_once_with(
             config.zarr_path,
+            stats=config.observers,
             normalize_time=config.normalize_time,
         )
         self.assertIn("[data] Loading zarr dataset", logs)
@@ -688,6 +689,7 @@ class TrainNPEConfigTests(unittest.TestCase):
         logs = "\n".join(captured.output)
         load_policy_results.assert_called_once_with(
             config.zarr_path,
+            stats=config.observers,
             normalize_time=config.normalize_time,
         )
         self.assertIn("[training] Starting MNPE training", logs)

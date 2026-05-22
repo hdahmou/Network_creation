@@ -67,6 +67,89 @@ class RandomPolicyResultFormatterTest(unittest.TestCase):
             np.asarray([[[[2.0, 12.0]]]], dtype=np.float32),
         )
 
+    def test_from_zarr_loads_only_requested_stats(self) -> None:
+        config = build_random_config()
+        config["simulator"]["max_steps"] = 2
+        outputs_by_index = [
+            (
+                0,
+                {
+                    "density.mean": np.asarray([0.0, 1.0, 2.0], dtype=np.float32),
+                    "centered_mean_welfare.mean": np.asarray(
+                        [10.0, 11.0, 12.0],
+                        dtype=np.float32,
+                    ),
+                },
+            )
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store_path = write_result_store(
+                Path(tmpdir),
+                config=config,
+                outputs_by_index=outputs_by_index,
+                total_inputs=1,
+            )
+
+            ds = load_policy_results(store_path, stats=("density.mean",))
+
+        self.assertEqual(tuple(ds.coords["observable"].values), ("density.mean",))
+        self.assertEqual(ds["x"].shape, (1, 1, 1, 3, 1))
+        np.testing.assert_allclose(
+            ds["x"].isel(step=-1).values,
+            np.asarray([[[[2.0]]]], dtype=np.float32),
+        )
+
+    def test_from_zarr_rejects_prefix_stats(self) -> None:
+        config = build_random_config()
+        outputs_by_index = [
+            (
+                0,
+                {
+                    "density.mean": np.asarray([0.0, 1.0], dtype=np.float32),
+                },
+            )
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store_path = write_result_store(
+                Path(tmpdir),
+                config=config,
+                outputs_by_index=outputs_by_index,
+                total_inputs=1,
+            )
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "unknown output.*density.*density.mean",
+            ):
+                load_policy_results(store_path, stats="density")
+
+    def test_from_zarr_supports_empty_requested_stats(self) -> None:
+        config = build_random_config()
+        outputs_by_index = [
+            (
+                0,
+                {
+                    "density.mean": np.asarray([0.0, 1.0], dtype=np.float32),
+                },
+            )
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store_path = write_result_store(
+                Path(tmpdir),
+                config=config,
+                outputs_by_index=outputs_by_index,
+                total_inputs=1,
+            )
+
+            ds = load_policy_results(store_path, stats=())
+
+        self.assertEqual(tuple(ds.coords["observable"].values), ())
+        self.assertEqual(ds["x"].shape, (1, 1, 1, 1, 0))
+        self.assertEqual(ds["theta"].shape, (1, 1, 1, 4))
+
     def test_from_zarr_preserves_agent_payoff_axis(self) -> None:
         config = build_random_config()
         config["population"]["n_agents"] = [2, 4]
@@ -149,7 +232,10 @@ class RandomPolicyResultFormatterTest(unittest.TestCase):
             (
                 0,
                 {
-                    "density.mean": np.asarray([0.0, 1.0, 2.0, 3.0], dtype=np.float32),
+                    "density.mean": np.asarray(
+                        [0.0, 1.0, 2.0, 3.0],
+                        dtype=np.float32,
+                    ),
                     SAMPLED_AGENT_PARAMETERS_FIELD: np.asarray(
                         [[0.1], [0.2], [0.3], [0.4]],
                         dtype=np.float32,
@@ -187,6 +273,51 @@ class RandomPolicyResultFormatterTest(unittest.TestCase):
         )
         self.assertEqual(tuple(ds.coords["agent_parameter"].values), ("p_act",))
         self.assertEqual(tuple(ds.coords["observable"].values), ("density.mean",))
+        np.testing.assert_allclose(
+            ds[SAMPLED_AGENT_PARAMETERS_FIELD].values,
+            np.asarray([[[[[0.1], [0.2], [0.3], [0.4]]]]], dtype=np.float32),
+        )
+
+    def test_from_zarr_loads_sampled_agent_parameters_with_requested_stats(self) -> None:
+        config = build_random_config()
+        config["population"]["policies"][0]["parameters"]["p_act"] = continuous(
+            0.0,
+            1.0,
+            std=0.1,
+        )
+        outputs_by_index = [
+            (
+                0,
+                {
+                    "density.mean": np.asarray([0.0, 1.0, 2.0, 3.0], dtype=np.float32),
+                    "centered_mean_welfare.mean": np.asarray(
+                        [10.0, 11.0, 12.0, 13.0],
+                        dtype=np.float32,
+                    ),
+                    SAMPLED_AGENT_PARAMETERS_FIELD: np.asarray(
+                        [[0.1], [0.2], [0.3], [0.4]],
+                        dtype=np.float32,
+                    ),
+                },
+            )
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store_path = write_result_store(
+                Path(tmpdir),
+                config=config,
+                outputs_by_index=outputs_by_index,
+                total_inputs=1,
+            )
+
+            ds = load_policy_results(
+                store_path,
+                stats=("density.mean",),
+                load_sampled_agent_parameters=True,
+            )
+
+        self.assertEqual(tuple(ds.coords["observable"].values), ("density.mean",))
+        self.assertIn(SAMPLED_AGENT_PARAMETERS_FIELD, ds)
         np.testing.assert_allclose(
             ds[SAMPLED_AGENT_PARAMETERS_FIELD].values,
             np.asarray([[[[[0.1], [0.2], [0.3], [0.4]]]]], dtype=np.float32),

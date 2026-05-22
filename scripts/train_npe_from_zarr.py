@@ -53,10 +53,19 @@ from network_creation.model_inversion.training import (  # noqa: E402
 )
 
 
-def load_policy_results(zarr_path: str | Path, *, normalize_time: bool):
+def load_policy_results(
+    zarr_path: str | Path,
+    *,
+    stats: Sequence[str] | None = None,
+    normalize_time: bool,
+):
     from tasks.policies import load_policy_results as _load_policy_results
 
-    return _load_policy_results(zarr_path, normalize_time=normalize_time)
+    return _load_policy_results(
+        zarr_path,
+        stats=stats,
+        normalize_time=normalize_time,
+    )
 
 
 @dataclass(frozen=True)
@@ -215,6 +224,7 @@ def _prepare_run(config: TrainNPEConfig) -> dict[str, Any]:
     )
     raw_results = load_policy_results(
         config.zarr_path,
+        stats=config.observers,
         normalize_time=config.normalize_time,
     )
     raw_results = raw_results.assign_attrs(

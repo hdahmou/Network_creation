@@ -85,6 +85,73 @@ class TaskUtilsTest(unittest.TestCase):
             ),
         )
 
+    def test_load_zarr_results_can_load_selected_outputs_only(self) -> None:
+        output_schema = OutputSpec(
+            fields=(
+                OutputArraySpec(name="density.mean", shape=(2,), dtype=np.float32),
+                OutputArraySpec(
+                    name="centered_mean_welfare.mean",
+                    shape=(2,),
+                    dtype=np.float32,
+                ),
+            )
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store_path = Path(tmpdir) / "run.zarr"
+            writer = ZarrResultStore(
+                str(store_path),
+                output_schema=output_schema,
+                batch_size=2,
+                total_inputs=1,
+            )
+            writer.add_success(
+                input_index=0,
+                output={
+                    "density.mean": np.asarray([0.0, 1.0], dtype=np.float32),
+                    "centered_mean_welfare.mean": np.asarray(
+                        [10.0, 11.0],
+                        dtype=np.float32,
+                    ),
+                },
+            )
+            writer.flush()
+
+            result = load_zarr_results(
+                store_path,
+                load_outputs=("density.mean",),
+            )
+
+        self.assertIn("density.mean", result)
+        self.assertNotIn("centered_mean_welfare.mean", result)
+        np.testing.assert_allclose(
+            result["density.mean"].values,
+            np.asarray([[0.0, 1.0]], dtype=np.float32),
+        )
+
+    def test_load_zarr_results_rejects_unknown_selected_outputs(self) -> None:
+        output_schema = OutputSpec(
+            fields=(
+                OutputArraySpec(name="density.mean", shape=(2,), dtype=np.float32),
+            )
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store_path = Path(tmpdir) / "run.zarr"
+            writer = ZarrResultStore(
+                str(store_path),
+                output_schema=output_schema,
+                batch_size=2,
+                total_inputs=1,
+            )
+            writer.flush()
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "unknown output.*density.*density.mean",
+            ):
+                load_zarr_results(store_path, load_outputs=("density",))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,13 +1,21 @@
+from collections.abc import Mapping
+from typing import Any
+
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import networkx as nx
 from netgraph import Graph
 
 
-def draw_network(graph: nx.DiGraph, ax: plt.Axes) -> Graph:
+def draw_network(
+    graph: nx.DiGraph,
+    ax: plt.Axes,
+    *,
+    node_layout: str | Mapping[Any, tuple[float, float]] = "spring",
+) -> Graph:
     node_labels = {n: str(n) for n in graph.nodes()}
     mpl.rcParams.update(mpl.rcParamsDefault)
-    return Graph(
+    graph_kwargs = dict(
         graph=graph,
         node_labels=node_labels,
         edge_label_fontdict=dict(
@@ -19,7 +27,6 @@ def draw_network(graph: nx.DiGraph, ax: plt.Axes) -> Graph:
             ),
         ),
         node_layout="spring",
-        node_layout_kwargs={"pad_by": 0.01},
         edge_layout="curved",
         node_shape="o",
         node_label_fontdict=dict(size=8, fontweight="normal"),
@@ -29,3 +36,8 @@ def draw_network(graph: nx.DiGraph, ax: plt.Axes) -> Graph:
         arrows=True,
         ax=ax,
     )
+    graph_kwargs["node_layout"] = node_layout
+    if node_layout == "spring":
+        graph_kwargs["node_layout_kwargs"] = {"pad_by": 0.01}
+
+    return Graph(**graph_kwargs)

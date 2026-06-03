@@ -7,7 +7,6 @@ from .data import (
     filter_inversion_dataset,
     inversion_dataset_metadata,
     move_discrete_theta_to_end,
-    resolve_discrete_theta_parameters,
 )
 from .posterior import (
     PosteriorArtifact,
@@ -15,7 +14,9 @@ from .posterior import (
     attach_prior_samples_to_posterior,
     category_probabilities,
     decode_discrete_theta_samples,
+    decode_input_parameter_values,
     discrete_category_values,
+    discrete_input_category_values,
     load_posterior_artifact,
     select_prior_samples,
 )
@@ -29,9 +30,10 @@ __all__ = [
     "attach_prior_samples_to_posterior",
     "category_probabilities",
     "decode_discrete_theta_samples",
+    "decode_input_parameter_values",
     "discrete_category_values",
+    "discrete_input_category_values",
     "load_posterior_artifact",
     "move_discrete_theta_to_end",
-    "resolve_discrete_theta_parameters",
     "select_prior_samples",
 ]

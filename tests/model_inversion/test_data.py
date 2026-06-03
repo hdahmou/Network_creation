@@ -12,7 +12,6 @@ from network_creation.model_inversion.data import (
     filter_inversion_dataset,
     inversion_dataset_metadata,
     move_discrete_theta_to_end,
-    resolve_discrete_theta_parameters,
 )
 
 
@@ -121,7 +120,10 @@ class ModelDatasetTests(unittest.TestCase):
                 "theta_names",
                 "x_names",
                 "observer_names",
-                "input_parameter_names",
+                "input_parameters",
+                "continuous_input_parameters",
+                "discrete_input_parameters",
+                "discrete_input_values",
                 "constant_theta",
                 "prior_low",
                 "prior_high",
@@ -141,7 +143,10 @@ class ModelDatasetTests(unittest.TestCase):
             metadata["observer_names"],
             ["density.mean", "distance.mean"],
         )
-        self.assertEqual(metadata["input_parameter_names"], [])
+        self.assertEqual(metadata["input_parameters"], [])
+        self.assertEqual(metadata["continuous_input_parameters"], [])
+        self.assertEqual(metadata["discrete_input_parameters"], [])
+        self.assertEqual(metadata["discrete_input_values"], [])
         self.assertEqual(
             list(dataset.coords["observable"].values),
             ["density.mean", "distance.mean"],
@@ -154,11 +159,13 @@ class ModelDatasetTests(unittest.TestCase):
         self.assertEqual(metadata["final_step_label"], 5)
         self.assertEqual(metadata["n_simulations"], 5)
 
-    def test_filter_inversion_dataset_appends_final_input_parameter_names(self) -> None:
+    def test_filter_inversion_dataset_appends_final_continuous_input_parameter(
+        self,
+    ) -> None:
         dataset = self.filter_results(
             observers=("density.mean",),
             theta_parameters=("alpha",),
-            input_parameter_names=("n_agents",),
+            input_parameters=("n_agents",),
             drop_constant_theta=False,
         )
         x = dataset["x"].values
@@ -175,7 +182,10 @@ class ModelDatasetTests(unittest.TestCase):
         self.assertEqual(metadata["theta_names"], ["alpha"])
         self.assertEqual(metadata["x_names"], ["density.mean", "n_agents"])
         self.assertEqual(metadata["observer_names"], ["density.mean"])
-        self.assertEqual(metadata["input_parameter_names"], ["n_agents"])
+        self.assertEqual(metadata["input_parameters"], ["n_agents"])
+        self.assertEqual(metadata["continuous_input_parameters"], ["n_agents"])
+        self.assertEqual(metadata["discrete_input_parameters"], [])
+        self.assertEqual(metadata["discrete_input_values"], [])
         self.assertEqual(metadata["x_event_shape"], [2])
 
     def test_filter_inversion_dataset_keeps_requested_theta_subset(self) -> None:
@@ -211,19 +221,22 @@ class ModelDatasetTests(unittest.TestCase):
             metadata["observer_names"],
             ["indegree.mean", "density.mean"],
         )
-        self.assertEqual(metadata["input_parameter_names"], [])
+        self.assertEqual(metadata["input_parameters"], [])
+        self.assertEqual(metadata["continuous_input_parameters"], [])
+        self.assertEqual(metadata["discrete_input_parameters"], [])
+        self.assertEqual(metadata["discrete_input_values"], [])
         self.assertEqual(metadata["x_event_shape"], [2, 2])
         self.assertEqual(metadata["x_representation"], "timeseries")
         self.assertEqual(metadata["step_labels"], [0, 5])
         self.assertEqual(metadata["n_simulations"], 5)
 
-    def test_filter_inversion_dataset_appends_timeseries_input_parameter_names(
+    def test_filter_inversion_dataset_appends_timeseries_continuous_input_parameter(
         self,
     ) -> None:
         dataset = self.filter_results(
             observers=("indegree",),
             theta_parameters=("alpha",),
-            input_parameter_names=("n_agents",),
+            input_parameters=("n_agents",),
             x_representation="timeseries",
             drop_constant_theta=False,
         )
@@ -244,8 +257,124 @@ class ModelDatasetTests(unittest.TestCase):
         self.assertEqual(metadata["theta_names"], ["alpha"])
         self.assertEqual(metadata["x_names"], ["indegree.mean", "n_agents"])
         self.assertEqual(metadata["observer_names"], ["indegree.mean"])
-        self.assertEqual(metadata["input_parameter_names"], ["n_agents"])
+        self.assertEqual(metadata["input_parameters"], ["n_agents"])
+        self.assertEqual(metadata["continuous_input_parameters"], ["n_agents"])
+        self.assertEqual(metadata["discrete_input_parameters"], [])
+        self.assertEqual(metadata["discrete_input_values"], [])
         self.assertEqual(metadata["x_event_shape"], [2, 2])
+
+    def test_filter_inversion_dataset_one_hot_encodes_final_discrete_input(
+        self,
+    ) -> None:
+        dataset = self.filter_results(
+            observers=("density.mean",),
+            theta_parameters=("alpha",),
+            input_parameters=("n_agents",),
+            discrete_input_parameters=("n_agents",),
+            drop_constant_theta=False,
+        )
+        x = dataset["x"].values
+        metadata = inversion_dataset_metadata(dataset)
+
+        expected_density = self.formatted_results()["x"].isel(step=-1).values[:, [0]]
+        expected_input = np.asarray(
+            [
+                [1.0, 0.0],
+                [1.0, 0.0],
+                [0.0, 1.0],
+                [0.0, 1.0],
+                [0.0, 1.0],
+            ],
+            dtype=np.float32,
+        )
+        np.testing.assert_allclose(
+            x,
+            np.concatenate((expected_density, expected_input), axis=1),
+        )
+        self.assertEqual(
+            metadata["x_names"],
+            ["density.mean", "n_agents=10", "n_agents=20"],
+        )
+        self.assertEqual(metadata["input_parameters"], ["n_agents"])
+        self.assertEqual(metadata["continuous_input_parameters"], [])
+        self.assertEqual(metadata["discrete_input_parameters"], ["n_agents"])
+        self.assertEqual(metadata["discrete_input_values"], [[10, 20]])
+        self.assertEqual(metadata["x_event_shape"], [3])
+
+    def test_filter_inversion_dataset_one_hot_encodes_timeseries_discrete_input(
+        self,
+    ) -> None:
+        dataset = self.filter_results(
+            observers=("indegree",),
+            theta_parameters=("alpha",),
+            input_parameters=("n_agents",),
+            discrete_input_parameters=("n_agents",),
+            x_representation="timeseries",
+            drop_constant_theta=False,
+        )
+        x = dataset["x"].values
+        metadata = inversion_dataset_metadata(dataset)
+
+        raw = self.formatted_results()["x"].values
+        expected_first = np.asarray(
+            [
+                [raw[0, 0, 2], 1.0, 0.0],
+                [raw[0, 1, 2], 1.0, 0.0],
+            ],
+            dtype=np.float32,
+        )
+        self.assertEqual(x.shape, (5, 2, 3))
+        np.testing.assert_allclose(x[0], expected_first)
+        self.assertEqual(
+            metadata["x_names"],
+            ["indegree.mean", "n_agents=10", "n_agents=20"],
+        )
+        self.assertEqual(metadata["discrete_input_values"], [[10, 20]])
+        self.assertEqual(metadata["x_event_shape"], [2, 3])
+
+    def test_filter_inversion_dataset_rejects_theta_input_overlap(self) -> None:
+        with self.assertRaisesRegex(
+            ValueError,
+            "input parameters cannot also be inferred theta parameters",
+        ):
+            self.filter_results(
+                observers=("density.mean",),
+                theta_parameters=("n_agents", "alpha"),
+                input_parameters=("n_agents",),
+                drop_constant_theta=False,
+            )
+
+    def test_filter_inversion_dataset_rejects_non_integer_discrete_input(
+        self,
+    ) -> None:
+        raw = self.formatted_results().assign(
+            theta=(
+                ("sample", "theta_parameter"),
+                np.asarray(
+                    [
+                        [10.5, 0.1, 5.0],
+                        [10.0, 0.3, 5.0],
+                        [20.0, 0.4, 5.0],
+                        [20.0, 0.5, 5.0],
+                        [20.0, 0.6, 5.0],
+                    ],
+                    dtype=np.float32,
+                ),
+            )
+        )
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "discrete input parameter 'n_agents' contains non-integer values",
+        ):
+            filter_inversion_dataset(
+                raw,
+                observers=("density.mean",),
+                theta_parameters=("alpha",),
+                input_parameters=("n_agents",),
+                discrete_input_parameters=("n_agents",),
+                drop_constant_theta=False,
+            )
 
     def test_filter_inversion_dataset_preserves_normalized_time_metadata(self) -> None:
         raw = self.formatted_results().assign_coords(
@@ -381,7 +510,7 @@ class ModelDatasetTests(unittest.TestCase):
 
         mixed_dataset = move_discrete_theta_to_end(
             dataset,
-            discrete_theta_parameters=None,
+            discrete_theta_parameters=("n_agents", "visibility_distance"),
         )
         metadata = inversion_dataset_metadata(mixed_dataset)
 
@@ -414,19 +543,81 @@ class ModelDatasetTests(unittest.TestCase):
         self.assertEqual(metadata["discrete_theta_values"], [[10, 20], [1, 2, 4]])
         self.assertEqual(metadata["num_categories_per_discrete_theta"], [2, 3])
 
-    def test_resolve_discrete_theta_parameters_auto_detects_agent_count_parameters(
+    def test_move_discrete_theta_to_end_keeps_unrequested_agent_count_continuous(
         self,
     ) -> None:
-        self.assertEqual(
-            resolve_discrete_theta_parameters(
-                ("alpha", "visibility_distance", "n_agents")
+        raw = self.formatted_results().assign(
+            theta=(
+                ("sample", "theta_parameter"),
+                np.asarray(
+                    [
+                        [10.0, 0.1, 1.0],
+                        [10.0, 0.3, 2.0],
+                        [20.0, 0.4, 4.0],
+                        [20.0, 0.5, 1.0],
+                        [20.0, 0.6, 2.0],
+                    ],
+                    dtype=np.float32,
+                ),
             ),
-            ("n_agents", "visibility_distance"),
+            prior_low=("theta_parameter", np.asarray([10.0, 0.0, 1.0])),
+            prior_high=("theta_parameter", np.asarray([20.0, 1.0, 4.0])),
+        ).assign_coords(
+            theta_parameter=["n_agents", "alpha", "visibility_distance"],
+        )
+        dataset = filter_inversion_dataset(
+            raw,
+            observers=("density.mean",),
+            theta_parameters=("n_agents", "alpha", "visibility_distance"),
+            drop_constant_theta=False,
         )
 
-    def test_resolve_discrete_theta_parameters_rejects_unknown_name(self) -> None:
+        mixed_dataset = move_discrete_theta_to_end(
+            dataset,
+            discrete_theta_parameters=("visibility_distance",),
+        )
+        metadata = inversion_dataset_metadata(mixed_dataset)
+
+        self.assertEqual(
+            list(mixed_dataset.coords["theta_parameter"].values),
+            ["n_agents", "alpha", "visibility_distance"],
+        )
+        self.assertEqual(metadata["continuous_theta_names"], ["n_agents", "alpha"])
+        self.assertEqual(metadata["discrete_theta_names"], ["visibility_distance"])
+        self.assertEqual(metadata["discrete_theta_values"], [[1, 2, 4]])
+
+    def test_move_discrete_theta_to_end_defaults_to_empty_discrete_theta(
+        self,
+    ) -> None:
+        dataset = self.filter_results(
+            observers=("density.mean",),
+            theta_parameters=("n_agents", "alpha"),
+            drop_constant_theta=False,
+        )
+
+        mixed_dataset = move_discrete_theta_to_end(
+            dataset,
+            discrete_theta_parameters=None,
+        )
+        metadata = inversion_dataset_metadata(mixed_dataset)
+
+        self.assertEqual(metadata["continuous_theta_names"], ["n_agents", "alpha"])
+        self.assertEqual(metadata["discrete_theta_names"], [])
+        self.assertEqual(metadata["discrete_theta_values"], [])
+        self.assertEqual(metadata["num_categories_per_discrete_theta"], [])
+
+    def test_move_discrete_theta_to_end_rejects_unknown_name(self) -> None:
+        dataset = self.filter_results(
+            observers=("density.mean",),
+            theta_parameters=("alpha", "n_agents"),
+            drop_constant_theta=False,
+        )
+
         with self.assertRaisesRegex(ValueError, "unknown discrete theta parameter"):
-            resolve_discrete_theta_parameters(("alpha", "n_agents"), ("agent_count",))
+            move_discrete_theta_to_end(
+                dataset,
+                discrete_theta_parameters=("agent_count",),
+            )
 
 
 if __name__ == "__main__":

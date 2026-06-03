@@ -12,6 +12,7 @@ from network_creation.model_inversion.posterior import (
     attach_prior_samples_to_posterior,
     category_probabilities,
     decode_discrete_theta_samples,
+    decode_input_parameter_values,
     select_prior_samples,
 )
 
@@ -101,6 +102,77 @@ class PosteriorArtifactHelpersTest(unittest.TestCase):
         probs = category_probabilities([10.0, 20.0, 20.0], [10, 20])
         np.testing.assert_allclose(probs, [1 / 3, 2 / 3])
 
+    def test_decode_input_parameter_values_recovers_one_hot_final_inputs(self) -> None:
+        metadata = {
+            "dataset": {
+                "x_event_shape": [4],
+                "observer_names": ["density.mean"],
+                "input_parameters": ["n_agents", "alpha"],
+                "continuous_input_parameters": ["alpha"],
+                "discrete_input_parameters": ["n_agents"],
+                "discrete_input_values": [[10, 20]],
+            }
+        }
+        x = np.asarray(
+            [
+                [0.1, 1.0, 0.0, 0.5],
+                [0.2, 0.0, 1.0, 0.7],
+            ],
+            dtype=np.float32,
+        )
+
+        values = decode_input_parameter_values(x, metadata)
+
+        np.testing.assert_allclose(values["n_agents"], [10.0, 20.0])
+        np.testing.assert_allclose(values["alpha"], [0.5, 0.7])
+
+    def test_decode_input_parameter_values_rejects_malformed_one_hot_inputs(
+        self,
+    ) -> None:
+        metadata = {
+            "dataset": {
+                "x_event_shape": [3],
+                "observer_names": ["density.mean"],
+                "input_parameters": ["n_agents"],
+                "continuous_input_parameters": [],
+                "discrete_input_parameters": ["n_agents"],
+                "discrete_input_values": [[10, 20]],
+            }
+        }
+        x = np.asarray([[0.1, 0.0, 0.0]], dtype=np.float32)
+
+        with self.assertRaisesRegex(ValueError, "not one-hot"):
+            decode_input_parameter_values(x, metadata)
+
+    def test_posterior_artifact_decodes_one_hot_timeseries_inputs(self) -> None:
+        artifact = PosteriorArtifact(
+            artifact_dir=Path("."),
+            posterior=object(),
+            metadata={
+                "dataset": {
+                    "x_event_shape": [2, 3],
+                    "observer_names": ["density.mean"],
+                    "input_parameters": ["n_agents"],
+                    "continuous_input_parameters": [],
+                    "discrete_input_parameters": ["n_agents"],
+                    "discrete_input_values": [[10, 20]],
+                }
+            },
+        )
+        x = np.asarray(
+            [
+                [[0.1, 1.0, 0.0], [0.2, 1.0, 0.0]],
+                [[0.3, 0.0, 1.0], [0.4, 0.0, 1.0]],
+            ],
+            dtype=np.float32,
+        )
+
+        values = artifact.input_parameter_values_from_x(x)
+
+        self.assertEqual(artifact.input_parameters, ["n_agents"])
+        self.assertEqual(artifact.discrete_input_parameters, ["n_agents"])
+        np.testing.assert_allclose(values["n_agents"], [10.0, 20.0])
+
     def test_posterior_artifact_sample_adds_single_observation_batch_dim(self) -> None:
         class RecordingPosterior:
             def __init__(self) -> None:
@@ -153,6 +225,8 @@ class PosteriorArtifactHelpersTest(unittest.TestCase):
                 "dataset": {
                     "x_event_shape": [1],
                     "theta_names": ["alpha"],
+                    "discrete_theta_names": [],
+                    "discrete_theta_values": [],
                 }
             },
         )

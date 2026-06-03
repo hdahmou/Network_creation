@@ -50,11 +50,23 @@ class PosteriorArtifact:
 
     @property
     def continuous_theta_order(self) -> list[str]:
-        return list(self.metadata["dataset"].get("continuous_theta_names", []))
+        return list(self.metadata["dataset"]["continuous_theta_names"])
 
     @property
     def discrete_theta_order(self) -> list[str]:
-        return list(self.metadata["dataset"].get("discrete_theta_names", []))
+        return list(self.metadata["dataset"]["discrete_theta_names"])
+
+    @property
+    def input_parameters(self) -> list[str]:
+        return list(self.metadata["dataset"]["input_parameters"])
+
+    @property
+    def continuous_input_parameters(self) -> list[str]:
+        return list(self.metadata["dataset"]["continuous_input_parameters"])
+
+    @property
+    def discrete_input_parameters(self) -> list[str]:
+        return list(self.metadata["dataset"]["discrete_input_parameters"])
 
     @property
     def tensorboard_log_dir(self) -> Path:
@@ -94,8 +106,17 @@ class PosteriorArtifact:
     def category_values(self, name: str) -> NDArray[np.int64]:
         return discrete_category_values(self.metadata, name)
 
+    def input_category_values(self, name: str) -> NDArray[np.int64]:
+        return discrete_input_category_values(self.metadata, name)
+
     def is_discrete_theta(self, name: str) -> bool:
         return name in set(self.discrete_theta_order)
+
+    def input_parameter_values_from_x(
+        self,
+        x: Any,
+    ) -> dict[str, NDArray[np.float32]]:
+        return decode_input_parameter_values(x, self.metadata)
 
     def to_device(self, device: str | torch.device) -> torch.device:
         torch_device = torch.device(device)
@@ -157,7 +178,7 @@ class PosteriorArtifact:
 def load_posterior_artifact(artifact_dir: str | Path) -> PosteriorArtifact:
     artifact_dir = Path(artifact_dir)
     metadata = read_json(artifact_dir / "metadata.json")
-    posterior_file = metadata["sbi"].get("posterior_file", "posterior.pkl")
+    posterior_file = metadata["sbi"]["posterior_file"]
     with (artifact_dir / posterior_file).open("rb") as handle:
         posterior = pickle.load(handle)
     return PosteriorArtifact(
@@ -256,21 +277,18 @@ def decode_discrete_theta_samples(
         decoded = decoded.reshape(1, -1)
 
     dataset_meta = metadata.get("dataset", metadata)
-    theta_names = [str(name) for name in dataset_meta.get("theta_names", [])]
-    if not theta_names:
-        return decoded
+    theta_names = [str(name) for name in dataset_meta["theta_names"]]
 
-    for name in dataset_meta.get("discrete_theta_names", []):
+    for name in dataset_meta["discrete_theta_names"]:
         name = str(name)
         if name not in theta_names:
-            continue
+            raise ValueError(f"unknown discrete theta parameter {name!r}")
         index = theta_names.index(name)
         categories = discrete_category_values(metadata, name)
         rounded = np.rint(decoded[:, index]).astype(np.int64)
 
         if categories.size == 0:
-            decoded[:, index] = rounded.astype(np.float32)
-            continue
+            raise ValueError(f"discrete theta parameter {name!r} has no categories")
 
         unique_values = set(np.unique(rounded).tolist())
         category_set = set(categories.tolist())
@@ -299,16 +317,118 @@ def discrete_category_values(
 ) -> NDArray[np.int64]:
     dataset_meta = metadata.get("dataset", metadata)
     discrete_names = [
-        str(value) for value in dataset_meta.get("discrete_theta_names", [])
+        str(value) for value in dataset_meta["discrete_theta_names"]
     ]
     for discrete_name, values in zip(
         discrete_names,
-        dataset_meta.get("discrete_theta_values", []),
-        strict=False,
+        dataset_meta["discrete_theta_values"],
+        strict=True,
     ):
         if discrete_name == name:
             return np.asarray([int(value) for value in values], dtype=np.int64)
     return np.empty((0,), dtype=np.int64)
+
+
+def discrete_input_category_values(
+    metadata: dict[str, Any],
+    name: str,
+) -> NDArray[np.int64]:
+    dataset_meta = metadata.get("dataset", metadata)
+    discrete_names = [
+        str(value) for value in dataset_meta["discrete_input_parameters"]
+    ]
+    for discrete_name, values in zip(
+        discrete_names,
+        dataset_meta["discrete_input_values"],
+        strict=True,
+    ):
+        if discrete_name == name:
+            return np.asarray([int(value) for value in values], dtype=np.int64)
+    return np.empty((0,), dtype=np.int64)
+
+
+def decode_input_parameter_values(
+    x: Any,
+    metadata: dict[str, Any],
+) -> dict[str, NDArray[np.float32]]:
+    dataset_meta = metadata.get("dataset", metadata)
+    input_parameters = [str(value) for value in dataset_meta["input_parameters"]]
+    if not input_parameters:
+        return {}
+
+    encoded = _encoded_input_columns(x, dataset_meta)
+    discrete_names = [
+        str(value) for value in dataset_meta["discrete_input_parameters"]
+    ]
+    discrete_values_by_name = {
+        name: np.asarray([int(item) for item in values], dtype=np.float32)
+        for name, values in zip(
+            discrete_names,
+            dataset_meta["discrete_input_values"],
+            strict=True,
+        )
+    }
+
+    result: dict[str, NDArray[np.float32]] = {}
+    column = 0
+    for name in input_parameters:
+        if name in discrete_values_by_name:
+            categories = discrete_values_by_name[name]
+            width = int(categories.shape[0])
+            block = encoded[..., column : column + width]
+            result[name] = _decode_one_hot_input_block(
+                block,
+                categories=categories,
+                name=name,
+            )
+            column += width
+            continue
+
+        result[name] = np.asarray(encoded[..., column], dtype=np.float32)
+        column += 1
+    return result
+
+
+def _decode_one_hot_input_block(
+    block: NDArray[np.float32],
+    *,
+    categories: NDArray[np.float32],
+    name: str,
+) -> NDArray[np.float32]:
+    if categories.size == 0:
+        raise ValueError(f"discrete input parameter {name!r} has no categories")
+    if block.shape[-1] != categories.shape[0]:
+        raise ValueError(
+            f"encoded input block for {name!r} has width {block.shape[-1]}, "
+            f"expected {categories.shape[0]}"
+        )
+    if not np.isfinite(block).all():
+        raise ValueError(f"encoded input block for {name!r} contains non-finite values")
+
+    is_zero = np.isclose(block, 0.0, rtol=0.0, atol=1e-6)
+    is_one = np.isclose(block, 1.0, rtol=0.0, atol=1e-6)
+    if not np.all(is_zero | is_one):
+        raise ValueError(f"encoded input block for {name!r} is not one-hot")
+    if not np.all(is_one.sum(axis=-1) == 1):
+        raise ValueError(f"encoded input block for {name!r} is not one-hot")
+
+    return categories[np.argmax(is_one, axis=-1)].astype(np.float32)
+
+
+def _encoded_input_columns(
+    x: Any,
+    dataset_meta: dict[str, Any],
+) -> NDArray[np.float32]:
+    array = np.asarray(x, dtype=np.float32)
+    observer_count = len(dataset_meta["observer_names"])
+    x_event_shape = tuple(int(value) for value in dataset_meta["x_event_shape"])
+    if len(x_event_shape) == 1:
+        return array[..., observer_count:]
+    if len(x_event_shape) == 2:
+        if array.ndim < 2:
+            raise ValueError("timeseries x must include step and feature axes")
+        return array[..., 0, observer_count:]
+    raise ValueError(f"unsupported x_event_shape for input decoding: {x_event_shape}")
 
 
 def category_probabilities(values: Any, categories: Any) -> NDArray[np.float64]:
@@ -346,7 +466,7 @@ def _should_retry_with_batched_sampling(
     error: RuntimeError,
 ) -> bool:
     dataset_meta = metadata.get("dataset", metadata)
-    has_discrete_theta = bool(dataset_meta.get("discrete_theta_names", []))
+    has_discrete_theta = bool(dataset_meta["discrete_theta_names"])
     return (
         has_discrete_theta
         and len(x_event_shape) > 1

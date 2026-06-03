@@ -11,7 +11,8 @@
       "outside_optimism",
       "exploration"
     ],
-    "input_parameter_names": ["n_agents"],
+    "input_parameters": ["n_agents"],
+    "discrete_input_parameters": ["n_agents"],
     "drop_constant_theta": true,
     "x_representation": "timeseries",
     "normalize_time": true,

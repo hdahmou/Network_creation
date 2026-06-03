@@ -90,10 +90,11 @@ class TrainNPEConfig:
     embedding: EmbeddingConfig
     training: NPETrainingConfig
     diagnostics: DiagnosticsConfig
-    discrete_theta_parameters: tuple[str, ...] | None = None
+    discrete_theta_parameters: tuple[str, ...] = ()
+    input_parameters: tuple[str, ...] = ()
+    discrete_input_parameters: tuple[str, ...] = ()
     prior_sample_count: int = 4096
     normalize_time: bool = True
-    input_parameter_names: tuple[str, ...] = ()
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -127,21 +128,53 @@ def load_train_config(config_path: str | Path) -> TrainNPEConfig:
 
     observers = tuple(str(observer) for observer in dataset["observers"])
     theta_parameters = _optional_name_tuple(dataset.get("theta_parameters"))
-    input_parameter_names = tuple(
-        str(item) for item in dataset.get("input_parameter_names", ())
+    if "input_parameter_names" in dataset:
+        raise ValueError(
+            "dataset.input_parameter_names is no longer supported; "
+            "use dataset.input_parameters"
+        )
+    input_parameters = _name_tuple(dataset.get("input_parameters", ()))
+    discrete_input_parameters = _name_tuple(
+        dataset.get("discrete_input_parameters", ())
     )
-    discrete_theta_parameters = _optional_name_tuple(
-        dataset.get("discrete_theta_parameters")
+    discrete_theta_parameters = _name_tuple(
+        dataset.get("discrete_theta_parameters", ())
     )
     x_representation = dataset.get("x_representation", "final")
     normalize_time = bool(dataset.get("normalize_time", True))
     embedding_kind = embedding.get("kind", "identity")
+    density_config = DensityEstimatorConfig(
+        model=density.get("model", "nsf"),
+        flow_model=density.get("flow_model", "nsf"),
+        hidden_features=density.get("hidden_features", 50),
+        num_transforms=density.get("num_transforms", 5),
+        num_bins=density.get("num_bins", 10),
+        discrete_hidden_features=(
+            None
+            if density.get("discrete_hidden_features") is None
+            else int(density["discrete_hidden_features"])
+        ),
+        discrete_hidden_layers=density.get("discrete_hidden_layers", 2),
+        continuous_hidden_features=(
+            None
+            if density.get("continuous_hidden_features") is None
+            else int(density["continuous_hidden_features"])
+        ),
+        z_score_theta=density.get("z_score_theta", "independent"),
+        z_score_x=density.get("z_score_x", "independent"),
+        sbi_kwargs=dict(density.get("sbi_kwargs", {})),
+    )
+    if density_config.model == "mnpe" and not discrete_theta_parameters:
+        raise ValueError(
+            "density model 'mnpe' requires at least one discrete theta parameter"
+        )
 
     return TrainNPEConfig(
         zarr_path=_resolve_config_path(config_dir, dataset["zarr_path"]),
         observers=observers,
         theta_parameters=theta_parameters,
-        input_parameter_names=input_parameter_names,
+        input_parameters=input_parameters,
+        discrete_input_parameters=discrete_input_parameters,
         discrete_theta_parameters=discrete_theta_parameters,
         drop_constant_theta=dataset.get("drop_constant_theta", True),
         x_representation=x_representation,
@@ -155,27 +188,7 @@ def load_train_config(config_path: str | Path) -> TrainNPEConfig:
         ),
         save_training_data=artifact.get("save_training_data", False),
         prior_sample_count=int(artifact.get("prior_sample_count", 4096)),
-        density=DensityEstimatorConfig(
-            model=density.get("model", "nsf"),
-            flow_model=density.get("flow_model", "nsf"),
-            hidden_features=density.get("hidden_features", 50),
-            num_transforms=density.get("num_transforms", 5),
-            num_bins=density.get("num_bins", 10),
-            discrete_hidden_features=(
-                None
-                if density.get("discrete_hidden_features") is None
-                else int(density["discrete_hidden_features"])
-            ),
-            discrete_hidden_layers=density.get("discrete_hidden_layers", 2),
-            continuous_hidden_features=(
-                None
-                if density.get("continuous_hidden_features") is None
-                else int(density["continuous_hidden_features"])
-            ),
-            z_score_theta=density.get("z_score_theta", "independent"),
-            z_score_x=density.get("z_score_x", "independent"),
-            sbi_kwargs=dict(density.get("sbi_kwargs", {})),
-        ),
+        density=density_config,
         embedding=EmbeddingConfig(
             kind=embedding_kind,
             output_dim=embedding.get("output_dim", 32),
@@ -254,24 +267,23 @@ def _prepare_run(config: TrainNPEConfig) -> dict[str, Any]:
     LOGGER.info(
         "[data] Filtering inversion dataset: observers=%s "
         "x_representation=%s normalize_time=%s theta_parameters=%s "
-        "input_parameter_names=%s discrete_theta_parameters=%s drop_constant_theta=%s",
+        "input_parameters=%s discrete_input_parameters=%s "
+        "discrete_theta_parameters=%s drop_constant_theta=%s",
         list(config.observers),
         config.x_representation,
         config.normalize_time,
         None if config.theta_parameters is None else list(config.theta_parameters),
-        list(config.input_parameter_names),
-        (
-            "auto"
-            if config.discrete_theta_parameters is None
-            else list(config.discrete_theta_parameters)
-        ),
+        list(config.input_parameters),
+        list(config.discrete_input_parameters),
+        list(config.discrete_theta_parameters),
         config.drop_constant_theta,
     )
     dataset = filter_inversion_dataset(
         raw_results,
         observers=config.observers,
         theta_parameters=config.theta_parameters,
-        input_parameter_names=config.input_parameter_names,
+        input_parameters=config.input_parameters,
+        discrete_input_parameters=config.discrete_input_parameters,
         drop_constant_theta=config.drop_constant_theta,
         x_representation=config.x_representation,
     )
@@ -286,7 +298,7 @@ def _prepare_run(config: TrainNPEConfig) -> dict[str, Any]:
     dataset_metadata = inversion_dataset_metadata(dataset)
     category_counts = tuple(
         int(value)
-        for value in dataset_metadata.get("num_categories_per_discrete_theta", [])
+        for value in dataset_metadata["num_categories_per_discrete_theta"]
     )
     train_indices, diagnostic_indices = split_diagnostic_holdout(
         n_simulations=theta.shape[0],
@@ -315,7 +327,7 @@ def _prepare_run(config: TrainNPEConfig) -> dict[str, Any]:
         int(diagnostic_theta.shape[0]),
         tuple(dataset_metadata["x_event_shape"]),
         list(dataset_metadata["theta_names"]),
-        list(dataset_metadata.get("discrete_theta_names", [])),
+        list(dataset_metadata["discrete_theta_names"]),
         int(prior_samples.shape[0]),
     )
     run_name = config.run_name
@@ -420,10 +432,10 @@ def _write_run_artifacts(run: dict[str, Any]) -> None:
         theta_names=np.asarray(run["dataset_metadata"]["theta_names"]),
         x_names=np.asarray(run["dataset_metadata"]["x_names"]),
         continuous_theta_names=np.asarray(
-            run["dataset_metadata"].get("continuous_theta_names", [])
+            run["dataset_metadata"]["continuous_theta_names"]
         ),
         discrete_theta_names=np.asarray(
-            run["dataset_metadata"].get("discrete_theta_names", [])
+            run["dataset_metadata"]["discrete_theta_names"]
         ),
     )
     if config.save_training_data:
@@ -439,10 +451,10 @@ def _write_run_artifacts(run: dict[str, Any]) -> None:
             theta_names=np.asarray(run["dataset_metadata"]["theta_names"]),
             x_names=np.asarray(run["dataset_metadata"]["x_names"]),
             continuous_theta_names=np.asarray(
-                run["dataset_metadata"].get("continuous_theta_names", [])
+                run["dataset_metadata"]["continuous_theta_names"]
             ),
             discrete_theta_names=np.asarray(
-                run["dataset_metadata"].get("discrete_theta_names", [])
+                run["dataset_metadata"]["discrete_theta_names"]
             ),
         )
     else:
@@ -469,12 +481,18 @@ def _run_result(run: dict[str, Any]) -> dict[str, Any]:
         "diagnostic_data_file": DIAGNOSTIC_DATA_FILENAME,
         "prior_sample_count": int(run["prior_samples"].shape[0]),
         "theta_names": list(run["dataset_metadata"]["theta_names"]),
-        "input_parameter_names": list(config.input_parameter_names),
+        "input_parameters": list(config.input_parameters),
+        "continuous_input_parameters": list(
+            run["dataset_metadata"]["continuous_input_parameters"]
+        ),
+        "discrete_input_parameters": list(
+            run["dataset_metadata"]["discrete_input_parameters"]
+        ),
         "continuous_theta_names": list(
-            run["dataset_metadata"].get("continuous_theta_names", [])
+            run["dataset_metadata"]["continuous_theta_names"]
         ),
         "discrete_theta_names": list(
-            run["dataset_metadata"].get("discrete_theta_names", [])
+            run["dataset_metadata"]["discrete_theta_names"]
         ),
         "x_names": list(run["dataset_metadata"]["x_names"]),
         "x_representation": run["dataset_metadata"]["x_representation"],
@@ -521,9 +539,10 @@ def _build_metadata(run: dict[str, Any]) -> dict[str, Any]:
             "observation_order": list(dataset_metadata["x_names"]),
             "theta_order": list(dataset_metadata["theta_names"]),
             "continuous_theta_order": list(
-                dataset_metadata.get("continuous_theta_names", [])
+                dataset_metadata["continuous_theta_names"]
             ),
-            "discrete_theta_order": list(dataset_metadata.get("discrete_theta_names", [])),
+            "discrete_theta_order": list(dataset_metadata["discrete_theta_names"]),
+            "input_parameters": list(dataset_metadata["input_parameters"]),
         },
     }
 
@@ -569,6 +588,10 @@ def split_diagnostic_holdout(
 def _optional_name_tuple(value: Any) -> tuple[str, ...] | None:
     if value is None:
         return None
+    return _name_tuple(value)
+
+
+def _name_tuple(value: Any) -> tuple[str, ...]:
     if isinstance(value, str):
         return (value,)
     return tuple(str(item) for item in value)

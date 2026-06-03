@@ -76,7 +76,8 @@ class TrainNPEConfigTests(unittest.TestCase):
                     "zarr_path": "../artifacts/run.zarr",
                     "observers": ["density.mean", "distance.mean"],
                     "theta_parameters": ["n_agents", "exploration"],
-                    "input_parameter_names": [],
+                    "input_parameters": [],
+                    "discrete_input_parameters": [],
                     "drop_constant_theta": False,
                     "x_representation": "timeseries",
                 },
@@ -137,14 +138,15 @@ class TrainNPEConfigTests(unittest.TestCase):
         )
         self.assertEqual(config.observers, ("density.mean", "distance.mean"))
         self.assertEqual(config.theta_parameters, ("n_agents", "exploration"))
-        self.assertEqual(config.input_parameter_names, ())
+        self.assertEqual(config.input_parameters, ())
+        self.assertEqual(config.discrete_input_parameters, ())
         self.assertFalse(config.drop_constant_theta)
         self.assertEqual(config.x_representation, "timeseries")
         self.assertTrue(config.normalize_time)
         self.assertEqual(config.run_name, "manual-run")
         self.assertTrue(config.save_training_data)
         self.assertEqual(config.diagnostics.reserve_count, 7)
-        self.assertIsNone(config.discrete_theta_parameters)
+        self.assertEqual(config.discrete_theta_parameters, ())
         self.assertEqual(config.prior_sample_count, 4096)
         self.assertEqual(config.density.model, "maf")
         self.assertEqual(config.density.flow_model, "nsf")
@@ -186,7 +188,55 @@ class TrainNPEConfigTests(unittest.TestCase):
         config = self.script.load_train_config(config_path)
 
         self.assertFalse(config.normalize_time)
-        self.assertEqual(config.input_parameter_names, ())
+        self.assertEqual(config.input_parameters, ())
+        self.assertEqual(config.discrete_input_parameters, ())
+
+    def test_load_train_config_rejects_legacy_input_parameter_names(self) -> None:
+        config_path = self.write_config(
+            {
+                "dataset": {
+                    "zarr_path": "../artifacts/run.zarr",
+                    "observers": ["density.mean"],
+                    "input_parameter_names": ["n_agents"],
+                },
+                "artifact": {
+                    "output_root": "../artifacts/model_inversion",
+                },
+                "diagnostics": {
+                    "reserve_count": 1,
+                },
+                "density_estimator": {},
+                "embedding": {"kind": "identity"},
+                "training": {},
+            }
+        )
+
+        with self.assertRaisesRegex(ValueError, "input_parameter_names"):
+            self.script.load_train_config(config_path)
+
+    def test_load_train_config_rejects_mnpe_without_discrete_theta(self) -> None:
+        config_path = self.write_config(
+            {
+                "dataset": {
+                    "zarr_path": "../artifacts/run.zarr",
+                    "observers": ["density.mean"],
+                    "input_parameters": ["n_agents"],
+                    "discrete_input_parameters": ["n_agents"],
+                },
+                "artifact": {
+                    "output_root": "../artifacts/model_inversion",
+                },
+                "diagnostics": {
+                    "reserve_count": 1,
+                },
+                "density_estimator": {"model": "mnpe"},
+                "embedding": {"kind": "identity"},
+                "training": {},
+            }
+        )
+
+        with self.assertRaisesRegex(ValueError, "requires at least one discrete theta"):
+            self.script.load_train_config(config_path)
 
     def test_baseline_config_loads(self) -> None:
         baseline_path = (
@@ -225,7 +275,8 @@ class TrainNPEConfigTests(unittest.TestCase):
         )
         self.assertEqual(config.x_representation, "final")
         self.assertTrue(config.normalize_time)
-        self.assertEqual(config.input_parameter_names, ())
+        self.assertEqual(config.input_parameters, ())
+        self.assertEqual(config.discrete_input_parameters, ())
         self.assertEqual(payload["dataset"]["normalize_time"], True)
         self.assertEqual(
             config.discrete_theta_parameters,
@@ -258,7 +309,8 @@ class TrainNPEConfigTests(unittest.TestCase):
                         "outside_optimism",
                         "exploration",
                     ],
-                    "input_parameter_names": ["n_agents"],
+                    "input_parameters": ["n_agents"],
+                    "discrete_input_parameters": ["n_agents"],
                     "discrete_theta_parameters": ["visibility_distance"],
                     "x_representation": "timeseries",
                     "normalize_time": True,
@@ -293,7 +345,8 @@ class TrainNPEConfigTests(unittest.TestCase):
             config.discrete_theta_parameters,
             ("visibility_distance",),
         )
-        self.assertEqual(config.input_parameter_names, ("n_agents",))
+        self.assertEqual(config.input_parameters, ("n_agents",))
+        self.assertEqual(config.discrete_input_parameters, ("n_agents",))
         self.assertEqual(config.x_representation, "timeseries")
         self.assertTrue(config.normalize_time)
         self.assertEqual(config.embedding.kind, "rnn")
@@ -347,6 +400,16 @@ class TrainNPEConfigTests(unittest.TestCase):
                 "n_simulations": 3,
                 "theta_names": ["alpha"],
                 "x_names": ["density.mean"],
+                "observer_names": ["density.mean"],
+                "input_parameters": [],
+                "continuous_input_parameters": [],
+                "discrete_input_parameters": [],
+                "discrete_input_values": [],
+                "continuous_theta_names": ["alpha"],
+                "discrete_theta_names": [],
+                "theta_original_order": ["alpha"],
+                "discrete_theta_values": [],
+                "num_categories_per_discrete_theta": [],
                 "x_event_shape": [1],
                 "x_representation": "final",
             },
@@ -795,13 +858,14 @@ class TrainNPEConfigTests(unittest.TestCase):
             [2, 4],
         )
 
-    def test_train_from_config_appends_agent_count_input_parameter(self) -> None:
+    def test_train_from_config_one_hot_encodes_agent_count_input_parameter(self) -> None:
         output_root = Path(self.temp_dir.name) / "model_inversion_input"
         config = self.script.TrainNPEConfig(
             zarr_path=(self.config_dir / "../artifacts/run.zarr").resolve(),
             observers=("density.mean",),
             theta_parameters=("alpha", "visibility_distance"),
-            input_parameter_names=("n_agents",),
+            input_parameters=("n_agents",),
+            discrete_input_parameters=("n_agents",),
             drop_constant_theta=False,
             x_representation="timeseries",
             output_root=output_root,
@@ -903,11 +967,11 @@ class TrainNPEConfigTests(unittest.TestCase):
         )
         expected_x = np.asarray(
             [
-                [[1.0, 10.0], [2.0, 10.0]],
-                [[3.0, 20.0], [4.0, 20.0]],
-                [[5.0, 10.0], [6.0, 10.0]],
-                [[7.0, 20.0], [8.0, 20.0]],
-                [[9.0, 10.0], [10.0, 10.0]],
+                [[1.0, 1.0, 0.0], [2.0, 1.0, 0.0]],
+                [[3.0, 0.0, 1.0], [4.0, 0.0, 1.0]],
+                [[5.0, 1.0, 0.0], [6.0, 1.0, 0.0]],
+                [[7.0, 0.0, 1.0], [8.0, 0.0, 1.0]],
+                [[9.0, 1.0, 0.0], [10.0, 1.0, 0.0]],
             ],
             dtype=np.float32,
         )
@@ -921,7 +985,7 @@ class TrainNPEConfigTests(unittest.TestCase):
         )
         self.assertEqual(
             train_amortized_npe.call_args.kwargs["x_event_shape"],
-            (2, 2),
+            (2, 3),
         )
         self.assertEqual(
             train_amortized_npe.call_args.kwargs["num_categories_per_discrete_theta"],
@@ -930,7 +994,8 @@ class TrainNPEConfigTests(unittest.TestCase):
         self.assertEqual(result["sbi_method"], "MNPE")
         self.assertEqual(result["theta_names"], ["alpha", "visibility_distance"])
         self.assertEqual(result["discrete_theta_names"], ["visibility_distance"])
-        self.assertEqual(result["input_parameter_names"], ["n_agents"])
+        self.assertEqual(result["input_parameters"], ["n_agents"])
+        self.assertEqual(result["discrete_input_parameters"], ["n_agents"])
 
         metadata = json.loads(
             (output_root / "input-run" / "metadata.json").read_text(encoding="utf-8")
@@ -939,10 +1004,16 @@ class TrainNPEConfigTests(unittest.TestCase):
             metadata["dataset"]["theta_names"],
             ["alpha", "visibility_distance"],
         )
-        self.assertEqual(metadata["dataset"]["x_names"], ["density.mean", "n_agents"])
+        self.assertEqual(
+            metadata["dataset"]["x_names"],
+            ["density.mean", "n_agents=10", "n_agents=20"],
+        )
         self.assertEqual(metadata["dataset"]["observer_names"], ["density.mean"])
-        self.assertEqual(metadata["dataset"]["input_parameter_names"], ["n_agents"])
-        self.assertEqual(metadata["dataset"]["x_event_shape"], [2, 2])
+        self.assertEqual(metadata["dataset"]["input_parameters"], ["n_agents"])
+        self.assertEqual(metadata["dataset"]["continuous_input_parameters"], [])
+        self.assertEqual(metadata["dataset"]["discrete_input_parameters"], ["n_agents"])
+        self.assertEqual(metadata["dataset"]["discrete_input_values"], [[10, 20]])
+        self.assertEqual(metadata["dataset"]["x_event_shape"], [2, 3])
         self.assertEqual(
             metadata["dataset"]["discrete_theta_names"],
             ["visibility_distance"],
@@ -957,6 +1028,110 @@ class TrainNPEConfigTests(unittest.TestCase):
                 diagnostic_data["x"],
                 expected_x[diagnostic_indices],
             )
+
+    def test_train_from_config_categorical_inputs_do_not_trigger_mnpe(self) -> None:
+        output_root = Path(self.temp_dir.name) / "model_inversion_discrete_input_only"
+        config = self.script.TrainNPEConfig(
+            zarr_path=(self.config_dir / "../artifacts/run.zarr").resolve(),
+            observers=("density.mean",),
+            theta_parameters=("alpha",),
+            input_parameters=("n_agents",),
+            discrete_input_parameters=("n_agents",),
+            drop_constant_theta=False,
+            x_representation="final",
+            output_root=output_root,
+            run_name="discrete-input-only",
+            save_training_data=False,
+            density=self.script.DensityEstimatorConfig(model="nsf"),
+            embedding=self.script.EmbeddingConfig(kind="identity"),
+            training=self.script.NPETrainingConfig(
+                seed=1,
+                device="cpu",
+                training_batch_size=2,
+                max_num_epochs=3,
+            ),
+            diagnostics=self.script.DiagnosticsConfig(reserve_count=1),
+        )
+
+        raw_results = xr.Dataset(
+            data_vars={
+                "theta": (
+                    ("sample", "theta_parameter"),
+                    np.asarray(
+                        [
+                            [10.0, 0.1],
+                            [20.0, 0.2],
+                            [10.0, 0.3],
+                            [20.0, 0.4],
+                            [10.0, 0.5],
+                        ],
+                        dtype=np.float32,
+                    ),
+                ),
+                "prior_low": (
+                    "theta_parameter",
+                    np.asarray([10.0, 0.0], dtype=np.float32),
+                ),
+                "prior_high": (
+                    "theta_parameter",
+                    np.asarray([20.0, 1.0], dtype=np.float32),
+                ),
+                "x": (
+                    ("sample", "step", "observable"),
+                    np.asarray(
+                        [
+                            [[1.0], [2.0]],
+                            [[3.0], [4.0]],
+                            [[5.0], [6.0]],
+                            [[7.0], [8.0]],
+                            [[9.0], [10.0]],
+                        ],
+                        dtype=np.float32,
+                    ),
+                ),
+            },
+            coords={
+                "sample": np.asarray([0, 1, 2, 3, 4], dtype=np.int64),
+                "theta_parameter": ("theta_parameter", ["n_agents", "alpha"]),
+                "observable": ("observable", ["density.mean"]),
+                "step": np.asarray([0, 1], dtype=np.int64),
+            },
+            attrs={
+                "result_store_path": str(config.zarr_path),
+                "config_path": str(self.config_dir / "run_config.json"),
+                "has_failures": False,
+            },
+        )
+
+        with (
+            patch.object(self.script, "load_policy_results", return_value=raw_results),
+            patch.object(
+                self.script,
+                "train_amortized_npe",
+                return_value=self.fake_training_result(),
+            ) as train_amortized_npe,
+        ):
+            result = self.script.train_from_config(config)
+
+        self.assertEqual(result["sbi_method"], "NPE")
+        self.assertEqual(
+            train_amortized_npe.call_args.kwargs["num_categories_per_discrete_theta"],
+            (),
+        )
+        self.assertEqual(result["discrete_theta_names"], [])
+        self.assertEqual(result["discrete_input_parameters"], ["n_agents"])
+
+        metadata = json.loads(
+            (output_root / "discrete-input-only" / "metadata.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual(metadata["sbi"]["method"], "NPE")
+        self.assertEqual(metadata["dataset"]["discrete_input_values"], [[10, 20]])
+        self.assertEqual(
+            metadata["dataset"]["x_names"],
+            ["density.mean", "n_agents=10", "n_agents=20"],
+        )
 
 
 if __name__ == "__main__":

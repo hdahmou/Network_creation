@@ -17,11 +17,13 @@ import torch
 
 from network_creation.model_inversion.diagnostics import (
     DiagnosticData,
+    diagnostic_input_parameter_values,
     load_diagnostic_data,
     marginal_sbc_ranks,
     plot_expected_coverage,
     run_expected_coverage,
 )
+from network_creation.model_inversion.posterior import PosteriorArtifact
 from network_creation.model_inversion.recovery import (
     plot_parameter_marginals,
     plot_parameter_pairs,
@@ -122,6 +124,37 @@ class SbiDiagnosticTests(unittest.TestCase):
         self.assertIs(result["ranks"], ranks)
         self.assertIs(result["dap_samples"], dap_samples)
         self.assertEqual(result["n_diagnostic_simulations"], 2)
+
+    def test_diagnostic_input_parameter_values_decodes_one_hot_inputs(self) -> None:
+        artifact = PosteriorArtifact(
+            artifact_dir=Path("."),
+            posterior=object(),
+            metadata={
+                "dataset": {
+                    "x_event_shape": [3],
+                    "observer_names": ["density.mean"],
+                    "input_parameters": ["n_agents"],
+                    "continuous_input_parameters": [],
+                    "discrete_input_parameters": ["n_agents"],
+                    "discrete_input_values": [[10, 20]],
+                }
+            },
+        )
+        data = DiagnosticData(
+            theta=np.asarray([[0.1], [0.2]], dtype=np.float32),
+            x=np.asarray(
+                [
+                    [0.5, 1.0, 0.0],
+                    [0.7, 0.0, 1.0],
+                ],
+                dtype=np.float32,
+            ),
+            source_sample=np.asarray([0, 1], dtype=np.int64),
+        )
+
+        values = diagnostic_input_parameter_values(artifact, data)
+
+        np.testing.assert_allclose(values["n_agents"], [10.0, 20.0])
 
     def test_plot_expected_coverage_delegates_to_sbi_plot(self) -> None:
         artifact = FakeArtifact(theta_order=["alpha"], categories_by_name={})

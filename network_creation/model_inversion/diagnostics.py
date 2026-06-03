@@ -29,6 +29,13 @@ def load_diagnostic_data(artifact: PosteriorArtifact) -> DiagnosticData:
         )
 
 
+def diagnostic_input_parameter_values(
+    artifact: PosteriorArtifact,
+    diagnostic_data: DiagnosticData,
+) -> dict[str, NDArray[np.float32]]:
+    return artifact.input_parameter_values_from_x(diagnostic_data.x)
+
+
 def run_expected_coverage(
     artifact: PosteriorArtifact,
     diagnostic_data: DiagnosticData,

@@ -1,17 +1,14 @@
 {
   "dataset": {
-    "zarr_path": "../artifacts/simulation_runs/run-20260521T000104.zarr",
-    "observers": [
-      "centered_mean_welfare.mean",
-      "indegree.mean",
-      "central_point_of_dominance.mean"
-    ],
+    "zarr_path": "../artifacts/simulation_runs/run-20260521T234239.zarr",
+    "observers": ["centered_mean_welfare.mean"],
     "theta_parameters": [
       "visibility_distance",
       "outside_optimism",
       "exploration"
     ],
-    "input_parameter_names": ["n_agents"],
+    "input_parameters": ["n_agents"],
+    "discrete_input_parameters": ["n_agents"],
     "drop_constant_theta": true,
     "x_representation": "timeseries",
     "normalize_time": true,
@@ -39,7 +36,7 @@
     "kind": "rnn",
     "output_dim": 64,
     "rnn_hidden_size": 96,
-    "rnn_num_layers": 2,
+    "rnn_num_layers": 1,
     "rnn_type": "gru",
     "rnn_bidirectional": true
   },

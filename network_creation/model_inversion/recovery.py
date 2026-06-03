@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 import numpy as np
@@ -20,12 +20,16 @@ def observation_from_policy_outputs(
     *,
     n_agents: int,
     n_actors: int,
+    input_parameter_values: Mapping[str, Any] | None = None,
 ) -> NDArray[np.float32]:
     """Return one recovery observation in the artifact's trained input format."""
 
     dataset = artifact.metadata["dataset"]
     representation = str(dataset.get("x_representation", "final"))
     normalize_time = bool(dataset.get("normalize_time", False))
+    recovery_input_values = {"n_agents": n_agents}
+    if input_parameter_values is not None:
+        recovery_input_values.update(input_parameter_values)
 
     if representation == "final":
         if normalize_time:
@@ -38,7 +42,11 @@ def observation_from_policy_outputs(
                 n_actors=n_actors,
                 target_times=target_times,
             )[0]
-            return _append_input_parameter_values(values, dataset, n_agents=n_agents)
+            return _append_input_parameter_values(
+                values,
+                dataset,
+                input_parameter_values=recovery_input_values,
+            )
         values = np.asarray(
             [
                 float(np.asarray(outputs[name], dtype=np.float32).reshape(-1)[-1])
@@ -46,7 +54,11 @@ def observation_from_policy_outputs(
             ],
             dtype=np.float32,
         )
-        return _append_input_parameter_values(values, dataset, n_agents=n_agents)
+        return _append_input_parameter_values(
+            values,
+            dataset,
+            input_parameter_values=recovery_input_values,
+        )
 
     if representation == "timeseries":
         if normalize_time:
@@ -59,10 +71,18 @@ def observation_from_policy_outputs(
                 n_actors=n_actors,
                 target_times=target_times,
             )
-            return _append_input_parameter_values(values, dataset, n_agents=n_agents)
+            return _append_input_parameter_values(
+                values,
+                dataset,
+                input_parameter_values=recovery_input_values,
+            )
         else:
             values = _stack_observer_outputs(outputs, _observer_order(artifact))
-            return _append_input_parameter_values(values, dataset, n_agents=n_agents)
+            return _append_input_parameter_values(
+                values,
+                dataset,
+                input_parameter_values=recovery_input_values,
+            )
 
     raise ValueError(f"unsupported x representation: {representation}")
 
@@ -98,19 +118,20 @@ def _append_input_parameter_values(
     values: NDArray[np.float32],
     dataset: dict[str, Any],
     *,
-    n_agents: int,
+    input_parameter_values: Mapping[str, Any],
 ) -> NDArray[np.float32]:
-    input_parameter_names = [
-        str(name) for name in dataset["input_parameter_names"]
-    ]
-    if not input_parameter_names:
+    input_parameters = [str(name) for name in dataset["input_parameters"]]
+    if not input_parameters:
         return np.asarray(values, dtype=np.float32)
 
-    input_values = [
-        _recovery_input_parameter_value(name, n_agents=n_agents)
-        for name in input_parameter_names
-    ]
-    input_array = np.asarray(input_values, dtype=np.float32)
+    input_array = _encode_recovery_input_values(
+        input_parameters,
+        discrete_input_parameters=[
+            str(name) for name in dataset["discrete_input_parameters"]
+        ],
+        discrete_input_values=dataset["discrete_input_values"],
+        input_parameter_values=input_parameter_values,
+    )
     values = np.asarray(values, dtype=np.float32)
     if values.ndim == 1:
         return np.concatenate((values, input_array), axis=0).astype(np.float32)
@@ -120,10 +141,54 @@ def _append_input_parameter_values(
     raise ValueError("recovery observation values must be one- or two-dimensional")
 
 
-def _recovery_input_parameter_value(name: str, *, n_agents: int) -> float:
-    if name == "n_agents":
-        return float(n_agents)
-    raise ValueError(f"unsupported recovery input parameter: {name}")
+def _encode_recovery_input_values(
+    input_parameters: Sequence[str],
+    *,
+    discrete_input_parameters: Sequence[str],
+    discrete_input_values: Sequence[Sequence[int]],
+    input_parameter_values: Mapping[str, Any],
+) -> NDArray[np.float32]:
+    categories_by_name = {
+        str(name): [int(item) for item in values]
+        for name, values in zip(
+            discrete_input_parameters,
+            discrete_input_values,
+            strict=True,
+        )
+    }
+    encoded: list[float] = []
+    for name in input_parameters:
+        if name not in input_parameter_values:
+            raise ValueError(f"missing recovery input parameter: {name}")
+        raw_value = input_parameter_values[name]
+        if name not in categories_by_name:
+            encoded.append(float(raw_value))
+            continue
+
+        value = _validated_integer_input_value(raw_value, name=name)
+        categories = categories_by_name[name]
+        if value not in categories:
+            raise ValueError(
+                f"unknown categorical input value {value!r} for {name!r}; "
+                f"known values are {categories}"
+            )
+        encoded.extend(1.0 if value == category else 0.0 for category in categories)
+    return np.asarray(encoded, dtype=np.float32)
+
+
+def _validated_integer_input_value(value: Any, *, name: str) -> int:
+    array = np.asarray(value, dtype=np.float64)
+    if array.ndim != 0:
+        raise ValueError(f"categorical input parameter {name!r} must be scalar")
+    scalar = float(array.item())
+    if not np.isfinite(scalar):
+        raise ValueError(f"categorical input parameter {name!r} must be finite")
+    rounded = round(scalar)
+    if not np.isclose(scalar, rounded, rtol=0.0, atol=1e-6):
+        raise ValueError(
+            f"categorical input parameter {name!r} must be integer-valued"
+        )
+    return int(rounded)
 
 
 def _stack_observer_outputs(

@@ -1,530 +1,275 @@
-"""SBI NPE/MNPE training orchestration."""
+"""SBI NPE/MNPE training with zarr-backed lazy datasets."""
 
 from __future__ import annotations
 
 import logging
-from collections.abc import Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import torch
 
-from .networks import (
-    DensityEstimatorConfig,
-    EmbeddingConfig,
-    build_density_estimator as make_density_estimator_builder,
-)
+from .config import InversionConfig
+from .dataset import ZarrInversionDataset
+from .networks import build_density_estimator as make_density_estimator_builder
+from .schema import InversionSchema
+from .splits import InversionSplit
 
 
 LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
-class NPETrainingConfig:
-    seed: int = 0
-    device: str = "cpu"
-    data_device: str = "cpu"
-    training_batch_size: int = 200
-    learning_rate: float = 5e-4
-    validation_fraction: float = 0.1
-    stop_after_epochs: int = 20
-    max_num_epochs: int = 500
-    clip_max_norm: float | None = 5.0
-    show_progress_bars: bool = True
-    num_workers: int = 0
-    pin_memory: bool | None = None
-    persistent_workers: bool = False
-
-    def to_metadata(self) -> dict[str, object]:
-        return asdict(self)
+class TrainingLoaders:
+    train: Any
+    validation: Any
 
 
 @dataclass(frozen=True)
-class NPETrainingResult:
-    posterior: Any
-    training_summary: dict[str, Any]
+class EstimatorTrainingResult:
+    estimator: Any
+    epochs_trained: int
+    train_loss: list[float]
+    validation_loss: list[float]
+    best_validation_loss: float
+    final_train_loss: float | None
+    final_validation_loss: float | None
+    best_validation_log_prob: float
+    final_validation_log_prob: float | None
+
+    def to_metrics(self) -> dict[str, Any]:
+        return {
+            "epochs_trained": int(self.epochs_trained),
+            "train_loss": [float(value) for value in self.train_loss],
+            "validation_loss": [float(value) for value in self.validation_loss],
+            "best_validation_loss": float(self.best_validation_loss),
+            "final_train_loss": (
+                None if self.final_train_loss is None else float(self.final_train_loss)
+            ),
+            "final_validation_loss": (
+                None
+                if self.final_validation_loss is None
+                else float(self.final_validation_loss)
+            ),
+            "best_validation_log_prob": float(self.best_validation_log_prob),
+            "final_validation_log_prob": (
+                None
+                if self.final_validation_log_prob is None
+                else float(self.final_validation_log_prob)
+            ),
+        }
 
 
-@dataclass(frozen=True)
-class _TrainingTensors:
-    theta: torch.Tensor
-    x: torch.Tensor
-    prior: Any
-    category_counts: tuple[int, ...]
-    train_count: int
-    validation_count: int
-    method_name: str
-
-
-@dataclass(frozen=True)
-class _TrainValidationSplit:
-    train_indices: torch.Tensor
-    validation_indices: torch.Tensor
-
-
-def train_amortized_npe(
-    *,
-    theta: Any,
-    x: Any,
-    prior_low: Any,
-    prior_high: Any,
-    x_event_shape: tuple[int, ...],
-    tensorboard_log_dir: Path,
-    training: NPETrainingConfig,
-    density: DensityEstimatorConfig,
-    embedding: EmbeddingConfig,
-    num_categories_per_discrete_theta: Sequence[int] | None = None,
-) -> NPETrainingResult:
-    """Train a single-round amortized NPE/MNPE posterior from precomputed tensors.
-
-    Passing ``num_categories_per_discrete_theta`` selects MNPE. The corresponding
-    discrete theta columns must be the last columns in ``theta``.
-    """
-
-    from sbi.inference.posteriors import DirectPosterior
-    from torch.utils.tensorboard.writer import SummaryWriter
-
-    device = torch.device(training.device)
-    data_device = torch.device(training.data_device)
-    tensorboard_log_dir.mkdir(parents=True, exist_ok=True)
-
-    tensors = _prepare_training_tensors(
-        theta=theta,
-        x=x,
-        prior_low=prior_low,
-        prior_high=prior_high,
-        x_event_shape=x_event_shape,
-        training=training,
-        device=device,
-        data_device=data_device,
-        num_categories_per_discrete_theta=num_categories_per_discrete_theta,
-    )
-    LOGGER.info(
-        "Prepared tensors for amortized %s: theta_shape=%s x_shape=%s "
-        "x_event_shape=%s training_device=%s data_device=%s seed=%s",
-        tensors.method_name,
-        tuple(tensors.theta.shape),
-        tuple(tensors.x.shape),
-        x_event_shape,
-        device,
-        data_device,
-        training.seed,
-    )
-
-    density_estimator_builder = make_density_estimator_builder(
-        density,
-        embedding,
-        x_event_shape=x_event_shape,
-        num_categories_per_discrete_theta=tensors.category_counts,
-    )
-    summary_writer = SummaryWriter(str(tensorboard_log_dir))
-    try:
-        density_estimator, summary = _train_density_estimator(
-            density_estimator_builder=density_estimator_builder,
-            tensors=tensors,
-            training=training,
-            summary_writer=summary_writer,
-        )
-        posterior = DirectPosterior(
-            density_estimator,
-            prior=tensors.prior,
-            device=str(device),
-        )
-        return NPETrainingResult(
-            posterior=posterior,
-            training_summary=summary,
-        )
-    finally:
-        summary_writer.close()
-
-
-def _prepare_training_tensors(
-    *,
-    theta: Any,
-    x: Any,
-    prior_low: Any,
-    prior_high: Any,
-    x_event_shape: tuple[int, ...],
-    training: NPETrainingConfig,
-    device: torch.device,
-    data_device: torch.device,
-    num_categories_per_discrete_theta: Sequence[int] | None,
-) -> _TrainingTensors:
-    from sbi.utils import BoxUniform
-
-    _validate_training_settings(training, data_device=data_device)
-
-    theta_tensor = torch.as_tensor(theta, dtype=torch.float32, device=data_device)
-    x_tensor = torch.as_tensor(x, dtype=torch.float32, device=data_device)
-    category_counts = tuple(
-        int(value) for value in (num_categories_per_discrete_theta or ())
-    )
-
-    if theta_tensor.ndim != 2:
-        raise ValueError("theta must have shape (simulation, parameter)")
-    if x_tensor.ndim < 2:
-        raise ValueError("x must have shape (simulation, ...)")
-    if int(theta_tensor.shape[0]) != int(x_tensor.shape[0]):
-        raise ValueError("theta and x must have the same number of simulations")
-    if tuple(int(value) for value in x_tensor.shape[1:]) != tuple(x_event_shape):
-        raise ValueError("x_event_shape must match x.shape[1:]")
-    if int(theta_tensor.shape[0]) <= 0:
-        raise ValueError("cannot train on an empty dataset")
-
-    prior_low_tensor = torch.as_tensor(prior_low, dtype=torch.float32, device=device)
-    prior_high_tensor = torch.as_tensor(prior_high, dtype=torch.float32, device=device)
-    expected_prior_shape = (int(theta_tensor.shape[1]),)
-    if tuple(prior_low_tensor.shape) != expected_prior_shape:
-        raise ValueError("prior_low must have one value per theta column")
-    if tuple(prior_high_tensor.shape) != expected_prior_shape:
-        raise ValueError("prior_high must have one value per theta column")
-    if not bool(torch.all(prior_low_tensor < prior_high_tensor).item()):
-        raise ValueError("prior_low must be strictly less than prior_high")
-
-    train_count = int((1.0 - training.validation_fraction) * int(theta_tensor.shape[0]))
-    validation_count = int(theta_tensor.shape[0]) - train_count
-    if train_count <= 0 or validation_count <= 0:
-        raise ValueError(
-            "validation_fraction must leave at least one training and validation sample"
-        )
-
-    theta_dim = int(theta_tensor.shape[1])
-    if len(category_counts) > theta_dim:
-        raise ValueError("too many discrete theta category counts")
-    if any(count <= 0 for count in category_counts):
-        raise ValueError("discrete theta category counts must be positive")
-
-    if category_counts:
-        theta_cpu = theta_tensor.detach().to("cpu")
-        discrete_start = theta_dim - len(category_counts)
-        for offset, category_count in enumerate(category_counts):
-            column = theta_cpu[:, discrete_start + offset]
-            if not bool(torch.isfinite(column).all().item()):
-                raise ValueError("discrete theta columns must contain only finite values")
-            rounded_column = torch.round(column)
-            if not bool(torch.equal(column, rounded_column)):
-                raise ValueError("discrete theta columns must contain integer-coded values")
-            observed_count = int(torch.unique(rounded_column.to(torch.long)).numel())
-            if observed_count != category_count:
-                raise ValueError(
-                    "configured category count must match observed discrete theta values"
-                )
-
-    return _TrainingTensors(
-        theta=theta_tensor,
-        x=x_tensor,
-        prior=BoxUniform(low=prior_low_tensor, high=prior_high_tensor),
-        category_counts=category_counts,
-        train_count=train_count,
-        validation_count=validation_count,
-        method_name="MNPE" if category_counts else "NPE",
-    )
-
-
-def _validate_training_settings(
-    training: NPETrainingConfig,
-    *,
-    data_device: torch.device,
-) -> None:
-    if training.training_batch_size <= 0:
-        raise ValueError("training_batch_size must be positive")
-    if training.max_num_epochs <= 0:
-        raise ValueError("max_num_epochs must be positive")
-    if training.stop_after_epochs <= 0:
-        raise ValueError("stop_after_epochs must be positive")
-    if not 0.0 < training.validation_fraction < 1.0:
-        raise ValueError("validation_fraction must be between 0 and 1")
-    if training.num_workers < 0:
-        raise ValueError("num_workers must be non-negative")
-    if training.persistent_workers and training.num_workers <= 0:
-        raise ValueError("persistent_workers requires num_workers > 0")
-    if training.num_workers > 0 and data_device.type != "cpu":
-        raise ValueError("num_workers > 0 requires CPU-resident training tensors")
-    if training.pin_memory is True and data_device.type != "cpu":
-        raise ValueError("pin_memory=True requires CPU-resident training tensors")
-
-
-def _train_density_estimator(
-    *,
-    density_estimator_builder: Any,
-    tensors: _TrainingTensors,
-    training: NPETrainingConfig,
-    summary_writer: Any,
-) -> tuple[Any, dict[str, Any]]:
-    from torch.optim import Adam
-
-    device = torch.device(training.device)
-    generator = torch.Generator(device="cpu")
-    generator.manual_seed(int(training.seed))
-    non_blocking = (
-        _resolve_pin_memory(
-            training,
-            data_device=tensors.theta.device,
-            training_device=device,
-        )
-        and tensors.theta.device.type == "cpu"
-        and device.type == "cuda"
-    )
-    split = _make_train_validation_split(
-        tensors=tensors,
-        generator=generator,
-    )
-
-    with torch.random.fork_rng(devices=_rng_fork_devices(device)):
-        torch.manual_seed(int(training.seed))
-        density_estimator = _build_density_estimator(
-            density_estimator_builder=density_estimator_builder,
-            tensors=tensors,
-            split=split,
-            training=training,
-            generator=generator,
-        )
-        loaders = _make_train_validation_loaders(
-            tensors=tensors,
-            split=split,
-            training=training,
-            generator=generator,
-        )
-        optimizer = Adam(
-            list(density_estimator.parameters()),
-            lr=training.learning_rate,
-        )
-        return _fit_density_estimator(
-            density_estimator=density_estimator,
-            loaders=loaders,
-            optimizer=optimizer,
-            device=device,
-            non_blocking=non_blocking,
-            training=training,
-            method_name=tensors.method_name,
-            summary_writer=summary_writer,
-        )
-
-
-def _build_density_estimator(
-    *,
-    density_estimator_builder: Any,
-    tensors: _TrainingTensors,
-    split: _TrainValidationSplit,
-    training: NPETrainingConfig,
-    generator: torch.Generator,
+def build_posterior_estimator(
+    dataset: ZarrInversionDataset,
+    split: InversionSplit,
+    schema: InversionSchema,
+    config: InversionConfig,
 ) -> Any:
-    device = torch.device(training.device)
-    train_theta = _index_rows(tensors.theta, split.train_indices)
-    train_x = _index_rows(tensors.x, split.train_indices)
-    required_indices = _indices_covering_discrete_values(
-        train_theta,
-        num_discrete_columns=len(tensors.category_counts),
-    )
-    init_count = min(
-        max(int(training.training_batch_size), int(required_indices.numel())),
-        int(train_theta.shape[0]),
-    )
-    init_indices = _initialization_indices(
-        size=int(train_theta.shape[0]),
-        count=init_count,
-        required_indices=required_indices,
-        generator=generator,
-        target_device=train_theta.device,
-    )
-
+    theta, x = _materialize_rows(dataset, split.calibration_indices)
+    _validate_training_boundary(theta, x, schema)
+    device = torch.device(config.training.device)
     LOGGER.info(
-        "Building %s density estimator with init_count=%s n_simulations=%s "
-        "batch_size=%s discrete_categories=%s",
-        tensors.method_name,
-        init_count,
-        int(train_theta.shape[0]),
-        training.training_batch_size,
-        tensors.category_counts,
+        "Building %s estimator with calibration_shape theta=%s x=%s device=%s",
+        schema.sbi_method,
+        tuple(theta.shape),
+        tuple(x.shape),
+        device,
     )
-    with torch.no_grad():
-        density_estimator = density_estimator_builder(
-            train_theta[init_indices].to("cpu"),
-            train_x[init_indices].to("cpu"),
+    with torch.random.fork_rng(devices=_rng_fork_devices(device)):
+        torch.manual_seed(int(config.training.seed))
+        density_estimator_builder = make_density_estimator_builder(
+            config.model.density_estimator,
+            config.model.embedding,
+            x_event_shape=schema.x_event_shape,
+            num_categories_per_discrete_theta=schema.category_counts,
         )
-    return density_estimator.to(device)
+        with torch.no_grad():
+            estimator = density_estimator_builder(theta.to("cpu"), x.to("cpu"))
+    return estimator.to(device)
 
 
-def _make_train_validation_split(
-    *,
-    tensors: _TrainingTensors,
-    generator: torch.Generator,
-) -> _TrainValidationSplit:
-    sample_count = int(tensors.theta.shape[0])
-    permutation = torch.randperm(
-        sample_count,
-        generator=generator,
-        device=torch.device("cpu"),
-    )
-    validation_indices = torch.sort(permutation[:tensors.validation_count]).values
-    train_indices = torch.sort(permutation[tensors.validation_count:]).values
-    split = _TrainValidationSplit(
-        train_indices=train_indices,
-        validation_indices=validation_indices,
-    )
-    _validate_split_discrete_category_coverage(
-        tensors=tensors,
-        indices=split.train_indices,
-        split_name="training split",
-    )
-    _validate_split_discrete_category_coverage(
-        tensors=tensors,
-        indices=split.validation_indices,
-        split_name="validation split",
-    )
-    return split
-
-
-def _make_train_validation_loaders(
-    *,
-    tensors: _TrainingTensors,
-    split: _TrainValidationSplit,
-    training: NPETrainingConfig,
-    generator: torch.Generator,
-) -> tuple[Any, Any]:
+def make_training_loaders(
+    dataset: ZarrInversionDataset,
+    split: InversionSplit,
+    config: InversionConfig,
+) -> TrainingLoaders:
     from torch.utils import data
 
-    dataset = data.TensorDataset(tensors.theta, tensors.x)
-    train_dataset = data.Subset(dataset, split.train_indices.tolist())
-    validation_dataset = data.Subset(dataset, split.validation_indices.tolist())
+    generator = torch.Generator(device="cpu")
+    generator.manual_seed(int(config.training.seed))
+    training = config.training
     loader_kwargs: dict[str, Any] = {
         "num_workers": int(training.num_workers),
-        "pin_memory": _resolve_pin_memory(
-            training,
-            data_device=tensors.theta.device,
-            training_device=torch.device(training.device),
-        ),
+        "pin_memory": _resolve_pin_memory(config),
     }
     if training.num_workers > 0:
         loader_kwargs["persistent_workers"] = bool(training.persistent_workers)
-
-    return (
-        data.DataLoader(
-            train_dataset,
-            batch_size=min(
-                training.training_batch_size,
-                int(split.train_indices.numel()),
-            ),
+    train_subset = data.Subset(dataset, split.train_indices.tolist())
+    validation_subset = data.Subset(dataset, split.validation_indices.tolist())
+    return TrainingLoaders(
+        train=data.DataLoader(
+            train_subset,
+            batch_size=min(int(training.batch_size), len(train_subset)),
             shuffle=True,
             generator=generator,
             **loader_kwargs,
         ),
-        data.DataLoader(
-            validation_dataset,
-            batch_size=min(
-                training.training_batch_size,
-                int(split.validation_indices.numel()),
-            ),
+        validation=data.DataLoader(
+            validation_subset,
+            batch_size=min(int(training.batch_size), len(validation_subset)),
             shuffle=False,
             **loader_kwargs,
         ),
     )
 
 
-def _fit_density_estimator(
+def fit_posterior_estimator(
+    estimator: Any,
+    loaders: TrainingLoaders,
+    config: InversionConfig,
     *,
-    density_estimator: Any,
-    loaders: tuple[Any, Any],
-    optimizer: Any,
-    device: torch.device,
-    non_blocking: bool,
-    training: NPETrainingConfig,
-    method_name: str,
-    summary_writer: Any,
-) -> tuple[Any, dict[str, Any]]:
-    train_loader, validation_loader = loaders
-    training_loss_values: list[float] = []
+    tensorboard_dir: Path | None = None,
+) -> EstimatorTrainingResult:
+    from torch.optim import Adam
+    from torch.utils.tensorboard.writer import SummaryWriter
+
+    training = config.training
+    device = torch.device(training.device)
+    optimizer = Adam(list(estimator.parameters()), lr=float(training.learning_rate))
+    non_blocking = _resolve_pin_memory(config) and device.type == "cuda"
+    train_loss_values: list[float] = []
     validation_loss_values: list[float] = []
     best_validation_loss = float("inf")
-    best_state_dict = _cpu_state_dict(density_estimator)
+    best_state_dict = _cpu_state_dict(estimator)
     epochs_since_improvement = 0
     epochs_trained = 0
-    progress_bar = _epoch_progress_bar(
-        training=training,
-        method_name=method_name,
-    )
+    progress_bar = _epoch_progress_bar(config=config)
+    summary_writer = None
+    if tensorboard_dir is not None:
+        tensorboard_dir.mkdir(parents=True, exist_ok=True)
+        summary_writer = SummaryWriter(str(tensorboard_dir))
 
     try:
-        for epoch in progress_bar:
-            density_estimator.train()
-            training_loss = _run_epoch(
-                density_estimator=density_estimator,
-                loader=train_loader,
-                device=device,
-                optimizer=optimizer,
-                clip_max_norm=training.clip_max_norm,
-                loader_name="training",
-                non_blocking=non_blocking,
-            )
+        with torch.random.fork_rng(devices=_rng_fork_devices(device)):
+            torch.manual_seed(int(training.seed))
+            for epoch in progress_bar:
+                estimator.train()
+                train_loss = _run_epoch(
+                    density_estimator=estimator,
+                    loader=loaders.train,
+                    device=device,
+                    optimizer=optimizer,
+                    clip_max_norm=training.clip_max_norm,
+                    loader_name="training",
+                    non_blocking=non_blocking,
+                )
+                estimator.eval()
+                validation_loss = _run_epoch(
+                    density_estimator=estimator,
+                    loader=loaders.validation,
+                    device=device,
+                    optimizer=None,
+                    clip_max_norm=None,
+                    loader_name="validation",
+                    non_blocking=non_blocking,
+                )
+                epochs_trained = int(epoch) + 1
+                train_loss_values.append(float(train_loss))
+                validation_loss_values.append(float(validation_loss))
+                if summary_writer is not None:
+                    summary_writer.add_scalar("train_loss", train_loss, epoch)
+                    summary_writer.add_scalar("validation_loss", validation_loss, epoch)
 
-            density_estimator.eval()
-            validation_loss = _run_epoch(
-                density_estimator=density_estimator,
-                loader=validation_loader,
-                device=device,
-                optimizer=None,
-                clip_max_norm=None,
-                loader_name="validation",
-                non_blocking=non_blocking,
-            )
-
-            epochs_trained = epoch + 1
-            training_loss_values.append(float(training_loss))
-            validation_loss_values.append(float(validation_loss))
-            summary_writer.add_scalar("training_loss", training_loss, epoch)
-            summary_writer.add_scalar("validation_loss", validation_loss, epoch)
-
-            if validation_loss < best_validation_loss:
-                best_validation_loss = float(validation_loss)
-                best_state_dict = _cpu_state_dict(density_estimator)
-                epochs_since_improvement = 0
-            else:
-                epochs_since_improvement += 1
-
-            _update_progress_bar(
-                progress_bar,
-                training_loss=training_loss,
-                validation_loss=validation_loss,
-                best_validation_loss=best_validation_loss,
-            )
-            if epochs_since_improvement >= training.stop_after_epochs:
-                break
+                if validation_loss < best_validation_loss:
+                    best_validation_loss = float(validation_loss)
+                    best_state_dict = _cpu_state_dict(estimator)
+                    epochs_since_improvement = 0
+                else:
+                    epochs_since_improvement += 1
+                _update_progress_bar(
+                    progress_bar,
+                    train_loss=train_loss,
+                    validation_loss=validation_loss,
+                    best_validation_loss=best_validation_loss,
+                )
+                if epochs_since_improvement >= int(training.stop_after_epochs):
+                    break
     finally:
         close = getattr(progress_bar, "close", None)
         if close is not None:
             close()
+        if summary_writer is not None:
+            summary_writer.close()
 
-    density_estimator.load_state_dict(best_state_dict)
-    density_estimator.zero_grad(set_to_none=True)
-    summary_writer.add_scalar(
-        "best_validation_loss",
-        best_validation_loss,
-        epochs_trained,
-    )
-    LOGGER.info(
-        "Finished %s manual SBI training after %s epochs: best_validation_loss=%s",
-        method_name,
-        epochs_trained,
-        best_validation_loss,
-    )
-    final_training_loss = training_loss_values[-1] if training_loss_values else None
-    final_validation_loss = (
-        validation_loss_values[-1] if validation_loss_values else None
-    )
-    summary: dict[str, Any] = {
-        "epochs_trained": int(epochs_trained),
-        "training_loss": training_loss_values,
-        "validation_loss": validation_loss_values,
-        "best_validation_loss": float(best_validation_loss),
-        "final_training_loss": final_training_loss,
-        "final_validation_loss": final_validation_loss,
-        "best_validation_log_prob": -float(best_validation_loss),
-        "final_validation_log_prob": (
-            -final_validation_loss if final_validation_loss is not None else None
+    estimator.load_state_dict(best_state_dict)
+    estimator.zero_grad(set_to_none=True)
+    final_train_loss = train_loss_values[-1] if train_loss_values else None
+    final_validation_loss = validation_loss_values[-1] if validation_loss_values else None
+    return EstimatorTrainingResult(
+        estimator=estimator,
+        epochs_trained=epochs_trained,
+        train_loss=train_loss_values,
+        validation_loss=validation_loss_values,
+        best_validation_loss=float(best_validation_loss),
+        final_train_loss=final_train_loss,
+        final_validation_loss=final_validation_loss,
+        best_validation_log_prob=-float(best_validation_loss),
+        final_validation_log_prob=(
+            None if final_validation_loss is None else -float(final_validation_loss)
         ),
-    }
-    return density_estimator, summary
+    )
+
+
+def build_direct_posterior(
+    training: EstimatorTrainingResult,
+    schema: InversionSchema,
+    config: InversionConfig,
+) -> Any:
+    from sbi.inference.posteriors import DirectPosterior  # type: ignore[import-untyped]
+    from sbi.utils import BoxUniform  # type: ignore[import-untyped]
+
+    device = torch.device(config.training.device)
+    prior_low = torch.as_tensor(schema.prior_low, dtype=torch.float32, device=device)
+    prior_high = torch.as_tensor(schema.prior_high, dtype=torch.float32, device=device)
+    prior = BoxUniform(low=prior_low, high=prior_high)
+    return DirectPosterior(training.estimator, prior=prior, device=str(device))
+
+
+def _materialize_rows(
+    dataset: ZarrInversionDataset,
+    indices: Any,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    theta_rows: list[torch.Tensor] = []
+    x_rows: list[torch.Tensor] = []
+    for index in indices:
+        theta, x = dataset[int(index)]
+        theta_rows.append(theta)
+        x_rows.append(x)
+    if not theta_rows:
+        raise ValueError("cannot materialize an empty row set")
+    return torch.stack(theta_rows, dim=0), torch.stack(x_rows, dim=0)
+
+
+def _validate_training_boundary(
+    theta: torch.Tensor,
+    x: torch.Tensor,
+    schema: InversionSchema,
+) -> None:
+    if theta.ndim != 2:
+        raise ValueError("theta must have shape (batch, parameter)")
+    if x.ndim < 2:
+        raise ValueError("x must have shape (batch, ...)")
+    if int(theta.shape[0]) != int(x.shape[0]):
+        raise ValueError("theta and x must have the same batch size")
+    if int(theta.shape[1]) != len(schema.theta_order):
+        raise ValueError("theta dimension must match theta_order")
+    if tuple(int(value) for value in x.shape[1:]) != schema.x_event_shape:
+        raise ValueError("x_event_shape must match prepared x rows")
+    if not bool(torch.isfinite(theta).all().item()):
+        raise ValueError("theta contains non-finite values")
+    if not bool(torch.isfinite(x).all().item()):
+        raise ValueError("x contains non-finite values")
 
 
 def _run_epoch(
@@ -543,15 +288,13 @@ def _run_epoch(
     loss_sum = 0.0
     sample_count = 0
     context = torch.enable_grad() if is_training else torch.no_grad()
-
     with context:
         for theta_batch, x_batch in loader:
             theta_batch = theta_batch.to(device, non_blocking=non_blocking)
             x_batch = x_batch.to(device, non_blocking=non_blocking)
             batch_size = int(theta_batch.shape[0])
-            if is_training:
+            if optimizer is not None:
                 optimizer.zero_grad(set_to_none=True)
-
             losses = density_estimator.loss(theta_batch, condition=x_batch)
             if not bool(torch.isfinite(losses).all().item()):
                 raise ValueError(f"{loader_name} loss contains non-finite values")
@@ -560,34 +303,33 @@ def _run_epoch(
                 raise ValueError(f"{loader_name} loss contains non-finite values")
             loss_sum += float(loss.detach().item()) * batch_size
             sample_count += batch_size
-
-            if is_training:
+            if optimizer is not None:
                 loss.backward()
                 if clip_max_norm is not None:
                     clip_grad_norm_(
                         density_estimator.parameters(),
-                        max_norm=clip_max_norm,
+                        max_norm=float(clip_max_norm),
                     )
                 optimizer.step()
-
     if sample_count <= 0:
         raise ValueError(f"{loader_name} loader processed zero samples")
     return loss_sum / sample_count
 
 
-def _epoch_progress_bar(
-    *,
-    training: NPETrainingConfig,
-    method_name: str,
-) -> Any:
-    if not training.show_progress_bars:
-        return range(training.max_num_epochs)
+def _resolve_pin_memory(config: InversionConfig) -> bool:
+    if config.training.pin_memory is not None:
+        return bool(config.training.pin_memory)
+    return torch.device(config.training.device).type == "cuda"
 
-    from tqdm.auto import tqdm
+
+def _epoch_progress_bar(*, config: InversionConfig) -> Any:
+    if not config.training.show_progress_bars:
+        return range(config.training.max_num_epochs)
+    from tqdm.auto import tqdm  # type: ignore[import-untyped]
 
     return tqdm(
-        range(training.max_num_epochs),
-        desc=f"{method_name} training",
+        range(config.training.max_num_epochs),
+        desc="Posterior training",
         unit="epoch",
     )
 
@@ -595,7 +337,7 @@ def _epoch_progress_bar(
 def _update_progress_bar(
     progress_bar: Any,
     *,
-    training_loss: float,
+    train_loss: float,
     validation_loss: float,
     best_validation_loss: float,
 ) -> None:
@@ -604,7 +346,7 @@ def _update_progress_bar(
         return
     set_postfix(
         {
-            "train_loss": f"{training_loss:.4g}",
+            "train_loss": f"{train_loss:.4g}",
             "val_loss": f"{validation_loss:.4g}",
             "best_val": f"{best_validation_loss:.4g}",
         },
@@ -612,117 +354,15 @@ def _update_progress_bar(
     )
 
 
-def _validate_split_discrete_category_coverage(
-    *,
-    tensors: _TrainingTensors,
-    indices: torch.Tensor,
-    split_name: str,
-) -> None:
-    if not tensors.category_counts:
-        return
-
-    discrete_columns = _last_discrete_columns(
-        tensors.theta,
-        num_discrete_columns=len(tensors.category_counts),
-    )
-    if discrete_columns is None:
-        return
-    split_values = discrete_columns[indices.detach().to("cpu", dtype=torch.long)]
-    for column, category_count in enumerate(tensors.category_counts):
-        full_categories = torch.unique(discrete_columns[:, column].to(torch.long))
-        observed_categories = torch.unique(split_values[:, column].to(torch.long))
-        if (
-            int(observed_categories.numel()) != int(category_count)
-            or not bool(torch.equal(full_categories, observed_categories))
-        ):
-            raise ValueError(
-                f"{split_name} must contain all discrete theta categories; "
-                "change seed, add data, or adjust validation_fraction"
-            )
-
-
-def _index_rows(tensor: torch.Tensor, indices: torch.Tensor) -> torch.Tensor:
-    local_indices = indices.detach().to(dtype=torch.long)
-    if tensor.device.type != "cpu":
-        local_indices = local_indices.to(tensor.device)
-    return torch.index_select(tensor, 0, local_indices)
-
-
-def _last_discrete_columns(
-    theta_tensor: torch.Tensor,
-    *,
-    num_discrete_columns: int,
-) -> torch.Tensor | None:
-    if num_discrete_columns <= 0:
-        return None
-    theta_cpu = theta_tensor.detach().to("cpu")
-    discrete_start = int(theta_cpu.shape[1]) - int(num_discrete_columns)
-    return theta_cpu[:, discrete_start:]
-
-
-def _indices_covering_discrete_values(
-    theta_tensor: torch.Tensor,
-    *,
-    num_discrete_columns: int,
-) -> torch.Tensor:
-    if num_discrete_columns <= 0:
-        return torch.empty((0,), dtype=torch.long)
-
-    theta_cpu = theta_tensor.detach().to("cpu")
-    discrete_start = int(theta_cpu.shape[1]) - int(num_discrete_columns)
-    required: set[int] = set()
-    for column in range(discrete_start, int(theta_cpu.shape[1])):
-        for value in torch.unique(theta_cpu[:, column]):
-            matches = torch.nonzero(theta_cpu[:, column] == value, as_tuple=False)
-            required.add(int(matches[0, 0]))
-    return torch.as_tensor(sorted(required), dtype=torch.long)
-
-
-def _initialization_indices(
-    *,
-    size: int,
-    count: int,
-    required_indices: torch.Tensor,
-    generator: torch.Generator,
-    target_device: torch.device,
-) -> torch.Tensor:
-    selected = [int(index) for index in required_indices.detach().cpu().tolist()]
-    selected_set = set(selected)
-    for index in torch.randperm(size, generator=generator, device=torch.device("cpu")):
-        item = int(index)
-        if item in selected_set:
-            continue
-        selected.append(item)
-        selected_set.add(item)
-        if len(selected) >= count:
-            break
-    indices = torch.as_tensor(selected[:count], dtype=torch.long)
-    if target_device.type != "cpu":
-        indices = indices.to(target_device)
-    return indices
-
-
-def _cpu_state_dict(density_estimator: Any) -> dict[str, torch.Tensor]:
+def _cpu_state_dict(module: torch.nn.Module) -> dict[str, torch.Tensor]:
     return {
-        name: tensor.detach().cpu().clone()
-        for name, tensor in density_estimator.state_dict().items()
+        key: value.detach().to("cpu").clone()
+        for key, value in module.state_dict().items()
     }
 
 
-def _resolve_pin_memory(
-    training: NPETrainingConfig,
-    *,
-    data_device: torch.device,
-    training_device: torch.device,
-) -> bool:
-    if training.pin_memory is not None:
-        return bool(training.pin_memory)
-    return data_device.type == "cpu" and training_device.type == "cuda"
-
-
 def _rng_fork_devices(device: torch.device) -> list[int]:
-    if device.type != "cuda" or not torch.cuda.is_available():
+    if device.type != "cuda":
         return []
-    if device.index is None:
-        return [int(torch.cuda.current_device())]
-    return [int(device.index)]
+    index = 0 if device.index is None else int(device.index)
+    return [index]

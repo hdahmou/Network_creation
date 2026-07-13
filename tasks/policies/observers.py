@@ -6,7 +6,9 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
 
-from network_creation.core.observability import ObservationSampling
+from network_creation.policy_result_metadata import (
+    load_observation_sampling as _load_observation_sampling,
+)
 from tasks.execution.schema import OutputArraySpec
 
 AGENT_PAYOFF_OBSERVER_NAME = "agent_payoff"
@@ -22,15 +24,6 @@ class ObserverOutputSpec:
     observer_class: type[EpisodeStatisticObserver]
     kwargs: dict[str, Any]
     fields: tuple[OutputArraySpec, ...]
-
-
-def _load_observation_sampling(raw: Mapping[str, object]) -> ObservationSampling:
-    kind = str(raw["kind"])
-    if kind == "periodic":
-        return ObservationSampling.periodic(int(cast(Any, raw["every"])))
-    if kind == "terminal":
-        return ObservationSampling.terminal()
-    raise ValueError(f"unsupported observation sampling kind: {kind}")
 
 
 def build_observer_specs(

@@ -11,7 +11,12 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.collections import PathCollection, QuadMesh
+from matplotlib.collections import (
+    LineCollection,
+    PatchCollection,
+    PathCollection,
+    QuadMesh,
+)
 from matplotlib.colors import Normalize, TwoSlopeNorm
 from matplotlib.ticker import FormatStrFormatter, NullLocator
 
@@ -1112,7 +1117,7 @@ class PlotPairTest(unittest.TestCase):
         self.assertEqual(set(figure.axes), set(axes.ravel()))
         plt.close(figure)
 
-    def test_plot_pair_preserves_points_path_for_ordered_discrete_axis(self) -> None:
+    def test_plot_pair_spans_ordered_discrete_x_axis_for_points(self) -> None:
         X = np.array(
             [
                 [1.0, 0.2, 3.0],
@@ -1132,12 +1137,17 @@ class PlotPairTest(unittest.TestCase):
         )
 
         collection = axes[0, 0].collections[0]
-        self.assertIsInstance(collection, PathCollection)
+        self.assertIsInstance(collection, LineCollection)
         self.assertIs(collection.norm, custom_norm)
         self.assertEqual(len(axes[0, 0].images), 0)
         np.testing.assert_allclose(
-            collection.get_offsets()[:, 0],
-            [0.0, 1.0, 2.0, 3.0],
+            np.asarray(collection.get_segments()),
+            [
+                [[-0.5, 0.2], [0.5, 0.2]],
+                [[0.5, 0.5], [1.5, 0.5]],
+                [[1.5, 0.8], [2.5, 0.8]],
+                [[2.5, 1.1], [3.5, 1.1]],
+            ],
         )
         np.testing.assert_allclose(axes[0, 0].get_xticks(), [0.0, 1.0, 2.0, 3.0])
         self.assertEqual(
@@ -1148,6 +1158,100 @@ class PlotPairTest(unittest.TestCase):
         self.assertEqual(len(axes[0, 0].lines), 3)
         np.testing.assert_allclose(
             [line.get_xdata()[0] for line in axes[0, 0].lines],
+            [0.5, 1.5, 2.5],
+        )
+        plt.close(figure)
+
+    def test_plot_pair_uses_category_cells_for_two_ordered_discrete_point_axes(
+        self,
+    ) -> None:
+        X = np.array(
+            [
+                [1.0, 10.0, 0.1],
+                [2.0, 20.0, 0.2],
+                [3.0, 10.0, 0.3],
+                [50.0, 100.0, 0.4],
+            ],
+            dtype=float,
+        )
+        custom_norm = TwoSlopeNorm(vmin=0.0, vcenter=25.0, vmax=50.0)
+        figure, axes = self.plot_pair_in_layout(
+            X,
+            labels=["stage", "rank", "bias"],
+            ordered_discrete_keys=["stage", "rank"],
+            method="points",
+            norm=custom_norm,
+        )
+
+        collection = axes[0, 0].collections[0]
+        self.assertIsInstance(collection, PatchCollection)
+        self.assertIs(collection.norm, custom_norm)
+        self.assertEqual(len(collection.get_paths()), 4)
+        np.testing.assert_allclose(collection.get_array(), self.y)
+        np.testing.assert_allclose(axes[0, 0].get_xticks(), [0.0, 1.0, 2.0, 3.0])
+        np.testing.assert_allclose(axes[0, 0].get_yticks(), [0.0, 1.0, 2.0])
+        self.assertEqual(
+            [tick.get_text() for tick in axes[1, 0].get_xticklabels()],
+            ["1", "2", "3", "50"],
+        )
+        self.assertEqual(
+            [tick.get_text() for tick in axes[0, 0].get_yticklabels()],
+            ["10", "20", "100"],
+        )
+        self.assertIsInstance(axes[0, 0].xaxis.get_minor_locator(), NullLocator)
+        self.assertIsInstance(axes[0, 0].yaxis.get_minor_locator(), NullLocator)
+        self.assertEqual(len(axes[0, 0].lines), 5)
+        np.testing.assert_allclose(
+            [line.get_xdata()[0] for line in axes[0, 0].lines[:3]],
+            [0.5, 1.5, 2.5],
+        )
+        np.testing.assert_allclose(
+            [line.get_ydata()[0] for line in axes[0, 0].lines[3:]],
+            [0.5, 1.5],
+        )
+        plt.close(figure)
+
+    def test_plot_pair_spans_ordered_discrete_y_axis_for_points(self) -> None:
+        X = np.array(
+            [
+                [0.2, 1.0, 3.0],
+                [0.5, 2.0, 4.0],
+                [0.8, 3.0, 5.0],
+                [1.1, 50.0, 6.0],
+            ],
+            dtype=float,
+        )
+        custom_norm = TwoSlopeNorm(vmin=0.0, vcenter=25.0, vmax=50.0)
+        figure, axes = self.plot_pair_in_layout(
+            X,
+            labels=["weight", "stage", "bias"],
+            ordered_discrete_keys=["stage"],
+            method="points",
+            norm=custom_norm,
+        )
+
+        collection = axes[0, 0].collections[0]
+        self.assertIsInstance(collection, LineCollection)
+        self.assertIs(collection.norm, custom_norm)
+        self.assertEqual(len(axes[0, 0].images), 0)
+        np.testing.assert_allclose(
+            np.asarray(collection.get_segments()),
+            [
+                [[0.2, -0.5], [0.2, 0.5]],
+                [[0.5, 0.5], [0.5, 1.5]],
+                [[0.8, 1.5], [0.8, 2.5]],
+                [[1.1, 2.5], [1.1, 3.5]],
+            ],
+        )
+        np.testing.assert_allclose(axes[0, 0].get_yticks(), [0.0, 1.0, 2.0, 3.0])
+        self.assertEqual(
+            [tick.get_text() for tick in axes[0, 0].get_yticklabels()],
+            ["1", "2", "3", "50"],
+        )
+        self.assertIsInstance(axes[0, 0].yaxis.get_minor_locator(), NullLocator)
+        self.assertEqual(len(axes[0, 0].lines), 3)
+        np.testing.assert_allclose(
+            [line.get_ydata()[0] for line in axes[0, 0].lines],
             [0.5, 1.5, 2.5],
         )
         plt.close(figure)

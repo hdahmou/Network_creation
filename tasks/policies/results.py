@@ -11,7 +11,12 @@ import numpy as np
 from numpy.typing import NDArray
 import xarray as xr
 
-from network_creation.core.observability import ObservationSampling
+from network_creation.policy_result_metadata import (
+    configured_n_actors as _configured_n_actors,
+    configured_output_step_labels as _configured_output_step_labels,
+    policy_composition_axis_name as _policy_composition_axis_name,
+    theta_parameter_columns as _theta_parameter_columns,
+)
 from network_creation.time_normalization import (
     common_normalized_time_grid,
     normalize_time_tensor,
@@ -461,60 +466,6 @@ def _step_axis_length(
     return None
 
 
-def _configured_output_step_labels(
-    policy_config: Mapping[str, Any],
-) -> dict[str, NDArray[np.int64]]:
-    simulator = policy_config.get("simulator", {})
-    raw_observers = policy_config.get("observers", {})
-    if not isinstance(simulator, Mapping) or not isinstance(raw_observers, Mapping):
-        return {}
-    max_steps = int(simulator["max_steps"])
-    defaults = raw_observers.get("defaults", {})
-    if not isinstance(defaults, Mapping):
-        return {}
-    default_sampling = defaults.get("sampling")
-    outputs = raw_observers.get("outputs", ())
-    if not isinstance(outputs, Sequence):
-        return {}
-
-    labels: dict[str, NDArray[np.int64]] = {}
-    for observer in outputs:
-        if not isinstance(observer, Mapping):
-            continue
-        sampling = _load_observation_sampling(
-            observer.get("sampling", default_sampling)
-        )
-        aggregations = observer.get("aggregations", defaults.get("aggregations", ()))
-        for aggregation in cast(Sequence[Any], aggregations):
-            labels[f"{observer['name']}.{aggregation}"] = _step_labels(
-                max_steps,
-                sampling,
-            )
-    return labels
-
-
-def _load_observation_sampling(raw: Any) -> ObservationSampling:
-    if not isinstance(raw, Mapping):
-        raise ValueError("observer sampling must be a mapping")
-    kind = str(raw["kind"])
-    if kind == "periodic":
-        return ObservationSampling.periodic(int(raw["every"]))
-    if kind == "terminal":
-        return ObservationSampling.terminal()
-    raise ValueError(f"unsupported observation sampling kind: {kind}")
-
-
-def _step_labels(
-    max_steps: int,
-    observation_sampling: ObservationSampling,
-) -> NDArray[np.int64]:
-    if observation_sampling.kind == "terminal":
-        return np.asarray([max_steps], dtype=np.int64)
-    assert observation_sampling.every is not None
-    count = observation_sampling.fixed_sample_count(max_steps)
-    return np.arange(count, dtype=np.int64) * int(observation_sampling.every)
-
-
 def _composition_axis_values(
     raw_parameters: NDArray[np.float32],
     parameter_names: list[str],
@@ -706,66 +657,6 @@ def _normalize_time_axis(
     attrs = dict(dataset.attrs)
     attrs.update(grid.attrs())
     return xr.Dataset(data_vars=data_vars, coords=coords, attrs=attrs)
-
-
-def _configured_n_actors(policy_config: Mapping[str, Any]) -> int:
-    simulator = policy_config.get("simulator", {})
-    if not isinstance(simulator, Mapping):
-        raise ValueError("cannot normalize time without simulator metadata")
-    actor_scheduler = simulator.get("actor_scheduler", {})
-    if not isinstance(actor_scheduler, Mapping) or "n_actors" not in actor_scheduler:
-        raise ValueError(
-            "cannot normalize time without simulator.actor_scheduler.n_actors"
-        )
-    return int(actor_scheduler["n_actors"])
-
-
-def _policy_composition_axis_name(
-    policy_config: Any,
-    parameter_names: list[str],
-) -> str:
-    if isinstance(policy_config, dict):
-        population = policy_config.get("population")
-        if isinstance(population, dict):
-            proportions = population.get("policy_proportions")
-            if isinstance(proportions, dict) and "policy" in proportions:
-                return f"{proportions['policy']}_proportion"
-            counts = population.get("policy_counts")
-            if isinstance(counts, dict) and "policy" in counts:
-                return f"{counts['policy']}_count"
-
-    matches = [name for name in parameter_names if name.endswith("_proportion")]
-    if len(matches) != 1:
-        raise ValueError(
-            "could not infer policy composition axis from result metadata"
-        )
-    return matches[0]
-
-
-def _theta_parameter_columns(
-    parameter_names: list[str],
-    *,
-    policy_config: Any,
-    composition_axis_name: str,
-) -> tuple[list[str], list[int]]:
-    policy_ids: list[str] = []
-    if isinstance(policy_config, dict):
-        population = policy_config.get("population")
-        if isinstance(population, dict):
-            policies = population.get("policies")
-            if isinstance(policies, list):
-                for policy in policies:
-                    if isinstance(policy, dict) and "id" in policy:
-                        policy_ids.append(str(policy["id"]))
-
-    bookkeeping_names = {composition_axis_name}
-    bookkeeping_names.update(f"{policy_id}_count" for policy_id in policy_ids)
-    keep = [
-        (index, name)
-        for index, name in enumerate(parameter_names)
-        if name not in bookkeeping_names
-    ]
-    return [name for _, name in keep], [index for index, _ in keep]
 
 
 __all__ = [

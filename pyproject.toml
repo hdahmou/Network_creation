@@ -37,6 +37,7 @@ dependencies = [
     "optax>=0.2.8",
     "plotly>=6.7.0",
     "hiplot>=0.1.33",
+    "pydantic>=2.12,<3",
 ]
 
 [project.scripts]

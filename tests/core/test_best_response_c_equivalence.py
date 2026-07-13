@@ -259,8 +259,7 @@ class BestResponseCKernelEquivalenceTest(unittest.TestCase):
             )
             expected_actions.append(bridge_actions[0])
             expected_values.append(
-                policy.benefit_to_cost_ratio * (expected_bridge_gain - base_score)
-                - 1.0
+                policy.benefit_to_cost_ratio * expected_bridge_gain - 1.0
             )
         expected_actions.append(pass_action)
         expected_values.append(0.0)

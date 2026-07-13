@@ -67,10 +67,6 @@ class BestResponsePolicyTest(unittest.TestCase):
         policy: BestResponsePolicy,
         observation,
     ) -> float:
-        base_benefit = BestResponsePolicyTest._discounted_benefit(
-            policy,
-            observation.graph,
-        )
         spillover_targets = max(len(observation.outside_node_idxs) - 1, 0)
         expected_bridge_gain = (
             policy.distance_discount
@@ -79,8 +75,7 @@ class BestResponsePolicyTest(unittest.TestCase):
             * policy.distance_discount**2
         )
         return float(
-            policy.benefit_to_cost_ratio * (expected_bridge_gain - (base_benefit - 1.0))
-            - 1.0
+            policy.benefit_to_cost_ratio * expected_bridge_gain - 1.0
         )
 
     @staticmethod

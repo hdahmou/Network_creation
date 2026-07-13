@@ -3,47 +3,71 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
 import torch
+from pydantic import Field, model_validator
 from torch import nn
 
+from .contracts import PositiveInt, StrictModel
+
 EmbeddingKind = Literal["identity", "rnn"]
-ContinuousDensityEstimatorName = Literal["nsf", "maf", "maf_rqs", "mdn", "made"]
-DensityEstimatorName = Literal["nsf", "maf", "maf_rqs", "mdn", "made", "mnpe"]
+DensityEstimatorName = Literal["nsf", "maf", "maf_rqs", "mdn", "made"]
 RNNKind = Literal["gru", "lstm"]
 
 
-@dataclass(frozen=True)
-class EmbeddingConfig:
+class EmbeddingConfig(StrictModel):
     kind: EmbeddingKind = "identity"
-    output_dim: int = 32
-    rnn_hidden_size: int = 64
-    rnn_num_layers: int = 1
+    output_dim: PositiveInt = 32
+    rnn_hidden_size: PositiveInt = 64
+    rnn_num_layers: PositiveInt = 1
     rnn_type: RNNKind = "gru"
     rnn_bidirectional: bool = False
 
-    def to_metadata(self) -> dict[str, object]:
-        return asdict(self)
+
+ZScoreMode = Literal[
+    "independent",
+    "structured",
+    "transform_to_unconstrained",
+    "none",
+]
 
 
-@dataclass(frozen=True)
-class DensityEstimatorConfig:
-    model: DensityEstimatorName = "nsf"
-    flow_model: ContinuousDensityEstimatorName = "nsf"
-    hidden_features: int = 50
-    num_transforms: int = 5
-    num_bins: int = 10
-    discrete_hidden_features: int | None = None
-    discrete_hidden_layers: int = 2
-    continuous_hidden_features: int | None = None
-    z_score_theta: str = "independent"
-    z_score_x: str = "independent"
-    sbi_kwargs: dict[str, Any] = field(default_factory=dict)
+class DensityEstimatorConfig(StrictModel):
+    flow_model: DensityEstimatorName = "nsf"
+    hidden_features: PositiveInt = 50
+    num_transforms: PositiveInt = 5
+    num_bins: PositiveInt = 10
+    discrete_hidden_features: PositiveInt | None = None
+    discrete_hidden_layers: PositiveInt = 2
+    continuous_hidden_features: PositiveInt | None = None
+    z_score_theta: ZScoreMode = "independent"
+    z_score_x: ZScoreMode = "independent"
+    sbi_kwargs: dict[str, Any] = Field(default_factory=dict)
 
-    def to_metadata(self) -> dict[str, object]:
-        return asdict(self)
+    @model_validator(mode="after")
+    def reject_managed_sbi_kwargs(self) -> "DensityEstimatorConfig":
+        reserved = {
+            "model",
+            "flow_model",
+            "hidden_features",
+            "num_transforms",
+            "num_bins",
+            "z_score_theta",
+            "z_score_x",
+            "embedding_net",
+            "num_categories_per_variable",
+            "discrete_hidden_features",
+            "discrete_hidden_layers",
+            "continuous_hidden_features",
+        }
+        collisions = sorted(set(self.sbi_kwargs) & reserved)
+        if collisions:
+            raise ValueError(
+                "density_estimator.sbi_kwargs duplicates managed keys: "
+                f"{collisions}"
+            )
+        return self
 
 
 class RNNEmbedding(nn.Module):
@@ -117,7 +141,7 @@ def build_density_estimator(
     x_event_shape: tuple[int, ...],
     num_categories_per_discrete_theta: Sequence[int] | None = None,
 ):
-    from sbi.neural_nets import posterior_nn
+    from sbi.neural_nets import posterior_nn  # type: ignore[import-untyped]
 
     embedding_net = build_embedding_net(embedding, x_event_shape=x_event_shape)
     category_counts = tuple(
@@ -130,16 +154,11 @@ def build_density_estimator(
         "z_score_theta": density.z_score_theta,
         "z_score_x": density.z_score_x,
     }
-    builder_kwargs.update({
-        key: value
-        for key, value in density.sbi_kwargs.items()
-        if key not in {"embedding_net", "num_categories_per_variable"}
-    })
+    builder_kwargs.update(density.sbi_kwargs)
 
     if category_counts:
-        flow_model = density.flow_model if density.model == "mnpe" else density.model
         builder_kwargs = {
-            "flow_model": flow_model,
+            "flow_model": density.flow_model,
             "discrete_hidden_features": density.discrete_hidden_features,
             "discrete_hidden_layers": density.discrete_hidden_layers,
             "continuous_hidden_features": density.continuous_hidden_features,
@@ -152,10 +171,5 @@ def build_density_estimator(
         )
         return posterior_nn(model="mnpe", **builder_kwargs)
 
-    if density.model == "mnpe":
-        raise ValueError(
-            "density model 'mnpe' requires at least one discrete theta parameter"
-        )
-
     builder_kwargs["embedding_net"] = embedding_net
-    return posterior_nn(model=density.model, **builder_kwargs)
+    return posterior_nn(model=density.flow_model, **builder_kwargs)

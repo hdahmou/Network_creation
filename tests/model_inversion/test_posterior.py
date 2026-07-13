@@ -1,288 +1,138 @@
 from __future__ import annotations
 
+import json
 import unittest
 from pathlib import Path
 
 import numpy as np
 import torch
 
+from network_creation.model_inversion.artifact_metadata import ArtifactMetadata
 from network_creation.model_inversion.posterior import (
     PosteriorArtifact,
-    PosteriorWithPriorSamples,
-    attach_prior_samples_to_posterior,
     category_probabilities,
     decode_discrete_theta_samples,
     decode_input_parameter_values,
-    select_prior_samples,
+    sample_posterior_observation,
 )
+from tests.model_inversion.support import artifact_metadata
 
 
-class PosteriorArtifactHelpersTest(unittest.TestCase):
-    def test_select_prior_samples_keeps_deterministic_training_theta_subset(
-        self,
-    ) -> None:
-        theta = np.arange(20, dtype=np.float32).reshape(10, 2)
+def metadata() -> ArtifactMetadata:
+    return artifact_metadata()
 
-        samples_a, indices_a = select_prior_samples(theta, max_samples=4, seed=3)
-        samples_b, indices_b = select_prior_samples(theta, max_samples=4, seed=3)
 
-        self.assertEqual(samples_a.shape, (4, 2))
-        np.testing.assert_array_equal(indices_a, indices_b)
-        np.testing.assert_array_equal(samples_a, samples_b)
-        np.testing.assert_array_equal(samples_a, theta[indices_a])
+class PosteriorArtifactTests(unittest.TestCase):
+    def test_artifact_metadata_rejects_unknown_and_misaligned_fields(self) -> None:
+        payload = metadata().model_dump(mode="json")
+        payload["legacy_field"] = True
+        with self.assertRaisesRegex(ValueError, "legacy_field"):
+            ArtifactMetadata.model_validate_json(json.dumps(payload))
 
-    def test_attach_prior_samples_supports_mock_posterior_dicts(self) -> None:
-        posterior: dict[str, object] = {}
-        samples = np.asarray([[0.1, 10.0], [0.2, 20.0]], dtype=np.float32)
+        payload = metadata().model_dump(mode="json")
+        payload["dataset"]["discrete_theta_values"] = []
+        with self.assertRaisesRegex(ValueError, "discrete_theta_values"):
+            ArtifactMetadata.model_validate_json(json.dumps(payload))
 
-        returned = attach_prior_samples_to_posterior(
-            posterior,
-            prior_samples=samples,
-            prior_sample_indices=np.asarray([2, 5]),
+    def test_decode_discrete_theta_samples_validates_stored_categories(self) -> None:
+        raw = np.asarray([[0.1, 10.0], [0.2, 20.0]], dtype=np.float32)
+        decoded = decode_discrete_theta_samples(
+            raw,
             theta_names=("alpha", "n_agents"),
-            seed=7,
+            discrete_theta_values={"n_agents": (10, 20)},
         )
 
-        self.assertIs(returned, posterior)
-        np.testing.assert_array_equal(posterior["prior_samples"], samples)
-        np.testing.assert_array_equal(posterior["prior_sample_indices"], [2, 5])
-        self.assertEqual(
-            posterior["prior_sample_metadata"],
-            {
-                "source": "training_theta_rows",
-                "count": 2,
-                "theta_order": ["alpha", "n_agents"],
-                "selection_seed": 7,
-            },
-        )
+        np.testing.assert_allclose(decoded, [[0.1, 10.0], [0.2, 20.0]])
 
-    def test_attach_prior_samples_wraps_posterior_when_attributes_are_disallowed(
-        self,
-    ) -> None:
-        class SlottedPosterior:
-            __slots__ = ()
+        with self.assertRaisesRegex(ValueError, "unknown categories"):
+            decode_discrete_theta_samples(
+                [[0.1, 0.0]],
+                theta_names=("alpha", "n_agents"),
+                discrete_theta_values={"n_agents": (10, 20)},
+            )
 
-            def sample(self, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003
-                return (args, kwargs)
-
-        samples = np.asarray([[0.1, 10.0]], dtype=np.float32)
-
-        wrapped = attach_prior_samples_to_posterior(
-            SlottedPosterior(),
-            prior_samples=samples,
-            prior_sample_indices=None,
-            theta_names=("alpha", "n_agents"),
-            seed=11,
-        )
-
-        self.assertIsInstance(wrapped, PosteriorWithPriorSamples)
-        np.testing.assert_array_equal(wrapped.prior_samples, samples)
-        self.assertIsNone(wrapped.prior_sample_indices)
-
-    def test_decode_discrete_theta_samples_maps_indices_back_to_categories(
-        self,
-    ) -> None:
-        metadata = {
-            "dataset": {
-                "theta_names": ["alpha", "n_agents"],
-                "discrete_theta_names": ["n_agents"],
-                "discrete_theta_values": [[10, 20]],
-            }
-        }
-        raw_samples = np.asarray([[0.1, 0.0], [0.2, 1.0]], dtype=np.float32)
-
-        decoded = decode_discrete_theta_samples(raw_samples, metadata)
-
-        np.testing.assert_allclose(
-            decoded,
-            np.asarray([[0.1, 10.0], [0.2, 20.0]], dtype=np.float32),
-        )
-
-    def test_category_probabilities_uses_stored_category_values(self) -> None:
-        probs = category_probabilities([10.0, 20.0, 20.0], [10, 20])
-        np.testing.assert_allclose(probs, [1 / 3, 2 / 3])
-
-    def test_decode_input_parameter_values_recovers_one_hot_final_inputs(self) -> None:
-        metadata = {
-            "dataset": {
-                "x_event_shape": [4],
-                "observer_names": ["density.mean"],
-                "input_parameters": ["n_agents", "alpha"],
-                "continuous_input_parameters": ["alpha"],
-                "discrete_input_parameters": ["n_agents"],
-                "discrete_input_values": [[10, 20]],
-            }
-        }
-        x = np.asarray(
-            [
-                [0.1, 1.0, 0.0, 0.5],
-                [0.2, 0.0, 1.0, 0.7],
-            ],
-            dtype=np.float32,
-        )
-
-        values = decode_input_parameter_values(x, metadata)
+    def test_input_values_from_x_decodes_one_hot_inputs(self) -> None:
+        x = np.asarray([[0.1, 1.0, 0.0], [0.2, 0.0, 1.0]], dtype=np.float32)
+        values = decode_input_parameter_values(x, metadata().dataset)
 
         np.testing.assert_allclose(values["n_agents"], [10.0, 20.0])
-        np.testing.assert_allclose(values["alpha"], [0.5, 0.7])
 
-    def test_decode_input_parameter_values_rejects_malformed_one_hot_inputs(
-        self,
-    ) -> None:
-        metadata = {
-            "dataset": {
-                "x_event_shape": [3],
-                "observer_names": ["density.mean"],
-                "input_parameters": ["n_agents"],
-                "continuous_input_parameters": [],
-                "discrete_input_parameters": ["n_agents"],
-                "discrete_input_values": [[10, 20]],
-            }
-        }
-        x = np.asarray([[0.1, 0.0, 0.0]], dtype=np.float32)
-
-        with self.assertRaisesRegex(ValueError, "not one-hot"):
-            decode_input_parameter_values(x, metadata)
-
-    def test_posterior_artifact_decodes_one_hot_timeseries_inputs(self) -> None:
+    def test_build_x_appends_one_hot_inputs(self) -> None:
         artifact = PosteriorArtifact(
             artifact_dir=Path("."),
             posterior=object(),
-            metadata={
-                "dataset": {
-                    "x_event_shape": [2, 3],
-                    "observer_names": ["density.mean"],
-                    "input_parameters": ["n_agents"],
-                    "continuous_input_parameters": [],
-                    "discrete_input_parameters": ["n_agents"],
-                    "discrete_input_values": [[10, 20]],
-                }
-            },
-        )
-        x = np.asarray(
-            [
-                [[0.1, 1.0, 0.0], [0.2, 1.0, 0.0]],
-                [[0.3, 0.0, 1.0], [0.4, 0.0, 1.0]],
-            ],
-            dtype=np.float32,
+            metadata=metadata(),
+            prior_samples=np.empty((0, 2), dtype=np.float32),
+            prior_sample_indices=np.empty((0,), dtype=np.int64),
         )
 
-        values = artifact.input_parameter_values_from_x(x)
+        x = artifact.build_x(
+            {"density.mean": np.asarray([1.0, 2.0], dtype=np.float32)},
+            {"n_agents": 20},
+        )
 
-        self.assertEqual(artifact.input_parameters, ["n_agents"])
-        self.assertEqual(artifact.discrete_input_parameters, ["n_agents"])
-        np.testing.assert_allclose(values["n_agents"], [10.0, 20.0])
+        np.testing.assert_allclose(x, [2.0, 0.0, 1.0])
 
-    def test_posterior_artifact_sample_adds_single_observation_batch_dim(self) -> None:
+    def test_sample_posterior_observation_uses_new_theta_metadata(self) -> None:
         class RecordingPosterior:
             def __init__(self) -> None:
                 self.x_shape: tuple[int, ...] | None = None
 
             def sample(self, sample_shape, x, **kwargs):  # noqa: ANN001, ANN003
                 self.x_shape = tuple(x.shape)
-                return torch.as_tensor([[0.25, 10.0]], dtype=torch.float32)
-
-        posterior = RecordingPosterior()
-        artifact = PosteriorArtifact(
-            artifact_dir=Path("."),
-            posterior=posterior,
-            metadata={
-                "dataset": {
-                    "x_event_shape": [3],
-                    "theta_names": ["alpha", "n_agents"],
-                    "discrete_theta_names": ["n_agents"],
-                    "discrete_theta_values": [[10, 20]],
-                }
-            },
-        )
-
-        samples, theta_names = artifact.sample([1.0, 2.0, 3.0], num_samples=1)
-
-        self.assertEqual(posterior.x_shape, (1, 3))
-        self.assertEqual(theta_names, ["alpha", "n_agents"])
-        np.testing.assert_allclose(samples, [[0.25, 10.0]])
-
-    def test_posterior_artifact_sample_moves_posterior_to_requested_device(
-        self,
-    ) -> None:
-        class DeviceRecordingPosterior:
-            def __init__(self) -> None:
-                self.device: torch.device | None = None
-                self.x_device: torch.device | None = None
-
-            def to(self, device):  # noqa: ANN001
-                self.device = torch.device(device)
-
-            def sample(self, sample_shape, x, **kwargs):  # noqa: ANN001, ANN003
-                self.x_device = x.device
-                return torch.as_tensor([[0.25]], dtype=torch.float32, device=x.device)
-
-        posterior = DeviceRecordingPosterior()
-        artifact = PosteriorArtifact(
-            artifact_dir=Path("."),
-            posterior=posterior,
-            metadata={
-                "dataset": {
-                    "x_event_shape": [1],
-                    "theta_names": ["alpha"],
-                    "discrete_theta_names": [],
-                    "discrete_theta_values": [],
-                }
-            },
-        )
-
-        artifact.sample([1.0], num_samples=1, device="cpu")
-
-        self.assertEqual(posterior.device, torch.device("cpu"))
-        self.assertEqual(posterior.x_device, torch.device("cpu"))
-
-    def test_posterior_artifact_sample_retries_known_mnpe_broadcast_bug(self) -> None:
-        class BroadcastBugPosterior:
-            def __init__(self) -> None:
-                self.sample_calls: list[tuple[tuple[int, ...], tuple[int, ...]]] = []
-                self.sample_batched_calls: list[
-                    tuple[tuple[int, ...], tuple[int, ...]]
-                ] = []
-
-            def sample(self, sample_shape, x, **kwargs):  # noqa: ANN001, ANN003
-                self.sample_calls.append((tuple(sample_shape), tuple(x.shape)))
-                raise RuntimeError(
-                    "output with shape [512, 1, 50] doesn't match the broadcast shape "
-                    "[512, 512, 50]"
-                )
-
-            def sample_batched(self, sample_shape, x, **kwargs):  # noqa: ANN001, ANN003
-                self.sample_batched_calls.append((tuple(sample_shape), tuple(x.shape)))
                 return torch.as_tensor(
-                    [[[0.1, 0.0], [0.2, 1.0]]],
+                    [[0.25, 10.0], [0.75, 20.0]],
                     dtype=torch.float32,
                 )
 
-        posterior = BroadcastBugPosterior()
+        posterior = RecordingPosterior()
+        samples = sample_posterior_observation(
+            posterior,
+            [1.0, 2.0, 3.0],
+            num_samples=2,
+            x_event_shape=(3,),
+            theta_names=("alpha", "n_agents"),
+            discrete_theta_names=("n_agents",),
+            discrete_theta_values=((10, 20),),
+        )
+
+        self.assertEqual(posterior.x_shape, (1, 3))
+        np.testing.assert_allclose(samples, [[0.25, 10.0], [0.75, 20.0]])
+
+    def test_sample_cases_accepts_case_axis(self) -> None:
+        class RecordingPosterior:
+            def __init__(self) -> None:
+                self.x_shapes: list[tuple[int, ...]] = []
+
+            def sample(self, sample_shape, x, **kwargs):  # noqa: ANN001, ANN003
+                self.x_shapes.append(tuple(x.shape))
+                return torch.as_tensor([1.0, 10.0]).repeat(int(sample_shape[0]), 1)
+
+        posterior = RecordingPosterior()
         artifact = PosteriorArtifact(
-            artifact_dir=Path("."),
-            posterior=posterior,
-            metadata={
-                "dataset": {
-                    "x_event_shape": [4, 1],
-                    "theta_names": ["alpha", "n_agents"],
-                    "discrete_theta_names": ["n_agents"],
-                    "discrete_theta_values": [[10, 20]],
-                }
-            },
+            Path("."),
+            posterior,
+            metadata(),
+            np.empty((0, 2), dtype=np.float32),
+            np.empty((0,), dtype=np.int64),
         )
 
-        samples, theta_names = artifact.sample(
-            np.zeros((4, 1), dtype=np.float32), num_samples=2
+        samples = artifact.sample_cases(
+            np.asarray([[1.0, 1.0, 0.0], [2.0, 0.0, 1.0]], dtype=np.float32),
+            num_samples=3,
         )
 
-        self.assertEqual(posterior.sample_calls, [((2,), (1, 4, 1))])
-        self.assertEqual(posterior.sample_batched_calls, [((1,), (2, 4, 1))])
-        self.assertEqual(theta_names, ["alpha", "n_agents"])
+        self.assertEqual(samples.shape, (2, 3, 2))
+        self.assertEqual(posterior.x_shapes, [(1, 3), (1, 3)])
+
+    def test_category_probabilities_uses_stored_values(self) -> None:
         np.testing.assert_allclose(
-            samples,
-            np.asarray([[0.1, 10.0], [0.2, 20.0]], dtype=np.float32),
+            category_probabilities([10.0, 20.0, 20.0], [10, 20]),
+            [1 / 3, 2 / 3],
         )
+
+        with self.assertRaisesRegex(ValueError, "unknown categories"):
+            category_probabilities([10.0, 30.0], [10, 20])
 
 
 if __name__ == "__main__":

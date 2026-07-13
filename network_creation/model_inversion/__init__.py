@@ -1,39 +1,12 @@
-"""Model inversion utilities built around amortized `sbi` NPE/MNPE."""
+"""Public model-inversion training and posterior artifact APIs."""
 
-from __future__ import annotations
-
-from .data import (
-    ObservationRepresentation,
-    filter_inversion_dataset,
-    inversion_dataset_metadata,
-    move_discrete_theta_to_end,
-)
-from .posterior import (
-    PosteriorArtifact,
-    PosteriorWithPriorSamples,
-    attach_prior_samples_to_posterior,
-    category_probabilities,
-    decode_discrete_theta_samples,
-    decode_input_parameter_values,
-    discrete_category_values,
-    discrete_input_category_values,
-    load_posterior_artifact,
-    select_prior_samples,
-)
+from .artifacts import TrainingRunSummary
+from .pipeline import train_inversion_from_config
+from .posterior import PosteriorArtifact, load_posterior_artifact
 
 __all__ = [
-    "ObservationRepresentation",
     "PosteriorArtifact",
-    "PosteriorWithPriorSamples",
-    "filter_inversion_dataset",
-    "inversion_dataset_metadata",
-    "attach_prior_samples_to_posterior",
-    "category_probabilities",
-    "decode_discrete_theta_samples",
-    "decode_input_parameter_values",
-    "discrete_category_values",
-    "discrete_input_category_values",
+    "TrainingRunSummary",
     "load_posterior_artifact",
-    "move_discrete_theta_to_end",
-    "select_prior_samples",
+    "train_inversion_from_config",
 ]

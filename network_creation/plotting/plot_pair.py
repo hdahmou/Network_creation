@@ -2,7 +2,9 @@ from dataclasses import dataclass
 
 import numpy as np
 from matplotlib.axes import Axes
+from matplotlib.collections import LineCollection, PatchCollection
 from matplotlib.colors import Normalize
+from matplotlib.patches import Rectangle
 from matplotlib.ticker import NullLocator
 from scipy.ndimage import gaussian_filter
 from scipy.stats import binned_statistic_2d
@@ -76,6 +78,13 @@ def _aggregate_mean_grid(
     return z_sum, z_count
 
 
+def _discrete_spans(spec: _AxisSpec) -> np.ndarray:
+    assert spec.edges is not None
+    assert spec.levels is not None
+    indices = np.searchsorted(spec.levels, spec.values)
+    return np.column_stack((spec.edges[indices], spec.edges[indices + 1]))
+
+
 def _apply_axis_metadata(ax: Axes, x_spec: _AxisSpec, y_spec: _AxisSpec) -> None:
     ax.set_xlim(*x_spec.limits)
     ax.set_ylim(*y_spec.limits)
@@ -109,6 +118,84 @@ def _apply_axis_metadata(ax: Axes, x_spec: _AxisSpec, y_spec: _AxisSpec) -> None
             )
 
 
+def _point_linewidth(point_size: float) -> float:
+    return float(np.sqrt(max(point_size, 0.0)))
+
+
+def _render_point_descriptor(
+    x_spec: _AxisSpec,
+    y_spec: _AxisSpec,
+    z: np.ndarray,
+    ax: Axes,
+    norm: Normalize,
+    cmap: str,
+    point_size: float,
+    alpha: float,
+) -> Axes:
+    if not x_spec.is_ordered_discrete and not y_spec.is_ordered_discrete:
+        ax.scatter(
+            x_spec.values,
+            y_spec.values,
+            c=z,
+            cmap=cmap,
+            norm=norm,
+            s=point_size,
+            alpha=alpha,
+            linewidths=0,
+        )
+        _apply_axis_metadata(ax, x_spec, y_spec)
+        return ax
+
+    if x_spec.is_ordered_discrete and y_spec.is_ordered_discrete:
+        x_spans = _discrete_spans(x_spec)
+        y_spans = _discrete_spans(y_spec)
+        rectangles = [
+            Rectangle((x0, y0), x1 - x0, y1 - y0)
+            for (x0, x1), (y0, y1) in zip(x_spans, y_spans)
+        ]
+        collection = PatchCollection(
+            rectangles,
+            cmap=cmap,
+            norm=norm,
+            alpha=alpha,
+            linewidths=0,
+        )
+        collection.set_array(np.asarray(z, dtype=float))
+        ax.add_collection(collection)
+        _apply_axis_metadata(ax, x_spec, y_spec)
+        return ax
+
+    if x_spec.is_ordered_discrete:
+        x_spans = _discrete_spans(x_spec)
+        segments = np.stack(
+            (
+                np.column_stack((x_spans[:, 0], y_spec.values)),
+                np.column_stack((x_spans[:, 1], y_spec.values)),
+            ),
+            axis=1,
+        )
+    else:
+        y_spans = _discrete_spans(y_spec)
+        segments = np.stack(
+            (
+                np.column_stack((x_spec.values, y_spans[:, 0])),
+                np.column_stack((x_spec.values, y_spans[:, 1])),
+            ),
+            axis=1,
+        )
+    collection = LineCollection(
+        segments,
+        cmap=cmap,
+        norm=norm,
+        linewidths=_point_linewidth(point_size),
+        alpha=alpha,
+    )
+    collection.set_array(np.asarray(z, dtype=float))
+    ax.add_collection(collection)
+    _apply_axis_metadata(ax, x_spec, y_spec)
+    return ax
+
+
 def _render_descriptor(
     x_spec: _AxisSpec,
     y_spec: _AxisSpec,
@@ -123,18 +210,16 @@ def _render_descriptor(
     sigma: float,
 ) -> Axes:
     if method == "points":
-        ax.scatter(
-            x_spec.values,
-            y_spec.values,
-            c=z,
-            cmap=cmap,
+        return _render_point_descriptor(
+            x_spec=x_spec,
+            y_spec=y_spec,
+            z=z,
+            ax=ax,
             norm=norm,
-            s=point_size,
+            cmap=cmap,
+            point_size=point_size,
             alpha=alpha,
-            linewidths=0,
         )
-        _apply_axis_metadata(ax, x_spec, y_spec)
-        return ax
 
     if not x_spec.is_ordered_discrete and not y_spec.is_ordered_discrete:
         z_sum, _, _, _ = binned_statistic_2d(

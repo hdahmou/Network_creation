@@ -10,8 +10,8 @@
   },
   "simulator": {
     "seed": 11,
-    "max_steps": 3000,
-    "n_episodes": 32,
+    "max_steps": 4000,
+    "n_episodes": 16,
     "actor_scheduler": {
       "n_actors": 1
     },
@@ -31,11 +31,15 @@
     }
   },
   "population": {
-    "n_agents": [10, 50],
+    "n_agents": [
+      10,
+      50,
+      100
+    ],
     "visibility_distance": {
       "kind": "sampled_discrete_range",
       "min": 1,
-      "max": 5,
+      "max": 8,
       "step": 1
     },
     "policies": [
@@ -76,16 +80,22 @@
     ],
     "policy_counts": {
       "policy": "threshold_link",
-      "values": [1]
+      "values": [
+        0,
+        1
+      ]
     }
   },
   "observers": {
     "defaults": {
       "sampling": {
         "kind": "periodic",
-        "every": 5
+        "every": 1
       },
-      "aggregations": ["mean", "std"]
+      "aggregations": [
+        "mean",
+        "std"
+      ]
     },
     "outputs": [
       {
@@ -98,6 +108,10 @@
       },
       {
         "name": "centered_mean_welfare",
+        "output": "mean"
+      },
+      {
+        "name": "policy_welfare",
         "output": "mean"
       }
     ]

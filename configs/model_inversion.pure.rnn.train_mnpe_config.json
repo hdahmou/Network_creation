@@ -1,54 +1,53 @@
 {
-  "dataset": {
+  "data": {
     "zarr_path": "../artifacts/simulation_runs/run-20260521T234239.zarr",
-    "observers": ["centered_mean_welfare.mean"],
-    "theta_parameters": [
-      "visibility_distance",
+    "observed_outputs": ["centered_mean_welfare.mean"],
+    "continuous_theta_names": [
       "outside_optimism",
       "exploration"
     ],
-    "input_parameters": ["n_agents"],
-    "discrete_input_parameters": ["n_agents"],
-    "drop_constant_theta": true,
+    "discrete_theta_names": ["visibility_distance"],
+    "continuous_input_names": [],
+    "discrete_input_names": ["n_agents"],
     "x_representation": "timeseries",
-    "normalize_time": true,
-    "discrete_theta_parameters": ["visibility_distance"]
+    "normalize_time": true
   },
-  "artifact": {
-    "output_root": "../artifacts/model_inversion",
-    "run_name": null,
-    "save_training_data": false,
-    "prior_sample_count": 4096
-  },
-  "diagnostics": {
-    "reserve_count": 256
-  },
-  "density_estimator": {
-    "model": "mnpe",
-    "hidden_features": 96,
-    "num_transforms": 8,
-    "num_bins": 16,
-    "z_score_theta": "independent",
-    "z_score_x": "structured",
-    "flow_model": "nsf"
-  },
-  "embedding": {
-    "kind": "rnn",
-    "output_dim": 64,
-    "rnn_hidden_size": 96,
-    "rnn_num_layers": 1,
-    "rnn_type": "gru",
-    "rnn_bidirectional": true
+  "model": {
+    "density_estimator": {
+      "flow_model": "nsf",
+      "hidden_features": 96,
+      "num_transforms": 8,
+      "num_bins": 16,
+      "z_score_theta": "independent",
+      "z_score_x": "structured"
+    },
+    "embedding": {
+      "kind": "rnn",
+      "output_dim": 64,
+      "rnn_hidden_size": 96,
+      "rnn_num_layers": 1,
+      "rnn_type": "gru",
+      "rnn_bidirectional": true
+    }
   },
   "training": {
     "seed": 0,
     "device": "cuda",
-    "training_batch_size": 1024,
+    "batch_size": 1024,
     "learning_rate": 0.0005,
     "validation_fraction": 0.1,
     "stop_after_epochs": 50,
     "max_num_epochs": 1500,
     "clip_max_norm": 5.0,
-    "show_progress_bars": true
-  }
+    "show_progress_bars": true,
+    "calibration_sample_count": 1024
+  },
+  "output": {
+    "output_root": "../artifacts/model_inversion",
+    "artifact_name": null,
+    "save_training_data": false,
+    "prior_sample_count": 4096,
+    "training_data_sample_count": 4096
+  },
+  "diagnostic_holdout_count_per_group": 256
 }

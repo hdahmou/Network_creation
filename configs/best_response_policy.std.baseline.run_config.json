@@ -11,7 +11,7 @@
   "simulator": {
     "seed": 11,
     "max_steps": 4000,
-    "n_episodes": 32,
+    "n_episodes": 16,
     "actor_scheduler": {
       "n_actors": 1
     },

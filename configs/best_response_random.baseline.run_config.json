@@ -10,8 +10,8 @@
   },
   "simulator": {
     "seed": 11,
-    "max_steps": 3000,
-    "n_episodes": 32,
+    "max_steps": 4000,
+    "n_episodes": 16,
     "actor_scheduler": {
       "n_actors": 1
     },
@@ -72,7 +72,7 @@
     ],
     "policy_proportions": {
       "policy": "best_response",
-      "values": [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
+      "values": [0.0, 0.1, 0.2, 0.3, 0.4, 0.6, 0.8, 1.0]
     }
   },
   "observers": {
@@ -81,24 +81,20 @@
         "kind": "periodic",
         "every": 5
       },
-      "aggregations": ["mean", "std"]
+      "aggregations": ["mean"]
     },
     "outputs": [
       {
-        "name": "central_point_of_dominance",
-        "output": "mean"
+        "name": "central_point_of_dominance"
       },
       {
-        "name": "indegree",
-        "output": "mean"
+        "name": "indegree"
       },
       {
-        "name": "centered_mean_welfare",
-        "output": "mean"
+        "name": "centered_mean_welfare"
       },
       {
-        "name": "policy_welfare",
-        "output": "mean"
+        "name": "policy_welfare"
       }
     ]
   }

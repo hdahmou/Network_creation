@@ -10,7 +10,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import zarr
 
@@ -19,14 +19,24 @@ from tests.tasks import support_tasks as _support_tasks
 
 
 class _FakeFuture:
-    def __init__(self, key: str, task_fn: Any, task_input: Any) -> None:
+    _unset = object()
+
+    def __init__(self, key: str, compute: Any) -> None:
         self.key = key
-        self._task_fn = task_fn
-        self._task_input = task_input
+        self._compute = compute
+        self._value: Any = self._unset
+        self._error: BaseException | None = None
         self.release_calls = 0
 
     def result(self) -> Any:
-        return self._task_fn(self._task_input)
+        if self._value is self._unset and self._error is None:
+            try:
+                self._value = self._compute()
+            except BaseException as exc:
+                self._error = exc
+        if self._error is not None:
+            raise self._error
+        return self._value
 
     def release(self) -> None:
         self.release_calls += 1
@@ -34,11 +44,15 @@ class _FakeFuture:
 
 class _FakeClient:
     instances: list["_FakeClient"] = []
+    thread_counts: list[int] = [1]
 
     def __init__(self, scheduler_address: str) -> None:
         self.scheduler_address = scheduler_address
         self.dashboard_link = "http://dashboard.test/status"
         self.futures: list[_FakeFuture] = []
+        self.runtime_future: _FakeFuture | None = None
+        self.map_batch_sizes: list[int] = []
+        self._nthreads_call_count = 0
         self.__class__.instances.append(self)
 
     def __enter__(self) -> "_FakeClient":
@@ -47,24 +61,83 @@ class _FakeClient:
     def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
         del exc_type, exc, tb
 
+    @staticmethod
+    def _resolve(value: Any) -> Any:
+        return value.result() if isinstance(value, _FakeFuture) else value
+
+    def submit(
+        self,
+        task_fn: Any,
+        *args: Any,
+        key: str,
+        pure: bool,
+    ) -> _FakeFuture:
+        del pure
+        future = _FakeFuture(
+            key,
+            lambda: task_fn(*(self._resolve(arg) for arg in args)),
+        )
+        self.runtime_future = future
+        return future
+
     def map(
         self,
         task_fn: Any,
         task_inputs_list: list[Any],
         *,
-        key: str,
+        key: list[str],
         pure: bool,
+        **kwargs: Any,
     ) -> list[_FakeFuture]:
         del pure
-        self.futures = [
-            _FakeFuture(f"{key}-{input_index}", task_fn, task_input)
-            for input_index, task_input in enumerate(task_inputs_list)
+        self.map_batch_sizes.append(len(task_inputs_list))
+        futures = [
+            _FakeFuture(
+                task_key,
+                lambda task_input=task_input: task_fn(
+                    task_input,
+                    **{
+                        name: self._resolve(value)
+                        for name, value in kwargs.items()
+                    },
+                ),
+            )
+            for task_key, task_input in zip(key, task_inputs_list, strict=True)
         ]
-        return self.futures
+        self.futures.extend(futures)
+        return futures
+
+    def nthreads(self) -> dict[str, int]:
+        index = min(
+            self._nthreads_call_count,
+            len(self.thread_counts) - 1,
+        )
+        self._nthreads_call_count += 1
+        return {
+            f"worker-{worker_index}": 1
+            for worker_index in range(self.thread_counts[index])
+        }
+
+
+class _FakeAsCompleted:
+    def __init__(self) -> None:
+        self._futures: list[_FakeFuture] = []
+
+    def update(self, futures: list[_FakeFuture]) -> None:
+        self._futures.extend(futures)
+
+    def next_batch(self) -> list[_FakeFuture]:
+        if not self._futures:
+            raise StopIteration
+        futures = self._futures
+        self._futures = []
+        return futures
 
 
 class RunnerTests(unittest.TestCase):
     def setUp(self) -> None:
+        _FakeClient.instances.clear()
+        _FakeClient.thread_counts = [1]
         self.temp_dir = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp_dir.cleanup)
         self.workdir = Path(self.temp_dir.name)
@@ -131,12 +204,11 @@ class RunnerTests(unittest.TestCase):
         with patch("tasks.execution.runner.Client", new=_FakeClient):
             with patch(
                 "tasks.execution.runner.as_completed",
-                new=lambda futures: iter(futures),
+                new=_FakeAsCompleted,
             ):
                 return run_from_config(str(config_path), log_level=log_level)
 
     def test_execute_inputs_releases_completed_futures_immediately(self) -> None:
-        _FakeClient.instances.clear()
         release_snapshots: list[tuple[str, list[int]]] = []
 
         def task_fn(value: int) -> int:
@@ -153,7 +225,7 @@ class RunnerTests(unittest.TestCase):
             futures = _FakeClient.instances[-1].futures
             release_snapshots.append(("result", [future.release_calls for future in futures]))
             if input_index == 0:
-                self.assertEqual([future.release_calls for future in futures], [0, 0, 0])
+                self.assertEqual([future.release_calls for future in futures], [0, 0])
             if input_index == 2:
                 self.assertEqual([future.release_calls for future in futures], [1, 1, 0])
 
@@ -166,12 +238,12 @@ class RunnerTests(unittest.TestCase):
             futures = _FakeClient.instances[-1].futures
             release_snapshots.append(("failure", [future.release_calls for future in futures]))
             if input_index == 1:
-                self.assertEqual([future.release_calls for future in futures], [1, 0, 0])
+                self.assertEqual([future.release_calls for future in futures], [1, 0])
 
         with patch("tasks.execution.runner.Client", new=_FakeClient):
             with patch(
                 "tasks.execution.runner.as_completed",
-                new=lambda futures: iter(futures),
+                new=_FakeAsCompleted,
             ):
                 stats = execute_inputs(
                     scheduler_address="inproc://tests",
@@ -187,14 +259,78 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(
             release_snapshots,
             [
-                ("result", [0, 0, 0]),
-                ("failure", [1, 0, 0]),
+                ("result", [0, 0]),
+                ("failure", [1, 0]),
                 ("result", [1, 1, 0]),
             ],
         )
+        client = _FakeClient.instances[-1]
+        self.assertEqual(client.map_batch_sizes, [2, 1])
+        self.assertIsNotNone(client.runtime_future)
+        assert client.runtime_future is not None
+        self.assertEqual(client.runtime_future.release_calls, 1)
         self.assertEqual(
-            [future.release_calls for future in _FakeClient.instances[-1].futures],
+            [future.release_calls for future in client.futures],
             [1, 1, 1],
+        )
+
+    def test_execute_inputs_expands_window_when_workers_join(self) -> None:
+        _FakeClient.thread_counts = [1, 2]
+        results: list[int] = []
+
+        with patch("tasks.execution.runner.Client", new=_FakeClient):
+            with patch(
+                "tasks.execution.runner.as_completed",
+                new=_FakeAsCompleted,
+            ):
+                stats = execute_inputs(
+                    scheduler_address="inproc://tests",
+                    run_key="dynamic",
+                    run_fn=lambda value: {"value": value},
+                    run_inputs=list(range(8)),
+                    on_result=lambda _index, value, _output: results.append(value),
+                    on_failure=lambda _index, _value, error: self.fail(str(error)),
+                    logger=logging.getLogger("test"),
+                )
+
+        self.assertEqual(stats, {"success_count": 8, "failure_count": 0})
+        self.assertEqual(results, list(range(8)))
+        self.assertEqual(_FakeClient.instances[-1].map_batch_sizes, [2, 4, 2])
+
+    def test_execute_inputs_reports_exact_terminal_progress(self) -> None:
+        progress = MagicMock()
+        progress_context = MagicMock()
+        progress_context.__enter__.return_value = progress
+
+        with patch("tasks.execution.runner.Client", new=_FakeClient):
+            with patch(
+                "tasks.execution.runner.as_completed",
+                new=_FakeAsCompleted,
+            ):
+                with patch(
+                    "tasks.execution.runner.tqdm",
+                    return_value=progress_context,
+                ) as progress_factory:
+                    execute_inputs(
+                        scheduler_address="inproc://tests",
+                        run_key="progress",
+                        run_fn=lambda value: {"value": value},
+                        run_inputs=[1, 2, 3],
+                        on_result=lambda _index, _value, _output: None,
+                        on_failure=lambda _index, _value, error: self.fail(str(error)),
+                        logger=logging.getLogger("test"),
+                    )
+
+        self.assertEqual(progress_factory.call_args.kwargs["total"], 3)
+        self.assertEqual(
+            sum(call.args[0] for call in progress.update.call_args_list),
+            3,
+        )
+        progress.set_postfix.assert_called_with(
+            successes=3,
+            failures=0,
+            workers=1,
+            refresh=False,
         )
 
     def test_runner_writes_success_rows_and_uses_run_name_for_output(self) -> None:

@@ -92,27 +92,20 @@
         "kind": "periodic",
         "every": 1
       },
-      "aggregations": [
-        "mean",
-        "std"
-      ]
+      "aggregations": ["mean"]
     },
     "outputs": [
       {
-        "name": "central_point_of_dominance",
-        "output": "mean"
+        "name": "central_point_of_dominance"
       },
       {
-        "name": "indegree",
-        "output": "mean"
+        "name": "indegree"
       },
       {
-        "name": "centered_mean_welfare",
-        "output": "mean"
+        "name": "centered_mean_welfare"
       },
       {
-        "name": "policy_welfare",
-        "output": "mean"
+        "name": "policy_welfare"
       }
     ]
   }

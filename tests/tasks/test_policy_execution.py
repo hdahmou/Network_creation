@@ -6,6 +6,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import numpy as np
@@ -18,13 +19,17 @@ from tests.tasks.policy_result_support import build_random_config
 
 
 class _FakeFuture:
-    def __init__(self, key: str, task_fn: object, task_input: object) -> None:
-        self.key = key
-        self._task_fn = task_fn
-        self._task_input = task_input
+    _unset = object()
 
-    def result(self) -> object:
-        return self._task_fn(self._task_input)
+    def __init__(self, key: str, compute: Any) -> None:
+        self.key = key
+        self._compute = compute
+        self._value: Any = self._unset
+
+    def result(self) -> Any:
+        if self._value is self._unset:
+            self._value = self._compute()
+        return self._value
 
     def release(self) -> None:
         return None
@@ -40,19 +45,64 @@ class _FakeClient:
     def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
         del exc_type, exc, tb
 
-    def map(
+    @staticmethod
+    def _resolve(value: Any) -> Any:
+        return value.result() if isinstance(value, _FakeFuture) else value
+
+    def submit(
         self,
-        task_fn: object,
-        task_inputs_list: list[object],
-        *,
+        task_fn: Any,
+        *args: Any,
         key: str,
         pure: bool,
+    ) -> _FakeFuture:
+        del pure
+        return _FakeFuture(
+            key,
+            lambda: task_fn(*(self._resolve(arg) for arg in args)),
+        )
+
+    def map(
+        self,
+        task_fn: Any,
+        task_inputs_list: list[Any],
+        *,
+        key: list[str],
+        pure: bool,
+        **kwargs: Any,
     ) -> list[_FakeFuture]:
         del pure
         return [
-            _FakeFuture(f"{key}-{input_index}", task_fn, task_input)
-            for input_index, task_input in enumerate(task_inputs_list)
+            _FakeFuture(
+                task_key,
+                lambda task_input=task_input: task_fn(
+                    task_input,
+                    **{
+                        name: self._resolve(value)
+                        for name, value in kwargs.items()
+                    },
+                ),
+            )
+            for task_key, task_input in zip(key, task_inputs_list, strict=True)
         ]
+
+    def nthreads(self) -> dict[str, int]:
+        return {"worker-0": 1}
+
+
+class _FakeAsCompleted:
+    def __init__(self) -> None:
+        self._futures: list[_FakeFuture] = []
+
+    def update(self, futures: list[_FakeFuture]) -> None:
+        self._futures.extend(futures)
+
+    def next_batch(self) -> list[_FakeFuture]:
+        if not self._futures:
+            raise StopIteration
+        futures = self._futures
+        self._futures = []
+        return futures
 
 
 class PolicyExecutionTest(unittest.TestCase):
@@ -75,7 +125,7 @@ class PolicyExecutionTest(unittest.TestCase):
             with patch("tasks.execution.runner.Client", new=_FakeClient):
                 with patch(
                     "tasks.execution.runner.as_completed",
-                    new=lambda futures: iter(futures),
+                    new=_FakeAsCompleted,
                 ):
                     summary = run_from_config(str(config_path))
 

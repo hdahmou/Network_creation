@@ -1,8 +1,10 @@
 {
   "data": {
-    "zarr_path": "../artifacts/simulation_runs/run-20260521T234239.zarr",
+    "zarr_path": "/pbs/throng/isc/hdahmou/run-20260713T235130.zarr",
     "observed_outputs": [
-      "centered_mean_welfare.mean"
+      "centered_mean_welfare.mean",
+      "indegree.mean",
+      "central_point_of_dominance.mean"
     ],
     "continuous_theta_names": [
       "outside_optimism",
@@ -19,12 +21,12 @@
   },
   "model": {
     "density_estimator": {
-      "flow_model": "nsf",
+      "flow_model": "zuko_nsf",
       "hidden_features": 96,
       "num_transforms": 8,
       "num_bins": 16,
       "z_score_theta": "independent",
-      "z_score_x": "structured"
+      "z_score_x": "independent"
     },
     "embedding": {
       "kind": "rnn",

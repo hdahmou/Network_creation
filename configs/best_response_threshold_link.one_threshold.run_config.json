@@ -39,7 +39,7 @@
     "visibility_distance": {
       "kind": "sampled_discrete_range",
       "min": 1,
-      "max": 8,
+      "max": 6,
       "step": 1
     },
     "policies": [
@@ -92,7 +92,9 @@
         "kind": "periodic",
         "every": 1
       },
-      "aggregations": ["mean"]
+      "aggregations": [
+        "mean"
+      ]
     },
     "outputs": [
       {

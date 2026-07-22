@@ -12,7 +12,15 @@ from torch import nn
 from .contracts import PositiveInt, StrictModel
 
 EmbeddingKind = Literal["identity", "rnn"]
-DensityEstimatorName = Literal["nsf", "maf", "maf_rqs", "mdn", "made"]
+DensityEstimatorName = Literal[
+    "nsf",
+    "zuko_nsf",
+    "zuko_maf",
+    "maf",
+    "maf_rqs",
+    "mdn",
+    "made",
+]
 RNNKind = Literal["gru", "lstm"]
 
 

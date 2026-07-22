@@ -14,11 +14,19 @@ from network_creation.model_inversion.networks import (
 
 
 class DensityEstimatorBuilderTests(unittest.TestCase):
+    def test_accepts_zuko_flow_models(self) -> None:
+        for flow_model in ("zuko_nsf", "zuko_maf"):
+            with self.subTest(flow_model=flow_model):
+                config = DensityEstimatorConfig.model_validate(
+                    {"flow_model": flow_model}
+                )
+                self.assertEqual(config.flow_model, flow_model)
+
     def test_forwards_sbi_kwargs_for_continuous_npe(self) -> None:
         with patch("sbi.neural_nets.posterior_nn", return_value="builder") as posterior_nn:
             builder = build_density_estimator(
                 DensityEstimatorConfig(
-                    flow_model="nsf",
+                    flow_model="zuko_nsf",
                     hidden_features=50,
                     sbi_kwargs={
                         "dropout_probability": 0.05,
@@ -31,7 +39,7 @@ class DensityEstimatorBuilderTests(unittest.TestCase):
 
         self.assertEqual(builder, "builder")
         kwargs = posterior_nn.call_args.kwargs
-        self.assertEqual(kwargs["model"], "nsf")
+        self.assertEqual(kwargs["model"], "zuko_nsf")
         self.assertEqual(kwargs["hidden_features"], 50)
         self.assertEqual(kwargs["dropout_probability"], 0.05)
         self.assertEqual(kwargs["tail_bound"], 5.0)

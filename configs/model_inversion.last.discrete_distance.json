@@ -1,6 +1,6 @@
 {
   "data": {
-    "zarr_path": "../artifacts/simulation_runs/run-20260521T000047.zarr",
+    "zarr_path": "/pbs/throng/isc/hdahmou/run-20260713T235130.zarr",
     "observed_outputs": [
       "centered_mean_welfare.mean",
       "indegree.mean",
@@ -17,38 +17,33 @@
     "discrete_input_names": [
       "n_agents"
     ],
-    "x_representation": "timeseries",
+    "x_representation": "final",
     "normalize_time": true
   },
   "model": {
     "density_estimator": {
-      "flow_model": "nsf",
+      "flow_model": "zuko_nsf",
       "hidden_features": 96,
       "num_transforms": 8,
       "num_bins": 16,
       "z_score_theta": "independent",
-      "z_score_x": "structured"
+      "z_score_x": "independent"
     },
     "embedding": {
-      "kind": "rnn",
-      "output_dim": 64,
-      "rnn_hidden_size": 96,
-      "rnn_num_layers": 2,
-      "rnn_type": "gru",
-      "rnn_bidirectional": true
+      "kind": "identity"
     }
   },
   "training": {
     "seed": 0,
-    "device": "cpu",
-    "batch_size": 200,
+    "device": "cuda",
+    "batch_size": 1024,
     "learning_rate": 0.0005,
     "validation_fraction": 0.1,
-    "stop_after_epochs": 20,
-    "max_num_epochs": 500,
+    "stop_after_epochs": 50,
+    "max_num_epochs": 1500,
     "clip_max_norm": 5.0,
     "show_progress_bars": true,
-    "calibration_sample_count": 200
+    "calibration_sample_count": 1024
   },
   "output": {
     "output_root": "../artifacts/model_inversion",

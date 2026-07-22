@@ -1,10 +1,10 @@
 {
   "data": {
-    "zarr_path": "../artifacts/simulation_runs/run-xxx.zarr",
+    "zarr_path": "/pbs/throng/isc/hdahmou/run-20260713T235130.zarr",
     "observed_outputs": [
-      "central_point_of_dominance.mean",
+      "centered_mean_welfare.mean",
       "indegree.mean",
-      "distance.mean"
+      "central_point_of_dominance.mean"
     ],
     "continuous_theta_names": [
       "outside_optimism",
@@ -17,20 +17,25 @@
     "discrete_input_names": [
       "n_agents"
     ],
-    "x_representation": "final",
+    "x_representation": "timeseries",
     "normalize_time": true
   },
   "model": {
     "density_estimator": {
-      "flow_model": "nsf",
-      "hidden_features": 50,
-      "num_transforms": 5,
-      "num_bins": 10,
+      "flow_model": "zuko_nsf",
+      "hidden_features": 96,
+      "num_transforms": 8,
+      "num_bins": 16,
       "z_score_theta": "independent",
       "z_score_x": "independent"
     },
     "embedding": {
-      "kind": "identity"
+      "kind": "rnn",
+      "output_dim": 64,
+      "rnn_hidden_size": 96,
+      "rnn_num_layers": 1,
+      "rnn_type": "gru",
+      "rnn_bidirectional": true
     }
   },
   "training": {

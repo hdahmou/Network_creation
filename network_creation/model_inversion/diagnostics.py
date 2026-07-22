@@ -51,42 +51,6 @@ def load_diagnostic_data(artifact: PosteriorArtifact) -> DiagnosticData:
     return diagnostic
 
 
-def diagnostic_input_parameter_values(
-    artifact: PosteriorArtifact,
-    diagnostic_data: DiagnosticData,
-) -> dict[str, NDArray[np.float32]]:
-    return artifact.input_values_from_x(diagnostic_data.x)
-
-
-def run_expected_coverage(
-    artifact: PosteriorArtifact,
-    diagnostic_data: DiagnosticData,
-    *,
-    num_posterior_samples: int = 1000,
-    num_workers: int = 1,
-    show_progress_bar: bool = True,
-    device: str = "cpu",
-) -> dict[str, Any]:
-    import torch
-    from sbi.diagnostics import run_sbc  # type: ignore[import-untyped]
-
-    torch_device = artifact.to_device(device)
-    ranks, dap_samples = run_sbc(
-        torch.as_tensor(diagnostic_data.theta, dtype=torch.float32, device=torch_device),
-        torch.as_tensor(diagnostic_data.x, dtype=torch.float32, device=torch_device),
-        artifact.posterior,
-        num_posterior_samples=num_posterior_samples,
-        num_workers=num_workers,
-        show_progress_bar=show_progress_bar,
-    )
-    return {
-        "ranks": ranks,
-        "dap_samples": dap_samples,
-        "num_posterior_samples": num_posterior_samples,
-        "n_diagnostic_simulations": int(diagnostic_data.theta.shape[0]),
-    }
-
-
 def marginal_sbc_ranks(
     artifact: PosteriorArtifact,
     posterior_samples: Any,
@@ -130,7 +94,7 @@ def marginal_sbc_ranks(
     return ranks
 
 
-def plot_expected_coverage(
+def plot_sbc_ranks(
     artifact: PosteriorArtifact,
     coverage: dict[str, Any],
     **plot_kwargs: Any,

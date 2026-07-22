@@ -283,7 +283,7 @@ def sample_posterior_observation(
         raise ValueError(
             "posterior sample shape does not match num_samples and theta_names"
         )
-    return decode_discrete_theta_samples(
+    return validate_discrete_theta_samples(
         samples_np,
         theta_names=theta_names,
         discrete_theta_values=values_by_name,
@@ -337,7 +337,7 @@ def sample_posterior_cases(
     return np.stack(results, axis=0).astype(np.float32)
 
 
-def decode_discrete_theta_samples(
+def validate_discrete_theta_samples(
     samples: Any,
     *,
     theta_names: Sequence[str],

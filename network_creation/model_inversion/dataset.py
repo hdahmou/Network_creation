@@ -135,18 +135,17 @@ def build_row_index(
     if parameter_values.size:
         valid_mask &= np.isfinite(parameter_values).all(axis=1)
 
-    for source_position in range(row_count):
-        if not bool(valid_mask[source_position]):
-            continue
-        zarr_row = int(source.result_rows[source_position])
-        for name in schema.observed_outputs:
-            values = np.asarray(
-                source.observed_output_arrays[name][zarr_row],
-                dtype=np.float32,
-            )
-            if not np.isfinite(values).all():
-                valid_mask[source_position] = False
-                break
+    for name in schema.observed_outputs:
+        values = np.asarray(
+            source.observed_output_arrays[name],
+            dtype=np.float32,
+        )
+        finite_result_rows = np.asarray(
+            np.isfinite(values).reshape(row_count, -1).all(axis=1),
+            dtype=np.bool_,
+        )
+        valid_mask &= finite_result_rows[source.result_rows]
+        del values
 
     kept_indices = np.nonzero(valid_mask)[0].astype(np.int64)
     if kept_indices.size == 0:

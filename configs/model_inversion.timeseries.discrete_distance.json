@@ -48,6 +48,7 @@
     "max_num_epochs": 1500,
     "clip_max_norm": 5.0,
     "show_progress_bars": true,
+    "materialize_dataset": true,
     "calibration_sample_count": 1024
   },
   "output": {

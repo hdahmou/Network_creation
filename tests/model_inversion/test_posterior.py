@@ -11,9 +11,9 @@ from network_creation.model_inversion.artifact_metadata import ArtifactMetadata
 from network_creation.model_inversion.posterior import (
     PosteriorArtifact,
     category_probabilities,
-    decode_discrete_theta_samples,
     decode_input_parameter_values,
     sample_posterior_observation,
+    validate_discrete_theta_samples,
 )
 from tests.model_inversion.support import artifact_metadata
 
@@ -34,18 +34,18 @@ class PosteriorArtifactTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "discrete_theta_values"):
             ArtifactMetadata.model_validate_json(json.dumps(payload))
 
-    def test_decode_discrete_theta_samples_validates_stored_categories(self) -> None:
+    def test_validate_discrete_theta_samples_checks_stored_categories(self) -> None:
         raw = np.asarray([[0.1, 10.0], [0.2, 20.0]], dtype=np.float32)
-        decoded = decode_discrete_theta_samples(
+        validated = validate_discrete_theta_samples(
             raw,
             theta_names=("alpha", "n_agents"),
             discrete_theta_values={"n_agents": (10, 20)},
         )
 
-        np.testing.assert_allclose(decoded, [[0.1, 10.0], [0.2, 20.0]])
+        np.testing.assert_allclose(validated, [[0.1, 10.0], [0.2, 20.0]])
 
         with self.assertRaisesRegex(ValueError, "unknown categories"):
-            decode_discrete_theta_samples(
+            validate_discrete_theta_samples(
                 [[0.1, 0.0]],
                 theta_names=("alpha", "n_agents"),
                 discrete_theta_values={"n_agents": (10, 20)},

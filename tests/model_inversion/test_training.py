@@ -145,6 +145,54 @@ class ZarrTrainingTests(unittest.TestCase):
         self.assertEqual(str(loaded_weight.device), "cpu")
         self.assertFalse(loaded_weight.requires_grad)
 
+    def test_materialized_loaders_share_cached_dataset(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source, _, dataset, split = self.prepared(temp_dir)
+            training = source.config.training.model_copy(
+                update={"materialize_dataset": True}
+            )
+            config = source.config.model_copy(update={"training": training})
+
+            loaders = make_training_loaders(dataset, split, config)
+
+            train_dataset = loaders.train.dataset
+            validation_dataset = loaders.validation.dataset
+            self.assertIsInstance(train_dataset, torch.utils.data.Subset)
+            self.assertIsInstance(validation_dataset, torch.utils.data.Subset)
+            self.assertIs(train_dataset.dataset, validation_dataset.dataset)
+            self.assertIsInstance(train_dataset.dataset, torch.utils.data.TensorDataset)
+            self.assertIsNone(loaders.train.batch_size)
+            self.assertIsNone(loaders.validation.batch_size)
+            self.assertEqual(loaders.train.num_workers, 0)
+            self.assertFalse(loaders.train.pin_memory)
+
+            for index in range(len(dataset)):
+                expected_theta, expected_x = dataset[index]
+                cached_theta, cached_x = train_dataset.dataset[index]
+                torch.testing.assert_close(cached_theta, expected_theta)
+                torch.testing.assert_close(cached_x, expected_x)
+
+            train_batches = list(loaders.train)
+            self.assertEqual(
+                sum(int(theta.shape[0]) for theta, _ in train_batches),
+                len(train_dataset),
+            )
+            for theta, x in train_batches:
+                self.assertLessEqual(
+                    int(theta.shape[0]),
+                    source.config.training.batch_size,
+                )
+                self.assertEqual(
+                    tuple(theta.shape[1:]),
+                    (len(dataset.schema.theta_order),),
+                )
+                self.assertEqual(tuple(x.shape[1:]), dataset.schema.x_event_shape)
+
+            repeated = make_training_loaders(dataset, split, config)
+            for first, second in zip(train_batches, repeated.train, strict=True):
+                torch.testing.assert_close(first[0], second[0])
+                torch.testing.assert_close(first[1], second[1])
+
     def test_non_finite_loss_raises(self) -> None:
         dataset = torch.utils.data.TensorDataset(
             torch.ones((2, 1)),

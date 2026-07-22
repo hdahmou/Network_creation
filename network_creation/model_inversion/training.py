@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from math import isfinite, prod
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import torch
 
 from .config import InversionConfig
@@ -99,6 +101,41 @@ def make_training_loaders(
     generator = torch.Generator(device="cpu")
     generator.manual_seed(int(config.training.seed))
     training = config.training
+    if training.materialize_dataset:
+        loader_dataset = _materialize_dataset(dataset, config)
+        train_subset = data.Subset(loader_dataset, split.train_indices.tolist())
+        validation_subset = data.Subset(
+            loader_dataset,
+            split.validation_indices.tolist(),
+        )
+        train_batches = data.BatchSampler(
+            data.RandomSampler(train_subset, generator=generator),
+            batch_size=int(training.batch_size),
+            drop_last=False,
+        )
+        validation_batches = data.BatchSampler(
+            data.SequentialSampler(validation_subset),
+            batch_size=int(training.batch_size),
+            drop_last=False,
+        )
+        return TrainingLoaders(
+            train=data.DataLoader(
+                train_subset,
+                batch_size=None,
+                sampler=train_batches,
+                generator=generator,
+                num_workers=0,
+                pin_memory=False,
+            ),
+            validation=data.DataLoader(
+                validation_subset,
+                batch_size=None,
+                sampler=validation_batches,
+                num_workers=0,
+                pin_memory=False,
+            ),
+        )
+
     loader_kwargs: dict[str, Any] = {
         "num_workers": int(training.num_workers),
         "pin_memory": _resolve_pin_memory(config),
@@ -122,6 +159,71 @@ def make_training_loaders(
             **loader_kwargs,
         ),
     )
+
+
+def _materialize_dataset(
+    dataset: ZarrInversionDataset,
+    config: InversionConfig,
+) -> Any:
+    from torch.utils import data
+
+    row_count = len(dataset)
+    device = torch.device(config.training.device)
+    theta_shape = (row_count, len(dataset.schema.theta_order))
+    x_shape = (row_count, *dataset.schema.x_event_shape)
+    estimated_bytes = 4 * (prod(theta_shape) + prod(x_shape))
+    LOGGER.info(
+        "Materializing inversion dataset on %s: rows=%s theta_shape=%s "
+        "x_shape=%s estimated_size=%.2f GiB",
+        device,
+        row_count,
+        theta_shape,
+        x_shape,
+        estimated_bytes / (1024**3),
+    )
+    observed_output_arrays: dict[str, Any] = {}
+    for name in dataset.schema.observed_outputs:
+        LOGGER.info("Reading observed output %s into CPU memory", name)
+        observed_output_arrays[name] = np.asarray(
+            dataset.source.observed_output_arrays[name],
+            dtype=np.float32,
+        )
+    memory_source = replace(
+        dataset.source,
+        observed_output_arrays=observed_output_arrays,
+    )
+    memory_dataset = ZarrInversionDataset(
+        source=memory_source,
+        row_index=dataset.row_index,
+        schema=dataset.schema,
+    )
+    theta = torch.empty(theta_shape, dtype=torch.float32)
+    x = torch.empty(x_shape, dtype=torch.float32)
+    rows: Any = range(row_count)
+    if config.training.show_progress_bars:
+        from tqdm.auto import tqdm  # type: ignore[import-untyped]
+
+        rows = tqdm(
+            rows,
+            desc="Materializing dataset",
+            unit="sample",
+            mininterval=1.0,
+            miniters=100,
+        )
+    try:
+        for index in rows:
+            theta_row, x_row = memory_dataset[int(index)]
+            theta[int(index)].copy_(theta_row)
+            x[int(index)].copy_(x_row)
+    finally:
+        close = getattr(rows, "close", None)
+        if close is not None:
+            close()
+    del memory_dataset, memory_source, observed_output_arrays
+    theta = theta.to(device)
+    x = x.to(device)
+    LOGGER.info("Finished materializing inversion dataset")
+    return data.TensorDataset(theta, x)
 
 
 def fit_posterior_estimator(
@@ -296,12 +398,11 @@ def _run_epoch(
             if optimizer is not None:
                 optimizer.zero_grad(set_to_none=True)
             losses = density_estimator.loss(theta_batch, condition=x_batch)
-            if not bool(torch.isfinite(losses).all().item()):
-                raise ValueError(f"{loader_name} loss contains non-finite values")
             loss = torch.mean(losses)
-            if not bool(torch.isfinite(loss).item()):
+            loss_value = float(loss.detach().item())
+            if not isfinite(loss_value):
                 raise ValueError(f"{loader_name} loss contains non-finite values")
-            loss_sum += float(loss.detach().item()) * batch_size
+            loss_sum += loss_value * batch_size
             sample_count += batch_size
             if optimizer is not None:
                 loss.backward()

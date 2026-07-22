@@ -74,6 +74,7 @@ class InversionTrainingConfig(StrictModel):
     num_workers: NonNegativeInt = 0
     pin_memory: bool | None = None
     persistent_workers: bool = False
+    materialize_dataset: bool = False
     calibration_sample_count: PositiveInt = 200
 
     @model_validator(mode="after")

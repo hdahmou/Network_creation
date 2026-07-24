@@ -774,6 +774,26 @@ class PlotPairTest(unittest.TestCase):
         self.assertEqual(set(figure.axes), set(axes.ravel()))
         plt.close(figure)
 
+    def test_plot_pair_rounds_continuous_limits_to_endpoint_ticks(self) -> None:
+        X = np.array(
+            [
+                [0.03, 0.04, 0.0],
+                [0.34, 0.35, 1.0],
+                [0.66, 0.70, 2.0],
+                [0.97, 0.96, 3.0],
+            ],
+            dtype=float,
+        )
+        figure, axes = self.plot_pair_in_layout(X, method="points")
+
+        np.testing.assert_allclose(axes[0, 0].get_xlim(), (0.0, 1.0))
+        np.testing.assert_allclose(axes[0, 0].get_ylim(), (0.0, 1.0))
+        self.assertIn(0.0, axes[1, 0].get_xticks())
+        self.assertIn(1.0, axes[1, 0].get_xticks())
+        self.assertIn(0.0, axes[0, 0].get_yticks())
+        self.assertIn(1.0, axes[0, 0].get_yticks())
+        plt.close(figure)
+
     def test_plot_pair_does_not_add_default_colorbar_for_single_pair_axis(self) -> None:
         figure, axes = self.plot_pair_in_layout(self.X[:, :2], method="points")
 
@@ -1197,6 +1217,18 @@ class PlotPairTest(unittest.TestCase):
         self.assertEqual(
             [tick.get_text() for tick in axes[0, 0].get_yticklabels()],
             ["10", "20", "100"],
+        )
+        self.assertTrue(
+            all(
+                tick.tick1line.get_markersize() == 0
+                for tick in axes[1, 0].xaxis.get_major_ticks()
+            )
+        )
+        self.assertTrue(
+            all(
+                tick.tick1line.get_markersize() == 0
+                for tick in axes[0, 0].yaxis.get_major_ticks()
+            )
         )
         self.assertIsInstance(axes[0, 0].xaxis.get_minor_locator(), NullLocator)
         self.assertIsInstance(axes[0, 0].yaxis.get_minor_locator(), NullLocator)

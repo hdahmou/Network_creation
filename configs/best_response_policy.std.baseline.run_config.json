@@ -31,7 +31,11 @@
     }
   },
   "population": {
-    "n_agents": [10, 50, 100],
+    "n_agents": [
+      10,
+      50,
+      100
+    ],
     "visibility_distance": {
       "kind": "sampled_discrete_range",
       "min": 1,
@@ -60,7 +64,9 @@
     ],
     "policy_proportions": {
       "policy": "best_response",
-      "values": [1.0]
+      "values": [
+        1.0
+      ]
     }
   },
   "observers": {
@@ -69,7 +75,10 @@
         "kind": "periodic",
         "every": 1
       },
-      "aggregations": ["mean", "std"]
+      "aggregations": [
+        "mean",
+        "std"
+      ]
     },
     "outputs": [
       {

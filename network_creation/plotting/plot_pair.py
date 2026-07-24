@@ -5,7 +5,7 @@ from matplotlib.axes import Axes
 from matplotlib.collections import LineCollection, PatchCollection
 from matplotlib.colors import Normalize
 from matplotlib.patches import Rectangle
-from matplotlib.ticker import NullLocator
+from matplotlib.ticker import MaxNLocator, NullLocator
 from scipy.ndimage import gaussian_filter
 from scipy.stats import binned_statistic_2d
 
@@ -28,6 +28,11 @@ def _discrete_tick_label(value: float) -> str:
     return f"{value:g}"
 
 
+def _rounded_continuous_limits(values: np.ndarray) -> tuple[float, float]:
+    ticks = MaxNLocator().tick_values(float(values.min()), float(values.max()))
+    return float(ticks[0]), float(ticks[-1])
+
+
 def _build_axis_spec(
     values: np.ndarray,
     is_ordered_discrete: bool,
@@ -48,7 +53,7 @@ def _build_axis_spec(
             tuple(_discrete_tick_label(value) for value in raw_levels),
         )
     if bounds is None:
-        bounds = (float(values.min()), float(values.max()))
+        bounds = _rounded_continuous_limits(values)
     return _AxisSpec(values, False, (float(bounds[0]), float(bounds[1])))
 
 
@@ -92,6 +97,7 @@ def _apply_axis_metadata(ax: Axes, x_spec: _AxisSpec, y_spec: _AxisSpec) -> None
         ax.set_xticks(x_spec.levels)
         assert x_spec.tick_labels is not None
         ax.set_xticklabels(x_spec.tick_labels)
+        ax.tick_params(axis="x", which="major", length=0)
         ax.xaxis.set_minor_locator(NullLocator())
         assert x_spec.edges is not None
         for edge in x_spec.edges[1:-1]:
@@ -106,6 +112,7 @@ def _apply_axis_metadata(ax: Axes, x_spec: _AxisSpec, y_spec: _AxisSpec) -> None
         ax.set_yticks(y_spec.levels)
         assert y_spec.tick_labels is not None
         ax.set_yticklabels(y_spec.tick_labels)
+        ax.tick_params(axis="y", which="major", length=0)
         ax.yaxis.set_minor_locator(NullLocator())
         assert y_spec.edges is not None
         for edge in y_spec.edges[1:-1]:
@@ -275,6 +282,7 @@ def _render_descriptor(
         cmap=cmap,
         norm=norm,
         shading="flat",
+        edgecolors="face",
     )
     _apply_axis_metadata(ax, x_spec, y_spec)
     return ax

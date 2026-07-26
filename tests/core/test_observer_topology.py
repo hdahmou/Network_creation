@@ -44,19 +44,21 @@ class TopologyObserverTest(unittest.TestCase):
             env=env,
             agents=(
                 Agent(
+                    activation_weight=1.0,
                     id=0,
                     visibility_distance=10,
                     policy=ConstantPolicy(Action(ActionType.BRIDGE, source=0, target=1)),
                     seed=17,
                 ),
                 Agent(
+                    activation_weight=1.0,
                     id=1,
                     visibility_distance=10,
                     policy=ConstantPolicy(Action(ActionType.PASS, source=1)),
                     seed=19,
                 ),
             ),
-            actor_scheduler=ActorScheduler(n_agents=3, n_actors=3, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=3, n_actors=3, activation_weights=(1.0, 1.0, 1.0), seed=21),
             max_steps=2,
             rng=np.random.default_rng(23),
             observers=(density_observer,),
@@ -98,7 +100,7 @@ class TopologyObserverTest(unittest.TestCase):
         simulator = Simulator(
             env=env,
             agents=(),
-            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, activation_weights=(1.0,), seed=21),
             max_steps=0,
             rng=np.random.default_rng(19),
             observers=(indegree_observer,),
@@ -154,7 +156,7 @@ class TopologyObserverTest(unittest.TestCase):
         simulator = Simulator(
             env=env,
             agents=(),
-            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, activation_weights=(1.0,), seed=21),
             max_steps=0,
             rng=np.random.default_rng(19),
             observers=(triad_observer,),
@@ -178,13 +180,14 @@ class TopologyObserverTest(unittest.TestCase):
             env=env,
             agents=(
                 Agent(
+                    activation_weight=1.0,
                     id=0,
                     visibility_distance=10,
                     policy=ConstantPolicy(Action(ActionType.BRIDGE, source=0, target=1)),
                     seed=19,
                 ),
             ),
-            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, activation_weights=(1.0,), seed=21),
             max_steps=1,
             rng=np.random.default_rng(23),
             observers=(triad_observer,),
@@ -221,7 +224,7 @@ class TopologyObserverTest(unittest.TestCase):
         simulator = Simulator(
             env=env,
             agents=(),
-            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, activation_weights=(1.0,), seed=21),
             max_steps=0,
             rng=np.random.default_rng(31),
             observers=(triad_observer,),
@@ -244,7 +247,7 @@ class TopologyObserverTest(unittest.TestCase):
         simulator = Simulator(
             env=env,
             agents=(),
-            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, activation_weights=(1.0,), seed=21),
             max_steps=0,
             rng=np.random.default_rng(37),
             observers=(triad_observer,),
@@ -267,13 +270,14 @@ class TopologyObserverTest(unittest.TestCase):
             env=env,
             agents=(
                 Agent(
+                    activation_weight=1.0,
                     id=0,
                     visibility_distance=10,
                     policy=ConstantPolicy(Action(ActionType.BRIDGE, source=0, target=1)),
                     seed=41,
                 ),
             ),
-            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, activation_weights=(1.0,), seed=21),
             max_steps=1,
             rng=np.random.default_rng(43),
             observers=(triad_observer,),
@@ -322,7 +326,7 @@ class TopologyObserverTest(unittest.TestCase):
         simulator = Simulator(
             env=env,
             agents=(),
-            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, activation_weights=(1.0,), seed=21),
             max_steps=0,
             rng=np.random.default_rng(29),
             observers=(distance_observer,),
@@ -367,7 +371,7 @@ class TopologyObserverTest(unittest.TestCase):
         simulator = Simulator(
             env=env,
             agents=(),
-            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, activation_weights=(1.0,), seed=21),
             max_steps=0,
             rng=np.random.default_rng(37),
             observers=(closeness_observer,),
@@ -415,7 +419,7 @@ class TopologyObserverTest(unittest.TestCase):
         simulator = Simulator(
             env=env,
             agents=(),
-            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, activation_weights=(1.0,), seed=21),
             max_steps=0,
             rng=np.random.default_rng(41),
             observers=(dominance_observer,),
@@ -461,7 +465,7 @@ class TopologyObserverTest(unittest.TestCase):
         simulator = Simulator(
             env=env,
             agents=(),
-            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, activation_weights=(1.0,), seed=21),
             max_steps=0,
             rng=np.random.default_rng(83),
             observers=(distance_observer,),
@@ -505,7 +509,7 @@ class TopologyObserverTest(unittest.TestCase):
         simulator = Simulator(
             env=env,
             agents=(),
-            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, activation_weights=(1.0,), seed=21),
             max_steps=0,
             rng=np.random.default_rng(97),
             observers=(dominance_observer,),
@@ -540,6 +544,7 @@ class TopologyObserverTest(unittest.TestCase):
             env=env,
             agents=(
                 Agent(
+                    activation_weight=1.0,
                     id=0,
                     visibility_distance=10,
                     policy=EpisodeCallPolicy(
@@ -551,12 +556,14 @@ class TopologyObserverTest(unittest.TestCase):
                     seed=223,
                 ),
                 Agent(
+                    activation_weight=1.0,
                     id=1,
                     visibility_distance=10,
                     policy=ConstantPolicy(Action(ActionType.PASS, source=1)),
                     seed=227,
                 ),
                 Agent(
+                    activation_weight=1.0,
                     id=2,
                     visibility_distance=10,
                     policy=EpisodeCallPolicy(
@@ -568,7 +575,7 @@ class TopologyObserverTest(unittest.TestCase):
                     seed=229,
                 ),
             ),
-            actor_scheduler=ActorScheduler(n_agents=3, n_actors=3, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=3, n_actors=3, activation_weights=(1.0, 1.0, 1.0), seed=21),
             max_steps=2,
             rng=np.random.default_rng(233),
             observers=(hub_persistence_observer,),
@@ -597,25 +604,28 @@ class TopologyObserverTest(unittest.TestCase):
             env=env,
             agents=(
                 Agent(
+                    activation_weight=1.0,
                     id=0,
                     visibility_distance=10,
                     policy=ConstantPolicy(Action(ActionType.PASS, source=0)),
                     seed=241,
                 ),
                 Agent(
+                    activation_weight=1.0,
                     id=1,
                     visibility_distance=10,
                     policy=ConstantPolicy(Action(ActionType.PASS, source=1)),
                     seed=251,
                 ),
                 Agent(
+                    activation_weight=1.0,
                     id=2,
                     visibility_distance=10,
                     policy=ConstantPolicy(Action(ActionType.PASS, source=2)),
                     seed=257,
                 ),
             ),
-            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, activation_weights=(1.0,), seed=21),
             max_steps=19,
             rng=np.random.default_rng(241),
             observers=(hub_persistence_observer,),
@@ -642,6 +652,7 @@ class TopologyObserverTest(unittest.TestCase):
             env=env,
             agents=(
                 Agent(
+                    activation_weight=1.0,
                     id=0,
                     visibility_distance=10,
                     policy=EpisodeCallPolicy(
@@ -659,12 +670,14 @@ class TopologyObserverTest(unittest.TestCase):
                     seed=257,
                 ),
                 Agent(
+                    activation_weight=1.0,
                     id=1,
                     visibility_distance=10,
                     policy=ConstantPolicy(Action(ActionType.PASS, source=1)),
                     seed=263,
                 ),
                 Agent(
+                    activation_weight=1.0,
                     id=2,
                     visibility_distance=10,
                     policy=EpisodeCallPolicy(
@@ -682,7 +695,7 @@ class TopologyObserverTest(unittest.TestCase):
                     seed=269,
                 ),
             ),
-            actor_scheduler=ActorScheduler(n_agents=3, n_actors=3, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=3, n_actors=3, activation_weights=(1.0, 1.0, 1.0), seed=21),
             max_steps=2,
             rng=np.random.default_rng(271),
             observers=(hub_persistence_observer,),
@@ -733,6 +746,7 @@ class TopologyObserverTest(unittest.TestCase):
             env=env,
             agents=(
                 Agent(
+                    activation_weight=1.0,
                     id=0,
                     visibility_distance=10,
                     policy=EpisodeCallPolicy(
@@ -744,12 +758,14 @@ class TopologyObserverTest(unittest.TestCase):
                     seed=223,
                 ),
                 Agent(
+                    activation_weight=1.0,
                     id=1,
                     visibility_distance=10,
                     policy=ConstantPolicy(Action(ActionType.PASS, source=1)),
                     seed=227,
                 ),
                 Agent(
+                    activation_weight=1.0,
                     id=2,
                     visibility_distance=10,
                     policy=EpisodeCallPolicy(
@@ -761,7 +777,7 @@ class TopologyObserverTest(unittest.TestCase):
                     seed=229,
                 ),
             ),
-            actor_scheduler=ActorScheduler(n_agents=3, n_actors=3, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=3, n_actors=3, activation_weights=(1.0, 1.0, 1.0), seed=21),
             max_steps=2,
             rng=np.random.default_rng(233),
             observers=(hub_persistence_observer,),
@@ -788,7 +804,7 @@ class TopologyObserverTest(unittest.TestCase):
         simulator = Simulator(
             env=env,
             agents=(),
-            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, activation_weights=(1.0,), seed=21),
             max_steps=0,
             rng=np.random.default_rng(241),
             observers=(hub_persistence_observer,),
@@ -814,19 +830,21 @@ class TopologyObserverTest(unittest.TestCase):
             env=env,
             agents=(
                 Agent(
+                    activation_weight=1.0,
                     id=0,
                     visibility_distance=10,
                     policy=ConstantPolicy(Action(ActionType.BRIDGE, source=0, target=1)),
                     seed=47,
                 ),
                 Agent(
+                    activation_weight=1.0,
                     id=1,
                     visibility_distance=10,
                     policy=ConstantPolicy(Action(ActionType.PASS, source=1)),
                     seed=53,
                 ),
             ),
-            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, activation_weights=(1.0,), seed=21),
             max_steps=2,
             rng=np.random.default_rng(59),
             observers=(density_observer,),
@@ -852,7 +870,7 @@ class TopologyObserverTest(unittest.TestCase):
         simulator = Simulator(
             env=env,
             agents=(),
-            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, activation_weights=(1.0,), seed=21),
             max_steps=0,
             rng=np.random.default_rng(67),
             observers=(density_observer,),
@@ -877,19 +895,21 @@ class TopologyObserverTest(unittest.TestCase):
             env=env,
             agents=(
                 Agent(
+                    activation_weight=1.0,
                     id=0,
                     visibility_distance=10,
                     policy=ConstantPolicy(Action(ActionType.BRIDGE, source=0, target=1)),
                     seed=67,
                 ),
                 Agent(
+                    activation_weight=1.0,
                     id=1,
                     visibility_distance=10,
                     policy=ConstantPolicy(Action(ActionType.PASS, source=1)),
                     seed=71,
                 ),
             ),
-            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, activation_weights=(1.0,), seed=21),
             max_steps=2,
             rng=np.random.default_rng(73),
             observers=(density_observer,),
@@ -924,19 +944,21 @@ class TopologyObserverTest(unittest.TestCase):
             env=env,
             agents=(
                 Agent(
+                    activation_weight=1.0,
                     id=0,
                     visibility_distance=10,
                     policy=ConstantPolicy(Action(ActionType.PASS, source=0)),
                     seed=103,
                 ),
                 Agent(
+                    activation_weight=1.0,
                     id=1,
                     visibility_distance=10,
                     policy=ConstantPolicy(Action(ActionType.PASS, source=1)),
                     seed=107,
                 ),
             ),
-            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, activation_weights=(1.0,), seed=21),
             max_steps=5,
             rng=np.random.default_rng(109),
             observers=(density_observer,),
@@ -963,19 +985,21 @@ class TopologyObserverTest(unittest.TestCase):
             env=env,
             agents=(
                 Agent(
+                    activation_weight=1.0,
                     id=0,
                     visibility_distance=10,
                     policy=ConstantPolicy(Action(ActionType.BRIDGE, source=0, target=1)),
                     seed=83,
                 ),
                 Agent(
+                    activation_weight=1.0,
                     id=1,
                     visibility_distance=10,
                     policy=ConstantPolicy(Action(ActionType.PASS, source=1)),
                     seed=89,
                 ),
             ),
-            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, activation_weights=(1.0,), seed=21),
             max_steps=2,
             rng=np.random.default_rng(97),
             observers=(density_observer,),
@@ -1002,13 +1026,14 @@ class TopologyObserverTest(unittest.TestCase):
             env=env,
             agents=(
                 Agent(
+                    activation_weight=1.0,
                     id=0,
                     visibility_distance=10,
                     policy=ConstantPolicy(Action(ActionType.BRIDGE, source=0, target=1)),
                     seed=19,
                 ),
             ),
-            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, activation_weights=(1.0,), seed=21),
             max_steps=1,
             rng=np.random.default_rng(23),
             observers=(triad_observer,),

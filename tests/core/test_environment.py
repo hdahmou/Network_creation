@@ -60,7 +60,7 @@ class EnvironmentTest(unittest.TestCase):
 
     def test_get_observation_uses_supplied_visibility_distance(self) -> None:
         env = Environment(graph_from_adjacency_matrix(self._chain_adjacency()), seed=11)
-        agent = Agent(id=0, visibility_distance=2, policy=RandomPolicy(seed=17), seed=19)
+        agent = Agent(activation_weight=1.0, id=0, visibility_distance=2, policy=RandomPolicy(seed=17), seed=19)
 
         observation = env.get_observation(agent)
 
@@ -70,7 +70,7 @@ class EnvironmentTest(unittest.TestCase):
 
     def test_get_observation_uses_one_hop_visibility_distance(self) -> None:
         env = Environment(graph_from_adjacency_matrix(self._chain_adjacency()), seed=11)
-        agent = Agent(id=0, visibility_distance=1, policy=RandomPolicy(seed=17), seed=19)
+        agent = Agent(activation_weight=1.0, id=0, visibility_distance=1, policy=RandomPolicy(seed=17), seed=19)
 
         observation = env.get_observation(agent)
 
@@ -80,6 +80,7 @@ class EnvironmentTest(unittest.TestCase):
     def test_get_observation_supports_distance_larger_than_graph_diameter(self) -> None:
         env = Environment(graph_from_adjacency_matrix(self._chain_adjacency()), seed=11)
         agent = Agent(
+            activation_weight=1.0,
             id=0, visibility_distance=10, policy=RandomPolicy(seed=17), seed=19
         )
 
@@ -90,7 +91,7 @@ class EnvironmentTest(unittest.TestCase):
 
     def test_get_action_space_composes_environment_observation(self) -> None:
         env = Environment(graph_from_adjacency_matrix(self._chain_adjacency()), seed=23)
-        agent = Agent(id=0, visibility_distance=2, policy=RandomPolicy(seed=29), seed=31)
+        agent = Agent(activation_weight=1.0, id=0, visibility_distance=2, policy=RandomPolicy(seed=29), seed=31)
 
         action_space = env.get_action_space(agent)
 
@@ -154,6 +155,7 @@ class AgentPolicyIntegrationTest(unittest.TestCase):
     def test_agent_rejects_non_integer_visibility_distance(self) -> None:
         with self.assertRaisesRegex(ValueError, "positive integer"):
             Agent(
+                activation_weight=1.0,
                 id=0,
                 visibility_distance=0.5,
                 policy=StubPolicy(Action(ActionType.PASS, source=0)),
@@ -163,6 +165,7 @@ class AgentPolicyIntegrationTest(unittest.TestCase):
     def test_agent_rejects_non_positive_visibility_distance(self) -> None:
         with self.assertRaisesRegex(ValueError, "positive integer"):
             Agent(
+                activation_weight=1.0,
                 id=0,
                 visibility_distance=0,
                 policy=StubPolicy(Action(ActionType.PASS, source=0)),
@@ -171,6 +174,7 @@ class AgentPolicyIntegrationTest(unittest.TestCase):
 
     def test_agent_get_visibility_distance_returns_stored_visibility_distance(self) -> None:
         agent = Agent(
+            activation_weight=1.0,
             id=0,
             visibility_distance=2,
             policy=StubPolicy(Action(ActionType.PASS, source=0)),
@@ -182,7 +186,7 @@ class AgentPolicyIntegrationTest(unittest.TestCase):
     def test_agent_delegates_act_and_reset_to_policy(self) -> None:
         expected_action = Action(ActionType.PASS, source=0)
         policy = StubPolicy(expected_action)
-        agent = Agent(id=0, visibility_distance=1, policy=policy, seed=41)
+        agent = Agent(activation_weight=1.0, id=0, visibility_distance=1, policy=policy, seed=41)
         graph = Environment(create_empty_graph(1), seed=43).state.graph
         observation = Observation(
             node_idx=0,
@@ -230,6 +234,7 @@ class AgentPolicyIntegrationTest(unittest.TestCase):
             seed=47,
         )
         agent = Agent(
+            activation_weight=1.0,
             id=0, visibility_distance=2, policy=RandomPolicy(seed=7), seed=53
         )
         observation = env.get_observation(agent)
@@ -301,9 +306,7 @@ class AgentPolicyIntegrationTest(unittest.TestCase):
         self.assertNotEqual(local_actions, global_actions)
         self.assertTrue(all(action in local_actions for action in samples))
 
-    def test_random_policy_without_p_act_preserves_legacy_uniform_action_sampling(
-        self,
-    ) -> None:
+    def test_random_policy_samples_uniformly_from_non_pass_actions(self) -> None:
         action_space = self._random_policy_action_space()
         policy = RandomPolicy(seed=7)
 
@@ -315,57 +318,21 @@ class AgentPolicyIntegrationTest(unittest.TestCase):
             for _ in range(8)
         ]
 
-        self.assertIsNone(policy.p_act)
         self.assertEqual(
             samples,
             [
                 Action(ActionType.BRIDGE, source=0),
-                Action(ActionType.PASS, source=0),
-                Action(ActionType.PASS, source=0),
+                Action(ActionType.DELETE, source=0, target=2),
                 Action(ActionType.BRIDGE, source=0),
-                Action(ActionType.PASS, source=0),
+                Action(ActionType.BRIDGE, source=0),
+                Action(ActionType.DELETE, source=0, target=2),
                 Action(ActionType.BRIDGE, source=0),
                 Action(ActionType.BRIDGE, source=0),
                 Action(ActionType.ADD, source=0, target=1),
             ],
         )
 
-    def test_random_policy_rejects_invalid_p_act(self) -> None:
-        for invalid_p_act in (-0.1, 1.1, True):
-            with self.subTest(p_act=invalid_p_act):
-                with self.assertRaisesRegex(ValueError, "p_act"):
-                    RandomPolicy(seed=7, p_act=invalid_p_act)
-
-    def test_random_policy_p_act_zero_always_passes(self) -> None:
-        action_space = self._random_policy_action_space()
-        policy = RandomPolicy(seed=7, p_act=0.0)
-
-        samples = [
-            policy.get_decision(
-                self._empty_observation(),
-                action_space,
-            ).actions[0]
-            for _ in range(8)
-        ]
-
-        self.assertEqual(policy.p_act, 0.0)
-        self.assertEqual(samples, [Action(ActionType.PASS, source=0)] * 8)
-
-    def test_random_policy_p_act_one_samples_non_pass_actions(self) -> None:
-        action_space = self._random_policy_action_space()
-        policy = RandomPolicy(seed=7, p_act=1.0)
-
-        samples = [
-            policy.get_decision(
-                self._empty_observation(),
-                action_space,
-            ).actions[0]
-            for _ in range(20)
-        ]
-
-        self.assertTrue(all(action.type is not ActionType.PASS for action in samples))
-
-    def test_random_policy_p_act_one_can_sample_bridge_action(self) -> None:
+    def test_random_policy_can_sample_bridge_action(self) -> None:
         bridge_action = Action(ActionType.BRIDGE, source=0)
         action_space = ActionSpace(
             actions={
@@ -375,7 +342,7 @@ class AgentPolicyIntegrationTest(unittest.TestCase):
                 ActionType.PASS: [Action(ActionType.PASS, source=0)],
             }
         )
-        policy = RandomPolicy(seed=7, p_act=1.0)
+        policy = RandomPolicy(seed=7)
 
         decision = policy.get_decision(
             self._empty_observation(),
@@ -384,9 +351,7 @@ class AgentPolicyIntegrationTest(unittest.TestCase):
 
         self.assertEqual(decision.actions, (bridge_action,))
 
-    def test_random_policy_p_act_falls_back_to_pass_when_no_non_pass_actions(
-        self,
-    ) -> None:
+    def test_random_policy_falls_back_to_pass_when_no_non_pass_actions(self) -> None:
         pass_action = Action(ActionType.PASS, source=0)
         action_space = ActionSpace(
             actions={
@@ -396,7 +361,7 @@ class AgentPolicyIntegrationTest(unittest.TestCase):
                 ActionType.PASS: [pass_action],
             }
         )
-        policy = RandomPolicy(seed=7, p_act=1.0)
+        policy = RandomPolicy(seed=7)
 
         decision = policy.get_decision(
             self._empty_observation(n_agents=1),
@@ -405,9 +370,9 @@ class AgentPolicyIntegrationTest(unittest.TestCase):
 
         self.assertEqual(decision.actions, (pass_action,))
 
-    def test_random_policy_with_p_act_reset_is_deterministic(self) -> None:
+    def test_random_policy_reset_is_deterministic(self) -> None:
         action_space = self._random_policy_action_space()
-        policy = RandomPolicy(seed=7, p_act=0.5)
+        policy = RandomPolicy(seed=7)
         observation = self._empty_observation()
 
         first_run = [

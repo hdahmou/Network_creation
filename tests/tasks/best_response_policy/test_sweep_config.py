@@ -96,7 +96,7 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
         prepared = prepare_policy_run(config)
 
         self.assertEqual(prepared.inputs, (0,))
-        self.assertEqual(sweep.configuration_values.shape, (1, 1, 1, 8))
+        self.assertEqual(sweep.configuration_values.shape, (1, 1, 1, 9))
         self.assertEqual(
             parameter_samples.parameter_names,
             (
@@ -105,12 +105,13 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
                 "visibility_distance",
                 "outside_optimism",
                 "exploration",
+                "agent.activation_weight",
             ),
         )
         np.testing.assert_allclose(
             parameter_samples.parameter_values,
             np.array(
-                [[0.05, 0.5, 4.0, 0.25, 0.5]],
+                [[0.05, 0.5, 4.0, 0.25, 0.5, 1.0]],
                 dtype=np.float32,
             ),
         )
@@ -126,6 +127,7 @@ class BestResponsePolicyPreparationTest(unittest.TestCase):
                 "visibility_distance",
                 "outside_optimism",
                 "exploration",
+                "agent.activation_weight",
             ),
         )
 

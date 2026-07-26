@@ -32,6 +32,12 @@
   },
   "population": {
     "n_agents": [10, 50, 100],
+    "agent_parameters": {
+      "activation_weight": {
+        "kind": "fixed",
+        "value": 1.0
+      }
+    },
     "visibility_distance": {
       "kind": "sampled_discrete_range",
       "min": 1,
@@ -47,13 +53,13 @@
             "kind": "continuous",
             "min": 0.0,
             "max": 1.0,
-            "std": 0.0
+            "std": 0.2
           },
           "exploration": {
             "kind": "continuous",
             "min": 0.0001,
             "max": 0.1,
-            "std": 0.0
+            "std": 0.02
           }
         }
       }

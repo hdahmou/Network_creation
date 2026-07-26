@@ -88,6 +88,7 @@ class BestResponsePolicyResultFormatterTest(unittest.TestCase):
                 "visibility_distance",
                 "outside_optimism",
                 "exploration",
+                "agent.activation_weight",
             ),
         )
         self.assertEqual(

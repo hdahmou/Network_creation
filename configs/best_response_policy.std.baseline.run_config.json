@@ -36,6 +36,12 @@
       50,
       100
     ],
+    "agent_parameters": {
+      "activation_weight": {
+        "kind": "fixed",
+        "value": 1.0
+      }
+    },
     "visibility_distance": {
       "kind": "sampled_discrete_range",
       "min": 1,

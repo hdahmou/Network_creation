@@ -339,6 +339,7 @@ class MyopicPayoffPolicyTest(unittest.TestCase):
             env=Environment(graph_from_adjacency_matrix(adjacency), seed=31),
             agents=(
                 Agent(
+                    activation_weight=1.0,
                     id=0,
                     visibility_distance=10,
                     policy=MyopicPayoffPolicy(
@@ -350,7 +351,7 @@ class MyopicPayoffPolicyTest(unittest.TestCase):
                     seed=2,
                 ),
             ),
-            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, activation_weights=(1.0,), seed=21),
             max_steps=1,
             rng=np.random.default_rng(7),
             observers=(),

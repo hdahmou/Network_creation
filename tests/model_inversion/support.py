@@ -104,6 +104,9 @@ def write_result_store(path: Path, *, include_nan: bool = False) -> Path:
         },
         "population": {
             "n_agents": [10, 20],
+            "agent_parameters": {
+                "activation_weight": {"kind": "fixed", "value": 1.0}
+            },
             "policy_proportions": {"policy": "best_response", "values": [1.0]},
             "policies": [{"id": "best_response", "kind": "best-response"}],
         },

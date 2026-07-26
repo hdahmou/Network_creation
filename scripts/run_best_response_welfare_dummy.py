@@ -47,6 +47,7 @@ def run_case(case_index: int, policy_kwargs: dict[str, float]) -> None:
     def build_agent(node_id: int) -> Agent:
         policy_seed = 1_000 * (case_index + 1) + node_id
         return Agent(
+            activation_weight=1.0,
             id=node_id,
             visibility_distance=VISIBILITY_DISTANCE,
             policy=BestResponsePolicy(

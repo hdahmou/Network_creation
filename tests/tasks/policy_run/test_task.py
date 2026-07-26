@@ -12,6 +12,7 @@ from network_creation.policies.random import RandomPolicy
 from network_creation.policies.threshold_link import ThresholdLinkPolicy
 from tasks.policies import prepare_policy_run
 from tasks.policies.agent_parameters import build_sampled_agent_parameter_plan
+from tasks.policies.agent_attributes import build_agent_attribute_plan
 from tasks.policies.agents import PolicyAgentBuilder
 from tasks.policies.outputs import (
     SAMPLED_AGENT_PARAMETER_NAMES_ATTR,
@@ -23,7 +24,13 @@ from tasks.policies.sweep import (
     parse_policy_entries,
     sample_parameters,
 )
-from tests.tasks.config_support import continuous, fixed, policy, task_config
+from tests.tasks.config_support import (
+    continuous,
+    fixed,
+    policy,
+    scaled_other_agents,
+    task_config,
+)
 
 
 class AlternatingPolicyAgentBuilder(PolicyAgentBuilder):
@@ -61,6 +68,35 @@ def _policy_components(config: dict[str, object]):
     return parameter_samples, sweep, sampled_parameter_plan, agent_builder
 
 
+def _agent_attribute_components(config: dict[str, object]):
+    policy_entries = parse_policy_entries(config)
+    input_spec = collect_parameter_specs(config)
+    parameter_specs = input_spec["parameters"]
+    parameter_samples = sample_parameters(input_spec)
+    sweep = build_sweep(
+        config,
+        parameter_samples,
+        parameter_specs=parameter_specs,
+        policy_ids=tuple(policy_id for policy_id, _ in policy_entries),
+    )
+    plan = build_agent_attribute_plan(
+        input_spec["agent_attribute_definitions"],
+        configuration_column_by_name=sweep.column_index_by_name,
+        policy_entries=policy_entries,
+        n_agents_values=sweep.n_agents_values,
+        n_actors=sweep.n_actors,
+    )
+    builder = PolicyAgentBuilder(
+        policy_entries=policy_entries,
+        configuration_names=sweep.configuration_names,
+        column_index_by_name=sweep.column_index_by_name,
+        sampled_parameters_by_policy_id={
+            policy_id: () for policy_id, _ in policy_entries
+        },
+    )
+    return parameter_samples, sweep, plan, builder
+
+
 class PolicyRunTest(unittest.TestCase):
     @staticmethod
     def _base_config() -> dict[str, object]:
@@ -96,7 +132,7 @@ class PolicyRunTest(unittest.TestCase):
 
         self.assertEqual(len(prepared.inputs), 12)
         self.assertEqual(sweep.total_inputs, 12)
-        self.assertEqual(sweep.configuration_values.shape, (2, 3, 2, 8))
+        self.assertEqual(sweep.configuration_values.shape, (2, 3, 2, 9))
         self.assertEqual(sweep.coordinates(0), (0, 0, 0))
         self.assertEqual(sweep.coordinates(1), (0, 0, 1))
         self.assertEqual(sweep.coordinates(2), (0, 1, 0))
@@ -108,6 +144,7 @@ class PolicyRunTest(unittest.TestCase):
                 "distance_discount",
                 "visibility_distance",
                 "myopic.bridge_probability",
+                "agent.activation_weight",
             ),
         )
 
@@ -122,15 +159,16 @@ class PolicyRunTest(unittest.TestCase):
             np.asarray([[5.0, 3.0, 0.0], [10.0, 5.0, 0.0]], dtype=np.float32),
         )
 
-    def test_prepare_namespaces_random_policy_p_act_in_multi_policy_runs(self) -> None:
+    def test_prepare_namespaces_random_policy_activation_weight(self) -> None:
         config = self._base_config()
-        config["population"]["policies"][1]["parameters"]["p_act"] = continuous(
-            0.0, 1.0
-        )
+        config["simulator"]["actor_scheduler"]["n_actors"] = 1
+        config["population"]["policies"][1]["agent_parameters"] = {
+            "activation_weight": continuous(0.01, 1.0)
+        }
 
         parameter_samples, sweep, _, _ = _policy_components(config)
 
-        self.assertEqual(sweep.configuration_values.shape, (2, 3, 2, 9))
+        self.assertEqual(sweep.configuration_values.shape, (2, 3, 2, 10))
         self.assertEqual(
             parameter_samples.parameter_names,
             (
@@ -138,7 +176,8 @@ class PolicyRunTest(unittest.TestCase):
                 "distance_discount",
                 "visibility_distance",
                 "myopic.bridge_probability",
-                "random.p_act",
+                "agent.activation_weight",
+                "random.agent.activation_weight",
             ),
         )
 
@@ -168,8 +207,8 @@ class PolicyRunTest(unittest.TestCase):
             log2_budget=0,
             n_episodes=1,
             policies=[
-                policy("first", "random", {"p_act": fixed(0.0)}),
-                policy("second", "random", {"p_act": fixed(0.0)}),
+                policy("first", "random"),
+                policy("second", "random"),
             ],
             policy_proportions={"policy": "first", "values": [0.5]},
             observers={
@@ -184,10 +223,8 @@ class PolicyRunTest(unittest.TestCase):
         output = prepare_policy_run(config).run(0)
 
         self.assertEqual(output["policy_welfare.mean"].shape, (4, 2))
-        np.testing.assert_allclose(
-            output["policy_welfare.mean"],
-            np.zeros((4, 2), dtype=np.float32),
-        )
+        np.testing.assert_allclose(output["policy_welfare.mean"][0], 0.0)
+        self.assertTrue(np.isfinite(output["policy_welfare.mean"]).all())
 
     def test_run_records_sampled_agent_parameters_for_nonzero_std(self) -> None:
         config = task_config(
@@ -203,7 +240,6 @@ class PolicyRunTest(unittest.TestCase):
                 policy(
                     "random",
                     "random",
-                    {"p_act": continuous(0.0, 1.0, std=0.1)},
                 ),
             ],
             policy_proportions={"policy": "myopic", "values": [0.5]},
@@ -232,34 +268,34 @@ class PolicyRunTest(unittest.TestCase):
             configuration,
             simulation_settings,
             sampled_agent_parameters=sampled,
+            activation_weight=1.0,
         )
         random_agent = agent_builder.build_agent(
             1,
             configuration,
             simulation_settings,
             sampled_agent_parameters=sampled,
+            activation_weight=1.0,
         )
 
         self.assertEqual(
             prepared.result_attrs[SAMPLED_AGENT_PARAMETER_NAMES_ATTR],
-            ["myopic.bridge_probability", "random.p_act"],
+            ["myopic.bridge_probability"],
         )
         self.assertIn(
             {
                 "name": SAMPLED_AGENT_PARAMETERS_FIELD,
-                "shape": [4, 2],
+                "shape": [4, 1],
                 "dtype": "float32",
             },
             prepared.output_schema.metadata(),
         )
-        self.assertEqual(sampled.shape, (4, 2))
+        self.assertEqual(sampled.shape, (4, 1))
         self.assertTrue(np.isfinite(sampled[0, 0]))
-        self.assertTrue(np.isnan(sampled[0, 1]))
         self.assertTrue(np.isnan(sampled[1, 0]))
-        self.assertTrue(np.isfinite(sampled[1, 1]))
         self.assertTrue(np.isnan(sampled[2:]).all())
         self.assertAlmostEqual(myopic_agent.policy.bridge_probability, sampled[0, 0])
-        self.assertAlmostEqual(random_agent.policy.p_act, sampled[1, 1])
+        self.assertIsInstance(random_agent.policy, RandomPolicy)
 
         first = prepared.run(0)[SAMPLED_AGENT_PARAMETERS_FIELD]
         second = prepared.run(0)[SAMPLED_AGENT_PARAMETERS_FIELD]
@@ -299,6 +335,7 @@ class PolicyRunTest(unittest.TestCase):
             configuration,
             simulation_settings,
             sampled_agent_parameters=sampled,
+            activation_weight=1.0,
         ).policy
 
         self.assertEqual(
@@ -309,11 +346,255 @@ class PolicyRunTest(unittest.TestCase):
                 "visibility_distance",
                 "link_threshold",
                 "p_act",
+                "agent.activation_weight",
             ),
         )
         self.assertIsInstance(agent_policy, ThresholdLinkPolicy)
         self.assertEqual(agent_policy.link_threshold, 0.5)
         self.assertEqual(agent_policy.p_act, 0.75)
+
+    def test_scaled_other_agents_resolves_constant_share_across_sizes(self) -> None:
+        config = task_config(
+            n_agents=[10, 50, 100],
+            n_actors=1,
+            log2_budget=0,
+            n_episodes=1,
+            max_steps=1,
+            agent_parameters={"activation_weight": fixed(1.0)},
+            policies=[
+                policy(
+                    "threshold_link",
+                    "threshold-link",
+                    {
+                        "link_threshold": fixed(0.5),
+                        "p_act": fixed(1.0),
+                    },
+                    agent_parameters={
+                        "activation_weight": scaled_other_agents(fixed(0.1))
+                    },
+                ),
+                policy(
+                    "best_response",
+                    "best-response",
+                    {
+                        "outside_optimism": fixed(0.25),
+                        "exploration": fixed(0.01),
+                    },
+                ),
+            ],
+            policy_counts={"policy": "threshold_link", "values": [1]},
+        )
+        parameter_samples, sweep, plan, builder = _agent_attribute_components(config)
+
+        self.assertEqual(
+            parameter_samples.parameter_names[-2:],
+            ("agent.activation_weight", "threshold_link.agent.activation_share"),
+        )
+        for input_index, expected_weight in enumerate((1.0, 49.0 / 9.0, 11.0)):
+            configuration = sweep.configuration_at(input_index)
+            settings = sweep.resolve(configuration)
+            resolved = plan.resolve(
+                configuration,
+                settings,
+                parameter_row_index=0,
+                max_n_agents=100,
+                policy_for_node=builder.policy_entry_for_node,
+            )
+
+            self.assertAlmostEqual(
+                float(resolved.activation_weights[0]),
+                expected_weight,
+                places=5,
+            )
+            np.testing.assert_allclose(resolved.activation_weights[1:], 1.0)
+            probability = resolved.activation_weights[0] / np.sum(
+                resolved.activation_weights
+            )
+            self.assertAlmostEqual(float(probability), 0.1, places=6)
+
+    def test_sampled_activation_weights_pair_unchanged_agents_by_parameter_row(
+        self,
+    ) -> None:
+        config = task_config(
+            n_agents=5,
+            n_actors=1,
+            log2_budget=0,
+            n_episodes=1,
+            max_steps=1,
+            agent_parameters={
+                "activation_weight": continuous(0.8, 1.2, std=0.05)
+            },
+            policies=[
+                policy(
+                    "threshold_link",
+                    "threshold-link",
+                    {
+                        "link_threshold": fixed(0.5),
+                        "p_act": fixed(1.0),
+                    },
+                    agent_parameters={
+                        "activation_weight": scaled_other_agents(
+                            continuous(0.08, 0.12, std=0.01)
+                        )
+                    },
+                ),
+                policy(
+                    "best_response",
+                    "random",
+                ),
+            ],
+            policy_counts={"policy": "threshold_link", "values": [0, 1]},
+        )
+        _, sweep, plan, builder = _agent_attribute_components(config)
+        baseline_configuration = sweep.configuration_at(0)
+        treatment_configuration = sweep.configuration_at(1)
+        settings = sweep.resolve(baseline_configuration)
+
+        baseline = plan.resolve(
+            baseline_configuration,
+            settings,
+            parameter_row_index=0,
+            max_n_agents=5,
+            policy_for_node=builder.policy_entry_for_node,
+        )
+        treatment = plan.resolve(
+            treatment_configuration,
+            settings,
+            parameter_row_index=0,
+            max_n_agents=5,
+            policy_for_node=builder.policy_entry_for_node,
+        )
+
+        np.testing.assert_allclose(
+            baseline.activation_weights[1:],
+            treatment.activation_weights[1:],
+        )
+        self.assertNotEqual(
+            float(baseline.activation_weights[0]),
+            float(treatment.activation_weights[0]),
+        )
+        self.assertEqual(
+            set(plan.sampled_names),
+            {
+                "agent.activation_weight",
+                "threshold_link.agent.activation_weight",
+            },
+        )
+
+        prepared = prepare_policy_run(config)
+        baseline_output = prepared.run(0)
+        output = prepared.run(1)
+        self.assertEqual(
+            set(prepared.result_attrs[SAMPLED_AGENT_PARAMETER_NAMES_ATTR]),
+            set(plan.sampled_names),
+        )
+        self.assertEqual(
+            output[SAMPLED_AGENT_PARAMETERS_FIELD].shape,
+            (5, 2),
+        )
+        sampled_names = prepared.result_attrs[SAMPLED_AGENT_PARAMETER_NAMES_ATTR]
+        for name in ("agent.activation_weight",):
+            column = sampled_names.index(name)
+            np.testing.assert_allclose(
+                baseline_output[SAMPLED_AGENT_PARAMETERS_FIELD][1:, column],
+                output[SAMPLED_AGENT_PARAMETERS_FIELD][1:, column],
+            )
+
+    def test_agent_attribute_validation_rejects_invalid_specs(self) -> None:
+        cases = (
+            (
+                {"activation_weight": fixed(0.0)},
+                "activation_weight.*> 0",
+            ),
+            (
+                {
+                    "activation_weight": scaled_other_agents(fixed(1.0)),
+                },
+                "activation_share.*\\(0, 1\\)",
+            ),
+            (
+                {"unknown": fixed(1.0)},
+                "unsupported agent parameter",
+            ),
+        )
+        for agent_parameters, message in cases:
+            with self.subTest(agent_parameters=agent_parameters):
+                config = task_config(
+                    n_agents=3,
+                    n_actors=1,
+                    agent_parameters=agent_parameters,
+                )
+                with self.assertRaisesRegex(ValueError, message):
+                    prepare_policy_run(config)
+
+        single_agent_config = task_config(
+            n_agents=1,
+            n_actors=1,
+            policies=[
+                policy(
+                    "random",
+                    "random",
+                    agent_parameters={
+                        "activation_weight": scaled_other_agents(fixed(0.1))
+                    },
+                )
+            ],
+        )
+        with self.assertRaisesRegex(ValueError, "requires n_agents >= 2"):
+            prepare_policy_run(single_agent_config)
+
+        multi_actor_config = task_config(
+            n_agents=3,
+            n_actors=2,
+            policies=[
+                policy(
+                    "weighted",
+                    "random",
+                    agent_parameters={
+                        "activation_weight": scaled_other_agents(fixed(0.1))
+                    },
+                ),
+                policy("neutral", "random"),
+            ],
+            policy_proportions={"policy": "weighted", "values": [0.5]},
+        )
+        with self.assertRaisesRegex(ValueError, "unequal.*n_actors == 1"):
+            prepare_policy_run(multi_actor_config)
+
+        uniform_multi_actor_config = task_config(
+            n_agents=3,
+            n_actors=2,
+            agent_parameters={
+                "activation_weight": scaled_other_agents(fixed(0.1))
+            },
+        )
+        prepare_policy_run(uniform_multi_actor_config)
+
+    def test_fully_shadowed_agent_default_is_not_a_sampled_parameter(self) -> None:
+        config = task_config(
+            n_agents=3,
+            n_actors=1,
+            agent_parameters={"activation_weight": fixed(2.0)},
+            policies=[
+                policy(
+                    "first",
+                    "random",
+                    agent_parameters={"activation_weight": fixed(1.0)},
+                ),
+                policy(
+                    "second",
+                    "random",
+                    agent_parameters={"activation_weight": fixed(3.0)},
+                ),
+            ],
+            policy_proportions={"policy": "first", "values": [0.5]},
+        )
+
+        parameter_samples, _, _, _ = _agent_attribute_components(config)
+
+        self.assertNotIn("agent.activation_weight", parameter_samples.parameter_names)
+        self.assertIn("first.agent.activation_weight", parameter_samples.parameter_names)
+        self.assertIn("second.agent.activation_weight", parameter_samples.parameter_names)
 
     def test_policy_counts_assign_exact_target_count_across_n_agents(self) -> None:
         config = task_config(
@@ -384,12 +665,14 @@ class PolicyRunTest(unittest.TestCase):
                 configuration,
                 simulation_settings,
                 sampled_agent_parameters=sampled,
+                activation_weight=1.0,
             )
             last_agent = agent_builder.build_agent(
                 last_agent_id,
                 configuration,
                 simulation_settings,
                 sampled_agent_parameters=sampled,
+                activation_weight=1.0,
             )
             self.assertIsInstance(first_agent.policy, ThresholdLinkPolicy)
             self.assertIsInstance(last_agent.policy, BestResponsePolicy)
@@ -423,6 +706,7 @@ class PolicyRunTest(unittest.TestCase):
                 configuration,
                 simulation_settings,
                 sampled_agent_parameters=sampled,
+                activation_weight=1.0,
             ).policy,
             MyopicPayoffPolicy,
         )
@@ -432,6 +716,7 @@ class PolicyRunTest(unittest.TestCase):
                 configuration,
                 simulation_settings,
                 sampled_agent_parameters=sampled,
+                activation_weight=1.0,
             ).policy,
             MyopicPayoffPolicy,
         )
@@ -441,6 +726,7 @@ class PolicyRunTest(unittest.TestCase):
                 configuration,
                 simulation_settings,
                 sampled_agent_parameters=sampled,
+                activation_weight=1.0,
             ).policy,
             RandomPolicy,
         )
@@ -476,6 +762,7 @@ class PolicyRunTest(unittest.TestCase):
                     configuration,
                     simulation_settings,
                     sampled_agent_parameters=sampled,
+                    activation_weight=1.0,
                 ).policy,
                 RandomPolicy,
             )

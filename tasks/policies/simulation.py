@@ -8,6 +8,7 @@ from typing import Any
 import numpy as np
 
 from .agent_parameters import SampledAgentParameterPlan
+from .agent_attributes import AgentAttributePlan
 from .agents import PolicyAgentBuilder
 from .observers import (
     POLICY_WELFARE_OBSERVER_NAME,
@@ -24,6 +25,7 @@ class PolicySimulationRuntime:
     observer_specs: tuple[ObserverOutputSpec, ...]
     agent_builder: PolicyAgentBuilder
     sampled_agent_parameter_plan: SampledAgentParameterPlan
+    agent_attribute_plan: AgentAttributePlan
     max_n_agents: int
 
     def validate_sample_idx(self, sample_idx: int) -> None:
@@ -36,6 +38,7 @@ class PolicySimulationRuntime:
         self.validate_sample_idx(sample_idx)
         configuration = self.sweep.configuration_at(sample_idx)
         simulation_settings = self.sweep.resolve(configuration)
+        _, _, parameter_row_index = self.sweep.coordinates(sample_idx)
         sampled_agent_parameters = self.sampled_agent_parameter_plan.sample(
             sample_idx,
             configuration,
@@ -43,6 +46,21 @@ class PolicySimulationRuntime:
             self.max_n_agents,
             self.agent_builder.policy_entry_for_node,
         )
+        resolved_agent_attributes = self.agent_attribute_plan.resolve(
+            configuration,
+            simulation_settings,
+            parameter_row_index=parameter_row_index,
+            max_n_agents=self.max_n_agents,
+            policy_for_node=self.agent_builder.policy_entry_for_node,
+        )
+        if resolved_agent_attributes.sampled_values.shape[1]:
+            sampled_agent_parameters = np.concatenate(
+                (
+                    sampled_agent_parameters,
+                    resolved_agent_attributes.sampled_values,
+                ),
+                axis=1,
+            )
         policy_assignment = (
             self.agent_builder.policy_assignment_for_configuration(
                 configuration,
@@ -70,6 +88,9 @@ class PolicySimulationRuntime:
                 configuration,
                 simulation_settings,
                 sampled_agent_parameters=sampled_agent_parameters,
+                activation_weight=float(
+                    resolved_agent_attributes.activation_weights[node_id]
+                ),
             ),
             observers=observers,
             seed=simulation_settings.seed,
@@ -88,6 +109,6 @@ class PolicySimulationRuntime:
                     result.outputs[aggregation],
                     dtype=spec.observer_class.fixed_output_dtype(),
                 )
-        if self.sampled_agent_parameter_plan.names:
+        if sampled_agent_parameters.shape[1]:
             output[SAMPLED_AGENT_PARAMETERS_FIELD] = sampled_agent_parameters
         return output

@@ -84,6 +84,7 @@ def create_simulator(
         seed=seed,
         n_agents=len(agents),
         n_actors=simulation_settings.n_actors,
+        activation_weights=tuple(agent.activation_weight for agent in agents),
     )
     return Simulator(
         env=environment,

@@ -47,6 +47,38 @@ class SeedRecordingPolicy(Policy):
 
 
 class RuntimeAssemblyTest(unittest.TestCase):
+    def test_agent_stores_activation_weight(self) -> None:
+        agent = Agent(
+            id=0,
+            visibility_distance=2,
+            policy=ConstantPolicy(Action(ActionType.PASS, source=0)),
+            seed=11,
+            activation_weight=1.0,
+        )
+
+        self.assertEqual(agent.activation_weight, 1.0)
+        self.assertIs(type(agent.activation_weight), float)
+
+    def test_agent_rejects_invalid_activation_weight(self) -> None:
+        cases = (
+            float("nan"),
+            float("inf"),
+            float("-inf"),
+            0.0,
+            -1.0,
+        )
+
+        for activation_weight in cases:
+            with self.subTest(activation_weight=activation_weight):
+                with self.assertRaisesRegex(ValueError, "finite and positive"):
+                    Agent(
+                        id=0,
+                        visibility_distance=2,
+                        policy=ConstantPolicy(Action(ActionType.PASS, source=0)),
+                        seed=11,
+                        activation_weight=activation_weight,
+                    )
+
     def test_agent_rejects_bool_visibility_distance(self) -> None:
         with self.assertRaisesRegex(ValueError, "positive integer"):
             Agent(
@@ -54,6 +86,7 @@ class RuntimeAssemblyTest(unittest.TestCase):
                 visibility_distance=True,
                 policy=ConstantPolicy(Action(ActionType.PASS, source=0)),
                 seed=11,
+                activation_weight=1.0,
             )
 
     def test_create_environment_rejects_unsupported_initial_graph_kind(self) -> None:
@@ -117,6 +150,7 @@ class RuntimeAssemblyTest(unittest.TestCase):
                 visibility_distance=2,
                 policy=ConstantPolicy(Action(ActionType.PASS, source=node_id)),
                 seed=17 + node_id,
+                activation_weight=1.0,
             )
 
         agents = create_agents(
@@ -150,6 +184,7 @@ class RuntimeAssemblyTest(unittest.TestCase):
                 visibility_distance=2,
                 policy=ConstantPolicy(Action(ActionType.PASS, source=node_id)),
                 seed=29 + node_id,
+                activation_weight=1.0,
             )
             for node_id in range(settings.n_agents)
         )
@@ -169,6 +204,47 @@ class RuntimeAssemblyTest(unittest.TestCase):
         self.assertEqual(simulator.n_agents, 2)
         self.assertEqual(simulator.max_steps, 4)
         self.assertEqual(simulator.stagnation_patience, 3)
+
+    def test_create_simulator_passes_agent_activation_weights(self) -> None:
+        settings = SimulationSettings(
+            n_agents=3,
+            n_actors=1,
+            seed=19,
+            max_steps=4,
+            n_episodes=2,
+            stagnation_patience=None,
+        )
+        environment = create_environment(simulation_settings=settings, seed=23)
+        agents = tuple(
+            Agent(
+                id=node_id,
+                visibility_distance=2,
+                policy=ConstantPolicy(Action(ActionType.PASS, source=node_id)),
+                seed=29 + node_id,
+                activation_weight=activation_weight,
+            )
+            for node_id, activation_weight in enumerate((1.0, 2.0, 7.0))
+        )
+
+        simulator = create_simulator(
+            simulation_settings=settings,
+            environment=environment,
+            agents=agents,
+            observers=(),
+            seed=31,
+        )
+
+        selected = np.asarray(
+            [
+                simulator.actor_scheduler.select_agents(agents)[0].id
+                for _ in range(2_000)
+            ]
+        )
+        np.testing.assert_allclose(
+            np.bincount(selected, minlength=3) / selected.size,
+            (0.1, 0.2, 0.7),
+            atol=0.03,
+        )
 
     def test_create_simulation_runtime_propagates_seed_to_environment_and_agents(
         self,
@@ -192,6 +268,7 @@ class RuntimeAssemblyTest(unittest.TestCase):
                 visibility_distance=2,
                 policy=policy,
                 seed=41 + node_id,
+                activation_weight=1.0,
             )
 
         environment, agents, simulator = create_simulation_runtime(
@@ -241,6 +318,7 @@ class RuntimeAssemblyTest(unittest.TestCase):
                 visibility_distance=2,
                 policy=ConstantPolicy(Action(ActionType.PASS, source=node_id)),
                 seed=41 + node_id,
+                activation_weight=1.0,
             )
 
         _, _, simulator = create_simulation_runtime(

@@ -168,19 +168,21 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
             env=Environment(create_empty_graph(2), seed=3),
             agents=(
                 Agent(
+                    activation_weight=1.0,
                     id=0,
                     visibility_distance=10,
                     policy=ConstantPolicy(Action(ActionType.BRIDGE, source=0, target=1)),
                     seed=5,
                 ),
                 Agent(
+                    activation_weight=1.0,
                     id=1,
                     visibility_distance=10,
                     policy=ConstantPolicy(Action(ActionType.PASS, source=1)),
                     seed=7,
                 ),
             ),
-            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, activation_weights=(1.0,), seed=21),
             max_steps=2,
             rng=np.random.default_rng(11),
             observers=(observer,),
@@ -210,6 +212,7 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
             env=Environment(create_empty_graph(4), seed=13),
             agents=tuple(
                 Agent(
+                    activation_weight=1.0,
                     id=node_id,
                     visibility_distance=10,
                     policy=RandomPolicy(seed=17 + node_id),
@@ -217,7 +220,7 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
                 )
                 for node_id in range(4)
             ),
-            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, activation_weights=(1.0,), seed=21),
             max_steps=8,
             rng=np.random.default_rng(29),
             observers=(observer,),
@@ -296,19 +299,21 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
             env=Environment(create_empty_graph(2), seed=31),
             agents=(
                 Agent(
+                    activation_weight=1.0,
                     id=0,
                     visibility_distance=10,
                     policy=ConstantPolicy(Action(ActionType.BRIDGE, source=0, target=1)),
                     seed=37,
                 ),
                 Agent(
+                    activation_weight=1.0,
                     id=1,
                     visibility_distance=10,
                     policy=ConstantPolicy(Action(ActionType.PASS, source=1)),
                     seed=41,
                 ),
             ),
-            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, activation_weights=(1.0,), seed=21),
             max_steps=2,
             rng=np.random.default_rng(43),
             observers=(observer,),
@@ -336,6 +341,7 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
             env=Environment(create_empty_graph(4), seed=47),
             agents=tuple(
                 Agent(
+                    activation_weight=1.0,
                     id=node_id,
                     visibility_distance=10,
                     policy=RandomPolicy(seed=53 + node_id),
@@ -343,7 +349,7 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
                 )
                 for node_id in range(4)
             ),
-            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, activation_weights=(1.0,), seed=21),
             max_steps=8,
             rng=np.random.default_rng(61),
             observers=(observer,),
@@ -376,6 +382,7 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
             env=Environment(create_empty_graph(4), seed=71),
             agents=tuple(
                 Agent(
+                    activation_weight=1.0,
                     id=node_id,
                     visibility_distance=10,
                     policy=RandomPolicy(seed=73 + node_id),
@@ -383,7 +390,7 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
                 )
                 for node_id in range(4)
             ),
-            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, activation_weights=(1.0,), seed=21),
             max_steps=8,
             rng=np.random.default_rng(89),
             observers=(observer,),
@@ -422,7 +429,7 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
         simulator = Simulator(
             env=Environment(create_empty_graph(2), seed=97),
             agents=(),
-            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, activation_weights=(1.0,), seed=21),
             max_steps=0,
             rng=np.random.default_rng(101),
             observers=(observer,),
@@ -452,7 +459,7 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
         simulator = Simulator(
             env=Environment(create_empty_graph(3), seed=97),
             agents=(),
-            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, activation_weights=(1.0,), seed=21),
             max_steps=0,
             rng=np.random.default_rng(101),
             observers=(observer,),
@@ -479,13 +486,14 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
             env=Environment(create_empty_graph(2), seed=103),
             agents=(
                 Agent(
+                    activation_weight=1.0,
                     id=0,
                     visibility_distance=10,
                     policy=ConstantPolicy(Action(ActionType.PASS, source=0)),
                     seed=107,
                 ),
             ),
-            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, activation_weights=(1.0,), seed=21),
             max_steps=1,
             rng=np.random.default_rng(109),
             observers=(observer,),
@@ -515,13 +523,14 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
             env=Environment(create_empty_graph(2), seed=113),
             agents=(
                 Agent(
+                    activation_weight=1.0,
                     id=0,
                     visibility_distance=10,
                     policy=ConstantPolicy(Action(ActionType.PASS, source=0)),
                     seed=127,
                 ),
             ),
-            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, activation_weights=(1.0,), seed=21),
             max_steps=1,
             rng=np.random.default_rng(131),
             observers=(observer,),
@@ -554,13 +563,14 @@ class PlotEpisodeSeriesObserverTest(unittest.TestCase):
             env=Environment(create_empty_graph(2), seed=137),
             agents=(
                 Agent(
+                    activation_weight=1.0,
                     id=0,
                     visibility_distance=10,
                     policy=ConstantPolicy(Action(ActionType.PASS, source=0)),
                     seed=139,
                 ),
             ),
-            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, activation_weights=(1.0,), seed=21),
             max_steps=1,
             rng=np.random.default_rng(149),
             observers=(observer,),

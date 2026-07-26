@@ -37,25 +37,28 @@ class StateAndActionObserverTest(unittest.TestCase):
             env=env,
             agents=(
                 Agent(
+                    activation_weight=1.0,
                     id=0,
                     visibility_distance=10,
                     policy=ConstantPolicy(Action(ActionType.BRIDGE, source=0, target=1)),
                     seed=5,
                 ),
                 Agent(
+                    activation_weight=1.0,
                     id=1,
                     visibility_distance=10,
                     policy=ConstantPolicy(Action(ActionType.PASS, source=1)),
                     seed=7,
                 ),
                 Agent(
+                    activation_weight=1.0,
                     id=2,
                     visibility_distance=10,
                     policy=ConstantPolicy(Action(ActionType.BRIDGE, source=2, target=0)),
                     seed=11,
                 ),
             ),
-            actor_scheduler=ActorScheduler(n_agents=3, n_actors=3, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=3, n_actors=3, activation_weights=(1.0, 1.0, 1.0), seed=21),
             max_steps=1,
             rng=np.random.default_rng(13),
             observers=(ActionPrintObserver(ObservationSampling.periodic(1), False),),
@@ -77,6 +80,7 @@ class StateAndActionObserverTest(unittest.TestCase):
             env=env,
             agents=(
                 Agent(
+                    activation_weight=1.0,
                     id=0,
                     visibility_distance=10,
                     policy=ConstantPolicy(
@@ -86,13 +90,14 @@ class StateAndActionObserverTest(unittest.TestCase):
                     seed=5,
                 ),
                 Agent(
+                    activation_weight=1.0,
                     id=1,
                     visibility_distance=10,
                     policy=ConstantPolicy(Action(ActionType.PASS, source=1)),
                     seed=7,
                 ),
             ),
-            actor_scheduler=ActorScheduler(n_agents=2, n_actors=2, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=2, n_actors=2, activation_weights=(1.0, 1.0), seed=21),
             max_steps=1,
             rng=np.random.default_rng(13),
             observers=(ActionPrintObserver(ObservationSampling.periodic(1), False),),
@@ -117,6 +122,7 @@ class StateAndActionObserverTest(unittest.TestCase):
             env=env,
             agents=(
                 Agent(
+                    activation_weight=1.0,
                     id=0,
                     visibility_distance=10,
                     policy=ActionListPolicy(
@@ -125,13 +131,14 @@ class StateAndActionObserverTest(unittest.TestCase):
                     seed=43,
                 ),
                 Agent(
+                    activation_weight=1.0,
                     id=1,
                     visibility_distance=10,
                     policy=ActionListPolicy([Action(ActionType.PASS, source=1)]),
                     seed=47,
                 ),
             ),
-            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, activation_weights=(1.0,), seed=21),
             max_steps=1,
             rng=np.random.default_rng(53),
             observers=(action_count_observer,),
@@ -158,6 +165,7 @@ class StateAndActionObserverTest(unittest.TestCase):
             env=env,
             agents=(
                 Agent(
+                    activation_weight=1.0,
                     id=0,
                     visibility_distance=10,
                     policy=ActionListPolicy(
@@ -169,12 +177,14 @@ class StateAndActionObserverTest(unittest.TestCase):
                     seed=61,
                 ),
                 Agent(
+                    activation_weight=1.0,
                     id=1,
                     visibility_distance=10,
                     policy=ActionListPolicy([Action(ActionType.PASS, source=1)]),
                     seed=67,
                 ),
                 Agent(
+                    activation_weight=1.0,
                     id=2,
                     visibility_distance=10,
                     policy=ActionListPolicy(
@@ -183,7 +193,7 @@ class StateAndActionObserverTest(unittest.TestCase):
                     seed=71,
                 ),
             ),
-            actor_scheduler=ActorScheduler(n_agents=3, n_actors=3, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=3, n_actors=3, activation_weights=(1.0, 1.0, 1.0), seed=21),
             max_steps=1,
             rng=np.random.default_rng(73),
             observers=(action_count_observer,),
@@ -207,19 +217,21 @@ class StateAndActionObserverTest(unittest.TestCase):
             env=env,
             agents=(
                 Agent(
+                    activation_weight=1.0,
                     id=0,
                     visibility_distance=10,
                     policy=ConstantPolicy(Action(ActionType.BRIDGE, source=0, target=1)),
                     seed=31,
                 ),
                 Agent(
+                    activation_weight=1.0,
                     id=1,
                     visibility_distance=10,
                     policy=ConstantPolicy(Action(ActionType.PASS, source=1)),
                     seed=37,
                 ),
             ),
-            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, activation_weights=(1.0,), seed=21),
             max_steps=2,
             rng=np.random.default_rng(41),
             observers=(state_history_observer,),
@@ -244,19 +256,21 @@ class StateAndActionObserverTest(unittest.TestCase):
             env=env,
             agents=(
                 Agent(
+                    activation_weight=1.0,
                     id=0,
                     visibility_distance=10,
                     policy=ConstantPolicy(Action(ActionType.BRIDGE, source=0, target=1)),
                     seed=31,
                 ),
                 Agent(
+                    activation_weight=1.0,
                     id=1,
                     visibility_distance=10,
                     policy=ConstantPolicy(Action(ActionType.PASS, source=1)),
                     seed=37,
                 ),
             ),
-            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, activation_weights=(1.0,), seed=21),
             max_steps=2,
             rng=np.random.default_rng(41),
             observers=(state_history_observer,),
@@ -286,19 +300,21 @@ class StateAndActionObserverTest(unittest.TestCase):
             env=env,
             agents=(
                 Agent(
+                    activation_weight=1.0,
                     id=0,
                     visibility_distance=10,
                     policy=ConstantPolicy(Action(ActionType.PASS, source=0)),
                     seed=47,
                 ),
                 Agent(
+                    activation_weight=1.0,
                     id=1,
                     visibility_distance=10,
                     policy=ConstantPolicy(Action(ActionType.PASS, source=1)),
                     seed=53,
                 ),
             ),
-            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, activation_weights=(1.0,), seed=21),
             max_steps=5,
             rng=np.random.default_rng(59),
             observers=(density_observer, state_history_observer),
@@ -325,6 +341,7 @@ class StateAndActionObserverTest(unittest.TestCase):
             env=env,
             agents=(
                 Agent(
+                    activation_weight=1.0,
                     id=0,
                     visibility_distance=10,
                     policy=ActionListPolicy(
@@ -333,13 +350,14 @@ class StateAndActionObserverTest(unittest.TestCase):
                     seed=43,
                 ),
                 Agent(
+                    activation_weight=1.0,
                     id=1,
                     visibility_distance=10,
                     policy=ActionListPolicy([Action(ActionType.PASS, source=1)]),
                     seed=47,
                 ),
             ),
-            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, activation_weights=(1.0,), seed=21),
             max_steps=1,
             rng=np.random.default_rng(53),
             observers=(action_count_observer,),
@@ -363,19 +381,21 @@ class StateAndActionObserverTest(unittest.TestCase):
             env=env,
             agents=(
                 Agent(
+                    activation_weight=1.0,
                     id=0,
                     visibility_distance=10,
                     policy=ConstantPolicy(Action(ActionType.BRIDGE, source=0, target=1)),
                     seed=31,
                 ),
                 Agent(
+                    activation_weight=1.0,
                     id=1,
                     visibility_distance=10,
                     policy=ConstantPolicy(Action(ActionType.PASS, source=1)),
                     seed=37,
                 ),
             ),
-            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, activation_weights=(1.0,), seed=21),
             max_steps=2,
             rng=np.random.default_rng(41),
             observers=(state_history_observer,),
@@ -395,19 +415,21 @@ class StateAndActionObserverTest(unittest.TestCase):
             env=env,
             agents=(
                 Agent(
+                    activation_weight=1.0,
                     id=0,
                     visibility_distance=10,
                     policy=ConstantPolicy(Action(ActionType.BRIDGE, source=0, target=1)),
                     seed=5,
                 ),
                 Agent(
+                    activation_weight=1.0,
                     id=1,
                     visibility_distance=10,
                     policy=ConstantPolicy(Action(ActionType.PASS, source=1)),
                     seed=7,
                 ),
             ),
-            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, activation_weights=(1.0,), seed=21),
             max_steps=2,
             rng=np.random.default_rng(13),
             observers=(ActionPrintObserver(ObservationSampling.terminal(), True),),
@@ -429,7 +451,7 @@ class StateAndActionObserverTest(unittest.TestCase):
         simulator = Simulator(
             env=env,
             agents=(),
-            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, activation_weights=(1.0,), seed=21),
             max_steps=0,
             rng=np.random.default_rng(5),
             observers=(observer,),
@@ -456,19 +478,21 @@ class StateAndActionObserverTest(unittest.TestCase):
             env=env,
             agents=(
                 Agent(
+                    activation_weight=1.0,
                     id=0,
                     visibility_distance=10,
                     policy=ConstantPolicy(Action(ActionType.PASS, source=0)),
                     seed=127,
                 ),
                 Agent(
+                    activation_weight=1.0,
                     id=1,
                     visibility_distance=10,
                     policy=ConstantPolicy(Action(ActionType.PASS, source=1)),
                     seed=131,
                 ),
             ),
-            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, activation_weights=(1.0,), seed=21),
             max_steps=5,
             rng=np.random.default_rng(137),
             observers=(density_observer, state_history_observer),

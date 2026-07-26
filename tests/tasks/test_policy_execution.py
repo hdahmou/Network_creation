@@ -143,6 +143,7 @@ class PolicyExecutionTest(unittest.TestCase):
                     "benefit_to_cost_ratio",
                     "distance_discount",
                     "visibility_distance",
+                    "agent.activation_weight",
                 ],
             )
             np.testing.assert_array_equal(

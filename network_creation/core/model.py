@@ -8,7 +8,7 @@ from numbers import Integral
 from typing import TYPE_CHECKING, Annotated, NamedTuple, cast
 
 import numpy as np
-from numpy.typing import NDArray
+from numpy.typing import ArrayLike, NDArray
 
 from .local_global_map import LocalGlobalMap
 
@@ -32,12 +32,14 @@ class ActorScheduler:
 
     _rng: np.random.Generator
     _n_actors: int
+    _selection_probabilities: NDArray[np.float64] | None
 
     def __init__(
         self,
         seed: int,
         n_agents: int,
         n_actors: int,
+        activation_weights: ArrayLike,
     ) -> None:
         self._rng = np.random.default_rng(seed)
         if (
@@ -57,6 +59,20 @@ class ActorScheduler:
 
         self._n_actors = int(n_actors)
 
+        weights = np.broadcast_to(
+            np.asarray(activation_weights, dtype=np.float64),
+            (int(n_agents),),
+        )
+        if not np.all(np.isfinite(weights) & (weights > 0.0)):
+            raise ValueError("activation_weights must be finite and positive")
+
+        self._selection_probabilities = None
+        if not np.all(weights == weights[0]):
+            if self._n_actors != 1:
+                raise ValueError("unequal activation_weights require n_actors == 1")
+            scaled_weights = weights / np.max(weights)
+            self._selection_probabilities = scaled_weights / np.sum(scaled_weights)
+
     def select_agents(self, agents: tuple[Agent, ...]) -> tuple[Agent, ...]:
         n_agents = len(agents)
         if self._n_actors >= n_agents:
@@ -68,6 +84,7 @@ class ActorScheduler:
                 size=self._n_actors,
                 replace=False,
                 shuffle=True,
+                p=self._selection_probabilities,
             ),
         )
         return tuple(agents[int(agent_index)] for agent_index in agent_indices)

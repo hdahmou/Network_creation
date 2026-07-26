@@ -80,6 +80,7 @@ class PolicyAgentBuilder:
         simulation_settings: SimulationSettings,
         *,
         sampled_agent_parameters: NDArray[np.float32],
+        activation_weight: float,
     ) -> Agent:
         policy_entry = self.policy_entry_for_node(node_id, configuration)
         policy_kind, policy_kwargs = self._policy_kwargs(
@@ -101,6 +102,7 @@ class PolicyAgentBuilder:
                 **policy_kwargs,
             ),
             seed=node_id,
+            activation_weight=activation_weight,
         )
 
     def _policy_kwargs(
@@ -118,6 +120,8 @@ class PolicyAgentBuilder:
             if "." in name and not name.startswith(policy_prefix):
                 continue
             parameter_name = name.removeprefix(policy_prefix)
+            if parameter_name.startswith("agent."):
+                continue
             parameters[parameter_name] = configuration[self.column_index_by_name[name]]
 
         for parameter in self.sampled_parameters_by_policy_id[policy_id]:

@@ -55,6 +55,7 @@ def task_config(
     stagnation_patience: int | None = None,
     game: Mapping[str, object] | None = None,
     visibility_distance: Mapping[str, object] | None = None,
+    agent_parameters: Mapping[str, object] | None = None,
     policies: Sequence[Mapping[str, Any]] | None = None,
     policy_proportions: Mapping[str, object] | None = None,
     policy_counts: Mapping[str, object] | None = None,
@@ -66,6 +67,11 @@ def task_config(
     population: dict[str, object] = {
         "n_agents": list(n_agents) if not isinstance(n_agents, int) else n_agents,
         "visibility_distance": dict(visibility_distance or fixed(4)),
+        "agent_parameters": dict(
+            agent_parameters
+            if agent_parameters is not None
+            else {"activation_weight": fixed(1.0)}
+        ),
         "policies": policy_configs,
     }
     if policy_counts is None:
@@ -120,12 +126,21 @@ def policy(
     policy_id: str,
     kind: str,
     parameters: Mapping[str, object] | None = None,
+    *,
+    agent_parameters: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
-    return {
+    output: dict[str, object] = {
         "id": policy_id,
         "kind": kind,
         "parameters": dict(parameters or {}),
     }
+    if agent_parameters is not None:
+        output["agent_parameters"] = dict(agent_parameters)
+    return output
+
+
+def scaled_other_agents(share: Mapping[str, object]) -> dict[str, object]:
+    return {"kind": "scaled_other_agents", "share": dict(share)}
 
 
 def default_observers() -> dict[str, object]:

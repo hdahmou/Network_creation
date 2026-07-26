@@ -34,6 +34,9 @@ class PolicyTaskConfigTest(unittest.TestCase):
                 "population": {
                     "n_agents": 2,
                     "visibility_distance": {"kind": "fixed", "value": 1},
+                    "agent_parameters": {
+                        "activation_weight": {"kind": "fixed", "value": 1.0}
+                    },
                     "policies": [
                         {"id": "random", "kind": "random", "parameters": {}},
                     ],
@@ -57,6 +60,14 @@ class PolicyTaskConfigTest(unittest.TestCase):
             policy_task.output_schema.metadata(),
             [{"name": "density.mean", "shape": [2], "dtype": "float32"}],
         )
+
+    def test_prepare_policy_run_requires_activation_weight(self) -> None:
+        config = cast(dict[str, Any], task_config())
+        population = cast(dict[str, Any], config["population"])
+        del population["agent_parameters"]
+
+        with self.assertRaisesRegex(ValueError, "must define 'activation_weight'"):
+            prepare_policy_run(config)
 
     def test_prepare_policy_run_accepts_erdos_renyi_initial_graph(self) -> None:
         config = cast(dict[str, Any], task_config())

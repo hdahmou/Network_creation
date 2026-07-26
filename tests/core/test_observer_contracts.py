@@ -281,13 +281,14 @@ class ObserverContractTest(unittest.TestCase):
             env=env,
             agents=(
                 Agent(
+                    activation_weight=1.0,
                     id=0,
                     visibility_distance=10,
                     policy=ConstantPolicy(Action(ActionType.PASS, source=0)),
                     seed=17,
                 ),
             ),
-            actor_scheduler=ActorScheduler(n_agents=3, n_actors=3, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=3, n_actors=3, activation_weights=(1.0, 1.0, 1.0), seed=21),
             max_steps=2,
             rng=np.random.default_rng(23),
             observers=(tensor_observer,),
@@ -326,13 +327,14 @@ class ObserverContractTest(unittest.TestCase):
             env=env,
             agents=(
                 Agent(
+                    activation_weight=1.0,
                     id=0,
                     visibility_distance=10,
                     policy=ConstantPolicy(Action(ActionType.PASS, source=0)),
                     seed=17,
                 ),
             ),
-            actor_scheduler=ActorScheduler(n_agents=3, n_actors=3, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=3, n_actors=3, activation_weights=(1.0, 1.0, 1.0), seed=21),
             max_steps=1,
             rng=np.random.default_rng(19),
             observers=(scalar_observer,),
@@ -357,13 +359,14 @@ class ObserverContractTest(unittest.TestCase):
             env=env,
             agents=(
                 Agent(
+                    activation_weight=1.0,
                     id=0,
                     visibility_distance=10,
                     policy=ConstantPolicy(Action(ActionType.PASS, source=0)),
                     seed=17,
                 ),
             ),
-            actor_scheduler=ActorScheduler(n_agents=3, n_actors=3, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=3, n_actors=3, activation_weights=(1.0, 1.0, 1.0), seed=21),
             max_steps=1,
             rng=np.random.default_rng(19),
             observers=(mismatch_observer,),
@@ -385,7 +388,7 @@ class ObserverContractTest(unittest.TestCase):
         simulator = Simulator(
             env=env,
             agents=(),
-            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, activation_weights=(1.0,), seed=21),
             max_steps=0,
             rng=np.random.default_rng(19),
             observers=(scalar_value_observer,),
@@ -404,7 +407,7 @@ class ObserverContractTest(unittest.TestCase):
         simulator = Simulator(
             env=env,
             agents=(),
-            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, seed=21),
+            actor_scheduler=ActorScheduler(n_agents=1, n_actors=1, activation_weights=(1.0,), seed=21),
             max_steps=0,
             rng=np.random.default_rng(19),
             observers=(wrong_names_observer,),

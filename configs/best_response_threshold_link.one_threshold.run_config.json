@@ -42,10 +42,25 @@
       "max": 6,
       "step": 1
     },
+    "agent_parameters": {
+      "activation_weight": {
+        "kind": "fixed",
+        "value": 1.0
+      }
+    },
     "policies": [
       {
         "id": "threshold_link",
         "kind": "threshold-link",
+        "agent_parameters": {
+          "activation_weight": {
+            "kind": "scaled_other_agents",
+            "share": {
+              "kind": "fixed",
+              "value": 0.1
+            }
+          }
+        },
         "parameters": {
           "link_threshold": {
             "kind": "continuous",

@@ -19,7 +19,13 @@ type PolicyEntry = tuple[str, str]
 
 
 _POPULATION_STRUCTURAL_KEYS = frozenset(
-    {"n_agents", "policies", "policy_proportions", "policy_counts"}
+    {
+        "n_agents",
+        "policies",
+        "policy_proportions",
+        "policy_counts",
+        "agent_parameters",
+    }
 )
 
 
@@ -144,6 +150,8 @@ def parse_policy_entries(config: Mapping[str, Any]) -> tuple[PolicyEntry, ...]:
 
 
 def collect_parameter_specs(config: Mapping[str, Any]) -> dict[str, object]:
+    from .agent_attributes import collect_agent_attribute_definitions
+
     sampling = cast(Mapping[str, Any], config["sampling"])
     parameters: dict[str, ParameterSpec] = {}
     population = cast(Mapping[str, object], config["population"])
@@ -179,10 +187,22 @@ def collect_parameter_specs(config: Mapping[str, Any]) -> dict[str, object]:
             )
             parameters[column_name] = cast(ParameterSpec, spec)
 
+    agent_parameter_specs, agent_attribute_definitions = (
+        collect_agent_attribute_definitions(population, policy_entries)
+    )
+    policy_parameters = dict(parameters)
+    duplicate_names = set(parameters).intersection(agent_parameter_specs)
+    if duplicate_names:
+        duplicate = sorted(duplicate_names)[0]
+        raise ValueError(f"duplicate parameter name {duplicate!r}")
+    parameters.update(agent_parameter_specs)
+
     return {
         "log2_budget": sampling["log2_budget"],
         "seed": sampling["seed"],
         "parameters": parameters,
+        "policy_parameters": policy_parameters,
+        "agent_attribute_definitions": agent_attribute_definitions,
     }
 
 

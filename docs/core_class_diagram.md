@@ -64,6 +64,7 @@ namespace Runtime {
         +visibility_distance: int
         +policy: Policy
         +seed: int
+        +activation_weight: float
         +get_visibility_distance() int
         +reset(seed: int) void
         +act(observation: Observation, action_space: ActionSpace) PolicyDecision
@@ -93,9 +94,7 @@ namespace Runtime {
 }
 
 namespace Policies {
-    class RandomPolicy {
-        +p_act: float | None
-    }
+    class RandomPolicy
 
     class ReplayPolicy {
         +actions_by_step: dict[int, tuple[Action, ...]]

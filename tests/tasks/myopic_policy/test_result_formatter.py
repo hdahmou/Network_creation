@@ -92,15 +92,16 @@ class MyopicPolicyResultFormatterTest(unittest.TestCase):
                 "distance_discount",
                 "visibility_distance",
                 "bridge_probability",
+                "agent.activation_weight",
             ),
         )
         np.testing.assert_allclose(
             ds["prior_low"].values,
-            np.asarray([4.0, 0.5, 0.1, 4.0, 0.0], dtype=np.float32),
+            np.asarray([4.0, 0.5, 0.1, 4.0, 0.0, 1.0], dtype=np.float32),
         )
         np.testing.assert_allclose(
             ds["prior_high"].values,
-            np.asarray([4.0, 0.5, 0.9, 4.0, 1.0], dtype=np.float32),
+            np.asarray([4.0, 0.5, 0.9, 4.0, 1.0, 1.0], dtype=np.float32),
         )
         self.assertEqual(
             tuple(ds.coords["observable"].values),

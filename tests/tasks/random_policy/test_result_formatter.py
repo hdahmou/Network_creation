@@ -42,7 +42,7 @@ class RandomPolicyResultFormatterTest(unittest.TestCase):
         self.assertNotIn("final", ds)
         self.assertNotIn("parameters", ds)
         self.assertNotIn("timeseries", ds)
-        self.assertEqual(ds["theta"].shape, (1, 1, 1, 4))
+        self.assertEqual(ds["theta"].shape, (1, 1, 1, 5))
         self.assertEqual(ds["x"].dims, ("n_agents", "random_proportion", "parameter_row", "step", "observable"))
         np.testing.assert_array_equal(ds.coords["n_agents"].values, np.asarray([4]))
         np.testing.assert_allclose(ds.coords["random_proportion"].values, [1.0])
@@ -57,10 +57,17 @@ class RandomPolicyResultFormatterTest(unittest.TestCase):
                 "benefit_to_cost_ratio",
                 "distance_discount",
                 "visibility_distance",
+                "agent.activation_weight",
             ),
         )
-        np.testing.assert_allclose(ds["prior_low"].values, [4.0, 0.5, 0.5, 4.0])
-        np.testing.assert_allclose(ds["prior_high"].values, [4.0, 0.5, 0.5, 4.0])
+        np.testing.assert_allclose(
+            ds["prior_low"].values,
+            [4.0, 0.5, 0.5, 4.0, 1.0],
+        )
+        np.testing.assert_allclose(
+            ds["prior_high"].values,
+            [4.0, 0.5, 0.5, 4.0, 1.0],
+        )
         self.assertEqual(ds["x"].shape, (1, 1, 1, 3, 2))
         np.testing.assert_allclose(
             ds["x"].isel(step=-1).values,
@@ -148,7 +155,7 @@ class RandomPolicyResultFormatterTest(unittest.TestCase):
 
         self.assertEqual(tuple(ds.coords["observable"].values), ())
         self.assertEqual(ds["x"].shape, (1, 1, 1, 1, 0))
-        self.assertEqual(ds["theta"].shape, (1, 1, 1, 4))
+        self.assertEqual(ds["theta"].shape, (1, 1, 1, 5))
 
     def test_from_zarr_preserves_agent_payoff_axis(self) -> None:
         config = build_random_config()
@@ -223,11 +230,10 @@ class RandomPolicyResultFormatterTest(unittest.TestCase):
 
     def test_from_zarr_loads_sampled_agent_parameters_only_when_requested(self) -> None:
         config = build_random_config()
-        config["population"]["policies"][0]["parameters"]["p_act"] = continuous(
-            0.0,
-            1.0,
-            std=0.1,
-        )
+        config["simulator"]["actor_scheduler"]["n_actors"] = 1
+        config["population"]["policies"][0]["agent_parameters"] = {
+            "activation_weight": continuous(0.01, 1.0, std=0.1)
+        }
         outputs_by_index = [
             (
                 0,
@@ -271,7 +277,10 @@ class RandomPolicyResultFormatterTest(unittest.TestCase):
                 "agent_parameter",
             ),
         )
-        self.assertEqual(tuple(ds.coords["agent_parameter"].values), ("p_act",))
+        self.assertEqual(
+            tuple(ds.coords["agent_parameter"].values),
+            ("random.agent.activation_weight",),
+        )
         self.assertEqual(tuple(ds.coords["observable"].values), ("density.mean",))
         np.testing.assert_allclose(
             ds[SAMPLED_AGENT_PARAMETERS_FIELD].values,
@@ -280,11 +289,10 @@ class RandomPolicyResultFormatterTest(unittest.TestCase):
 
     def test_from_zarr_loads_sampled_agent_parameters_with_requested_stats(self) -> None:
         config = build_random_config()
-        config["population"]["policies"][0]["parameters"]["p_act"] = continuous(
-            0.0,
-            1.0,
-            std=0.1,
-        )
+        config["simulator"]["actor_scheduler"]["n_actors"] = 1
+        config["population"]["policies"][0]["agent_parameters"] = {
+            "activation_weight": continuous(0.01, 1.0, std=0.1)
+        }
         outputs_by_index = [
             (
                 0,
@@ -569,6 +577,7 @@ class RandomPolicyResultFormatterTest(unittest.TestCase):
                 "benefit_to_cost_ratio",
                 "distance_discount",
                 "visibility_distance",
+                "agent.activation_weight",
             ),
         )
         np.testing.assert_allclose(

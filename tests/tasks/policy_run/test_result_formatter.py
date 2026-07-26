@@ -95,6 +95,7 @@ class PolicyRunResultFormatterTest(unittest.TestCase):
                 "distance_discount",
                 "visibility_distance",
                 "myopic.bridge_probability",
+                "agent.activation_weight",
             ),
         )
         np.testing.assert_allclose(ds.coords["myopic_proportion"].values, [0.25, 0.75])

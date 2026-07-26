@@ -17,6 +17,7 @@ class Agent:
     visibility_distance: int
     policy: Policy
     seed: int
+    activation_weight: float
 
     def __post_init__(self) -> None:
         if (
@@ -27,6 +28,9 @@ class Agent:
         ):
             raise ValueError("visibility_distance must be a positive integer")
         self.visibility_distance = int(self.visibility_distance)
+
+        if not 0.0 < self.activation_weight < float("inf"):
+            raise ValueError("activation_weight must be finite and positive")
 
     def get_visibility_distance(self) -> int:
         return self.visibility_distance

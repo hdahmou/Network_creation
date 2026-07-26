@@ -41,16 +41,18 @@ class RandomPolicyPreparationTest(unittest.TestCase):
                 "benefit_to_cost_ratio",
                 "distance_discount",
                 "visibility_distance",
+                "agent.activation_weight",
             ),
         )
-        self.assertEqual(parameter_samples.parameter_values.shape, (1, 3))
+        self.assertEqual(parameter_samples.parameter_values.shape, (1, 4))
 
-    def test_prepare_collects_explicit_p_act_parameter(self) -> None:
+    def test_prepare_collects_explicit_activation_weight_parameter(self) -> None:
         config = self._base_config()
         config["sampling"]["log2_budget"] = 1
-        config["population"]["policies"][0]["parameters"]["p_act"] = continuous(
-            0.0, 1.0
-        )
+        config["population"]["policies"][0]["agent_parameters"] = {
+            "activation_weight": continuous(0.01, 1.0)
+        }
+        config["simulator"]["actor_scheduler"]["n_actors"] = 1
 
         prepared = prepare_policy_run(config)
         parameter_samples = sample_parameters(collect_parameter_specs(config))
@@ -62,7 +64,7 @@ class RandomPolicyPreparationTest(unittest.TestCase):
                 "benefit_to_cost_ratio",
                 "distance_discount",
                 "visibility_distance",
-                "p_act",
+                "random.agent.activation_weight",
             ),
         )
         self.assertEqual(parameter_samples.parameter_values.shape, (2, 4))

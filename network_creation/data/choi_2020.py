@@ -208,6 +208,7 @@ def build_replay_simulator(
     env = Environment(create_empty_graph(replay_dataset.n_agents), seed=0)
     agents = tuple(
         Agent(
+            activation_weight=1.0,
             id=node_id,
             visibility_distance=replay_dataset.n_agents,
             policy=ReplayPolicy(replay_dataset.trajectories[node_id].actions_by_step),
@@ -221,6 +222,7 @@ def build_replay_simulator(
         actor_scheduler=ActorScheduler(
             n_agents=replay_dataset.n_agents,
             n_actors=replay_dataset.n_agents,
+            activation_weights=(1.0,) * replay_dataset.n_agents,
             seed=0,
         ),
         max_steps=replay_dataset.max_step,

@@ -54,6 +54,7 @@ class MyopicPolicyPreparationTest(unittest.TestCase):
                 "distance_discount",
                 "visibility_distance",
                 "bridge_probability",
+                "agent.activation_weight",
             ),
         )
 
@@ -71,7 +72,7 @@ class MyopicPolicyPreparationTest(unittest.TestCase):
 
         self.assertEqual(sweep.n_agents_values, (2, 4))
         self.assertEqual(sweep.configuration_names[0], "n_agents")
-        self.assertEqual(sweep.configuration_values.shape, (2, 1, 1, 7))
+        self.assertEqual(sweep.configuration_values.shape, (2, 1, 1, 8))
         self.assertEqual(sweep.resolve(sweep.configuration_at(0)).n_actors, 2)
         self.assertEqual(sweep.resolve(sweep.configuration_at(1)).n_actors, 4)
 
@@ -93,7 +94,7 @@ class MyopicPolicyPreparationTest(unittest.TestCase):
         )
 
         self.assertEqual(sweep.n_agents_values, (10, 20, 30, 40))
-        self.assertEqual(sweep.configuration_values.shape, (4, 1, 1, 7))
+        self.assertEqual(sweep.configuration_values.shape, (4, 1, 1, 8))
         np.testing.assert_allclose(
             sweep.configuration_values[:, 0, 0, 0],
             np.asarray([10.0, 20.0, 30.0, 40.0], dtype=np.float32),
@@ -167,10 +168,10 @@ class MyopicPolicyPreparationTest(unittest.TestCase):
 
         parameter_samples = sample_parameters(input_spec)
 
-        self.assertEqual(parameter_samples.parameter_values.shape, (1, 4))
+        self.assertEqual(parameter_samples.parameter_values.shape, (1, 5))
         np.testing.assert_allclose(
             parameter_samples.parameter_values,
-            np.array([[0.05, 0.5, 4.0, 0.0]], dtype=np.float32),
+            np.array([[0.05, 0.5, 4.0, 0.0, 1.0]], dtype=np.float32),
         )
 
     def test_prepare_expands_n_agents_sweeps_cartesian_product(self) -> None:
@@ -192,7 +193,7 @@ class MyopicPolicyPreparationTest(unittest.TestCase):
         prepared = prepare_policy_run(config)
 
         self.assertEqual(prepared.inputs, (0, 1, 2, 3, 4, 5))
-        self.assertEqual(sweep.configuration_values.shape, (3, 1, 2, 7))
+        self.assertEqual(sweep.configuration_values.shape, (3, 1, 2, 8))
         np.testing.assert_allclose(
             sweep.configuration_values[:, 0, :, 0],
             np.array(

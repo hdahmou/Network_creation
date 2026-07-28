@@ -26,8 +26,11 @@ from tasks.policies.sweep import (
 )
 from tests.tasks.config_support import (
     continuous,
+    discrete_offset_heterogeneity,
     fixed,
+    normal_heterogeneity,
     policy,
+    sampled_discrete_range,
     scaled_other_agents,
     task_config,
 )
@@ -55,7 +58,7 @@ def _policy_components(config: dict[str, object]):
         policy_ids=tuple(policy_id for policy_id, _ in policy_entries),
     )
     sampled_parameter_plan = build_sampled_agent_parameter_plan(
-        parameter_specs,
+        input_spec["policy_parameters"],
         configuration_column_by_name=sweep.column_index_by_name,
         policy_entries=policy_entries,
     )
@@ -159,6 +162,58 @@ class PolicyRunTest(unittest.TestCase):
             np.asarray([[5.0, 3.0, 0.0], [10.0, 5.0, 0.0]], dtype=np.float32),
         )
 
+    def test_prepare_balances_policy_counts_over_parameter_rows(self) -> None:
+        config = task_config(
+            n_agents=[2, 4],
+            n_actors=1,
+            log2_budget=3,
+            policies=[
+                policy("best_response", "random"),
+                policy("random", "random"),
+            ],
+            policy_counts={"policy": "best_response", "kind": "balanced"},
+        )
+
+        prepared = prepare_policy_run(config)
+        _, sweep, _, _ = _policy_components(config)
+
+        self.assertEqual(len(prepared.inputs), 16)
+        self.assertEqual(sweep.configuration_values.shape[:3], (2, 1, 8))
+        self.assertEqual(prepared.result_attrs["sweep_layout"], "sampled_composition")
+        best_response_count = sweep.column_index_by_name["best_response_count"]
+        random_count = sweep.column_index_by_name["random_count"]
+        for n_agents_index, n_agents in enumerate((2, 4)):
+            counts = sweep.configuration_values[
+                n_agents_index, 0, :, best_response_count
+            ]
+            levels, frequencies = np.unique(counts, return_counts=True)
+            np.testing.assert_array_equal(levels, np.arange(n_agents + 1))
+            self.assertLessEqual(int(frequencies.max() - frequencies.min()), 1)
+            np.testing.assert_array_equal(
+                counts
+                + sweep.configuration_values[
+                    n_agents_index, 0, :, random_count
+                ],
+                np.full(8, n_agents, dtype=np.float32),
+            )
+
+        repeated = prepare_policy_run(config)
+        np.testing.assert_array_equal(
+            prepared.result_arrays["parameters"],
+            repeated.result_arrays["parameters"],
+        )
+
+    def test_balanced_policy_counts_require_enough_rows(self) -> None:
+        config = task_config(
+            n_agents=4,
+            log2_budget=2,
+            policies=[policy("first", "random"), policy("second", "random")],
+            policy_counts={"policy": "first", "kind": "balanced"},
+        )
+
+        with self.assertRaisesRegex(ValueError, r"at least max\(n_agents\) \+ 1"):
+            prepare_policy_run(config)
+
     def test_prepare_namespaces_random_policy_activation_weight(self) -> None:
         config = self._base_config()
         config["simulator"]["actor_scheduler"]["n_actors"] = 1
@@ -226,7 +281,7 @@ class PolicyRunTest(unittest.TestCase):
         np.testing.assert_allclose(output["policy_welfare.mean"][0], 0.0)
         self.assertTrue(np.isfinite(output["policy_welfare.mean"]).all())
 
-    def test_run_records_sampled_agent_parameters_for_nonzero_std(self) -> None:
+    def test_run_records_sampled_agent_parameters_for_normal_heterogeneity(self) -> None:
         config = task_config(
             n_agents=[2, 4],
             n_actors=2,
@@ -235,7 +290,13 @@ class PolicyRunTest(unittest.TestCase):
                 policy(
                     "myopic",
                     "myopic",
-                    {"bridge_probability": continuous(0.0, 1.0, std=0.1)},
+                    {
+                        "bridge_probability": continuous(
+                            0.0,
+                            1.0,
+                            heterogeneity=normal_heterogeneity(0.1),
+                        )
+                    },
                 ),
                 policy(
                     "random",
@@ -300,6 +361,96 @@ class PolicyRunTest(unittest.TestCase):
         first = prepared.run(0)[SAMPLED_AGENT_PARAMETERS_FIELD]
         second = prepared.run(0)[SAMPLED_AGENT_PARAMETERS_FIELD]
         np.testing.assert_allclose(first, second, equal_nan=True)
+
+    def test_visibility_distance_uses_three_point_agent_heterogeneity(self) -> None:
+        config = task_config(
+            n_agents=24,
+            n_actors=1,
+            log2_budget=0,
+            visibility_distance=sampled_discrete_range(
+                2,
+                5,
+                heterogeneity=discrete_offset_heterogeneity((-1, 0, 1)),
+            ),
+            policies=[policy("random", "random")],
+        )
+        prepared = prepare_policy_run(config)
+        _, sweep, sampled_parameter_plan, agent_builder = _policy_components(config)
+        configuration = sweep.configuration_at(0)
+        settings = sweep.resolve(configuration)
+        sampled = sampled_parameter_plan.sample(
+            0,
+            configuration,
+            settings,
+            max(sweep.n_agents_values),
+            agent_builder.policy_entry_for_node,
+        )
+        center = configuration[sweep.column_index_by_name["visibility_distance"]]
+        realized = sampled[:, 0]
+
+        self.assertEqual(
+            prepared.result_attrs[SAMPLED_AGENT_PARAMETER_NAMES_ATTR],
+            ["visibility_distance"],
+        )
+        np.testing.assert_array_equal(realized, np.rint(realized))
+        self.assertEqual(set(realized - center), {-1.0, 0.0, 1.0})
+        self.assertGreaterEqual(float(realized.min()), 1.0)
+        self.assertLessEqual(float(realized.max()), 6.0)
+        for node_id in range(settings.n_agents):
+            agent = agent_builder.build_agent(
+                node_id,
+                configuration,
+                settings,
+                sampled_agent_parameters=sampled,
+                activation_weight=1.0,
+            )
+            self.assertEqual(agent.visibility_distance, int(realized[node_id]))
+
+        np.testing.assert_array_equal(
+            prepared.run(0)[SAMPLED_AGENT_PARAMETERS_FIELD][:, 0],
+            realized,
+        )
+
+    def test_zero_normal_heterogeneity_saves_agent_level_centers(self) -> None:
+        config = task_config(
+            n_agents=3,
+            log2_budget=0,
+            policies=[
+                policy(
+                    "myopic",
+                    "myopic",
+                    {
+                        "bridge_probability": continuous(
+                            0.25,
+                            0.75,
+                            heterogeneity=normal_heterogeneity(0.0),
+                        )
+                    },
+                )
+            ],
+        )
+        prepared = prepare_policy_run(config)
+        _, sweep, sampled_parameter_plan, agent_builder = _policy_components(config)
+        configuration = sweep.configuration_at(0)
+        settings = sweep.resolve(configuration)
+        sampled = sampled_parameter_plan.sample(
+            0,
+            configuration,
+            settings,
+            max(sweep.n_agents_values),
+            agent_builder.policy_entry_for_node,
+        )
+        center = configuration[sweep.column_index_by_name["bridge_probability"]]
+
+        self.assertEqual(
+            prepared.result_attrs[SAMPLED_AGENT_PARAMETER_NAMES_ATTR],
+            ["bridge_probability"],
+        )
+        np.testing.assert_allclose(sampled[:, 0], center)
+        np.testing.assert_allclose(
+            prepared.run(0)[SAMPLED_AGENT_PARAMETERS_FIELD][:, 0],
+            center,
+        )
 
     def test_agent_builder_supports_threshold_link_policy_parameters(self) -> None:
         config = task_config(
@@ -422,7 +573,11 @@ class PolicyRunTest(unittest.TestCase):
             n_episodes=1,
             max_steps=1,
             agent_parameters={
-                "activation_weight": continuous(0.8, 1.2, std=0.05)
+                "activation_weight": continuous(
+                    0.8,
+                    1.2,
+                    heterogeneity=normal_heterogeneity(0.05),
+                )
             },
             policies=[
                 policy(
@@ -434,7 +589,11 @@ class PolicyRunTest(unittest.TestCase):
                     },
                     agent_parameters={
                         "activation_weight": scaled_other_agents(
-                            continuous(0.08, 0.12, std=0.01)
+                            continuous(
+                                0.08,
+                                0.12,
+                                heterogeneity=normal_heterogeneity(0.01),
+                            )
                         )
                     },
                 ),

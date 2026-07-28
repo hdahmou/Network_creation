@@ -93,9 +93,12 @@ class PolicyAgentBuilder:
             policy_factory = POLICY_REGISTRY[policy_kind]
         except KeyError as exc:
             raise ValueError(f"Unknown policy {policy_kind!r}") from exc
+        visibility_distance = float(policy_kwargs["visibility_distance"])
+        if not visibility_distance.is_integer():
+            raise ValueError("resolved visibility_distance must be an integer")
         return Agent(
             id=node_id,
-            visibility_distance=int(policy_kwargs["visibility_distance"]),
+            visibility_distance=int(visibility_distance),
             policy=policy_factory(
                 seed=node_id,
                 n_nodes=simulation_settings.n_agents,

@@ -12,9 +12,26 @@ def continuous(
     minimum: float,
     maximum: float,
     *,
-    std: float = 0.0,
+    heterogeneity: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
-    return {"kind": "continuous", "min": minimum, "max": maximum, "std": std}
+    spec: dict[str, object] = {
+        "kind": "continuous",
+        "min": minimum,
+        "max": maximum,
+    }
+    if heterogeneity is not None:
+        spec["heterogeneity"] = dict(heterogeneity)
+    return spec
+
+
+def normal_heterogeneity(std: float) -> dict[str, object]:
+    return {"kind": "normal", "std": std}
+
+
+def discrete_offset_heterogeneity(
+    offsets: Sequence[int],
+) -> dict[str, object]:
+    return {"kind": "discrete_offsets", "offsets": list(offsets)}
 
 
 def sampled_choice(values: Sequence[float | int]) -> dict[str, object]:
@@ -26,13 +43,17 @@ def sampled_discrete_range(
     maximum: int,
     *,
     step: int = 1,
+    heterogeneity: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
-    return {
+    spec: dict[str, object] = {
         "kind": "sampled_discrete_range",
         "min": minimum,
         "max": maximum,
         "step": step,
     }
+    if heterogeneity is not None:
+        spec["heterogeneity"] = dict(heterogeneity)
+    return spec
 
 
 def scaled_inverse_agents(numerator: float, factor: float) -> dict[str, object]:

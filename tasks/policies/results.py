@@ -74,6 +74,10 @@ def load_policy_results(
     result_store_path = Path(raw.attrs["path"])
     metadata = raw.attrs["metadata"]
     attrs = raw.attrs
+    sweep_layout = str(attrs["sweep_layout"])
+    if sweep_layout not in {"cartesian", "sampled_composition"}:
+        raise ValueError(f"unsupported sweep layout {sweep_layout!r}")
+    sampled_composition = sweep_layout == "sampled_composition"
 
     output_schema = list(attrs["output_schema"])
     raw_parameters = np.asarray(metadata["parameters"], dtype=np.float32)
@@ -111,10 +115,16 @@ def load_policy_results(
         policy_config=policy_config,
         composition_axis_name=composition_axis_name,
     )
-    composition_axis_values = _composition_axis_values(
-        raw_parameters,
-        parameter_names,
-        composition_axis_name=composition_axis_name,
+    if sampled_composition and grid_shape[1] != 1:
+        raise ValueError("sampled composition results require one storage slot")
+    composition_axis_values = (
+        None
+        if sampled_composition
+        else _composition_axis_values(
+            raw_parameters,
+            parameter_names,
+            composition_axis_name=composition_axis_name,
+        )
     )
     theta, prior_low, prior_high = _theta_arrays(
         metadata,
@@ -128,13 +138,19 @@ def load_policy_results(
         result_coordinates=result_coordinates,
         output=output,
     )
-    input_index_grid = np.arange(np.prod(grid_shape), dtype=np.int64).reshape(
-        grid_shape,
+    theta = _public_grid(theta, sampled_composition=sampled_composition)
+    x = _public_grid(x, sampled_composition=sampled_composition)
+    input_index_grid = _public_grid(
+        np.arange(np.prod(grid_shape), dtype=np.int64).reshape(grid_shape),
+        sampled_composition=sampled_composition,
     )
-    dense_dims = ("n_agents", composition_axis_name, "parameter_row")
+    dense_dims = (
+        ("n_agents", "parameter_row")
+        if sampled_composition
+        else ("n_agents", composition_axis_name, "parameter_row")
+    )
     coords: dict[str, Any] = {
         "n_agents": ("n_agents", n_agents_values),
-        composition_axis_name: (composition_axis_name, composition_axis_values),
         "parameter_row": ("parameter_row", parameter_rows),
         "input_index": (dense_dims, input_index_grid),
         "theta_parameter": (
@@ -144,6 +160,22 @@ def load_policy_results(
         "observable": ("observable", list(output.observable_names)),
         "step": ("step", output.step_labels),
     }
+    if sampled_composition:
+        coords.update(
+            _sampled_composition_coords(
+                raw_parameters,
+                parameter_names=parameter_names,
+                n_agents_values=n_agents_values,
+                policy_config=policy_config,
+                composition_axis_name=composition_axis_name,
+            )
+        )
+    else:
+        assert composition_axis_values is not None
+        coords[composition_axis_name] = (
+            composition_axis_name,
+            composition_axis_values,
+        )
     agent_slot_count = _agent_slot_count(agent_payoff_outputs)
     if agent_slot_count is not None:
         coords["agent_slot"] = (
@@ -191,6 +223,7 @@ def load_policy_results(
             dense_dims=dense_dims,
             result_coordinates=result_coordinates,
             outputs=agent_payoff_outputs,
+            sampled_composition=sampled_composition,
         )
     )
     data_vars.update(
@@ -199,15 +232,19 @@ def load_policy_results(
             dense_dims=dense_dims,
             result_coordinates=result_coordinates,
             outputs=policy_welfare_outputs,
+            sampled_composition=sampled_composition,
         )
     )
     if sampled_agent_parameters is not None:
         data_vars[SAMPLED_AGENT_PARAMETERS_FIELD] = (
             (*dense_dims, "agent_index", "agent_parameter"),
-            _dense_result_grid(
-                grid_shape=grid_shape,
-                result_coordinates=result_coordinates,
-                values=sampled_agent_parameters,
+            _public_grid(
+                _dense_result_grid(
+                    grid_shape=grid_shape,
+                    result_coordinates=result_coordinates,
+                    values=sampled_agent_parameters,
+                ),
+                sampled_composition=sampled_composition,
             ),
         )
 
@@ -218,6 +255,7 @@ def load_policy_results(
             "result_store_path": str(result_store_path),
             "config_path": str(attrs["config_path"]),
             "has_failures": attrs["has_failures"],
+            "sweep_layout": sweep_layout,
         },
     )
     if not normalize_time:
@@ -479,6 +517,49 @@ def _composition_axis_values(
     )
 
 
+def _sampled_composition_coords(
+    raw_parameters: NDArray[np.float32],
+    *,
+    parameter_names: Sequence[str],
+    n_agents_values: NDArray[np.int64],
+    policy_config: Any,
+    composition_axis_name: str,
+) -> dict[str, Any]:
+    population = (
+        policy_config.get("population", {})
+        if isinstance(policy_config, Mapping)
+        else {}
+    )
+    policies = (
+        population.get("policies", ()) if isinstance(population, Mapping) else ()
+    )
+    policy_ids = tuple(
+        str(policy["id"])
+        for policy in policies
+        if isinstance(policy, Mapping) and "id" in policy
+    )
+    coords: dict[str, Any] = {}
+    for policy_id in policy_ids:
+        count_name = f"{policy_id}_count"
+        if count_name not in parameter_names:
+            continue
+        count_column = parameter_names.index(count_name)
+        coords[count_name] = (
+            ("n_agents", "parameter_row"),
+            raw_parameters[:, 0, :, count_column],
+        )
+
+    if not composition_axis_name.endswith("_count"):
+        raise ValueError("sampled composition requires a policy-count axis")
+    target_count = np.asarray(coords[composition_axis_name][1], dtype=np.float32)
+    proportion_name = f"{composition_axis_name.removesuffix('_count')}_proportion"
+    coords[proportion_name] = (
+        ("n_agents", "parameter_row"),
+        target_count / n_agents_values.astype(np.float32)[:, None],
+    )
+    return coords
+
+
 def _theta_arrays(
     metadata: dict[str, Any],
     *,
@@ -529,17 +610,21 @@ def _dense_output_grid(
 def _dense_agent_payoff_data_vars(
     *,
     grid_shape: tuple[int, int, int],
-    dense_dims: tuple[str, str, str],
+    dense_dims: tuple[str, ...],
     result_coordinates: _ResultCoordinates,
     outputs: Mapping[str, NDArray[np.generic]],
+    sampled_composition: bool,
 ) -> dict[str, Any]:
     data_vars: dict[str, Any] = {}
     for name, values in outputs.items():
         array = np.asarray(values, dtype=np.float32)
-        dense = _dense_result_grid(
-            grid_shape=grid_shape,
-            result_coordinates=result_coordinates,
-            values=array,
+        dense = _public_grid(
+            _dense_result_grid(
+                grid_shape=grid_shape,
+                result_coordinates=result_coordinates,
+                values=array,
+            ),
+            sampled_composition=sampled_composition,
         )
         if array.ndim == 3:
             data_vars[name] = ((*dense_dims, "step", "agent_slot"), dense)
@@ -558,17 +643,21 @@ def _dense_agent_payoff_data_vars(
 def _dense_policy_welfare_data_vars(
     *,
     grid_shape: tuple[int, int, int],
-    dense_dims: tuple[str, str, str],
+    dense_dims: tuple[str, ...],
     result_coordinates: _ResultCoordinates,
     outputs: Mapping[str, NDArray[np.generic]],
+    sampled_composition: bool,
 ) -> dict[str, Any]:
     data_vars: dict[str, Any] = {}
     for name, values in outputs.items():
         array = np.asarray(values, dtype=np.float32)
-        dense = _dense_result_grid(
-            grid_shape=grid_shape,
-            result_coordinates=result_coordinates,
-            values=array,
+        dense = _public_grid(
+            _dense_result_grid(
+                grid_shape=grid_shape,
+                result_coordinates=result_coordinates,
+                values=array,
+            ),
+            sampled_composition=sampled_composition,
         )
         if array.ndim == 3:
             data_vars[name] = ((*dense_dims, "step", "policy_class"), dense)
@@ -602,6 +691,14 @@ def _dense_result_grid(
         result_coordinates.parameter_row,
     ] = array
     return dense
+
+
+def _public_grid(
+    values: NDArray[Any],
+    *,
+    sampled_composition: bool,
+) -> NDArray[Any]:
+    return values[:, 0] if sampled_composition else values
 
 
 def _normalize_time_axis(

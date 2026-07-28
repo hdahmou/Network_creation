@@ -254,6 +254,131 @@ class PolicyRunResultFormatterTest(unittest.TestCase):
             np.asarray([[[[0.5, 0.6]]]], dtype=np.float32),
         )
 
+    def test_from_zarr_exposes_sampled_composition_by_parameter_row(self) -> None:
+        config = task_config(
+            n_agents=[2, 4],
+            n_actors=1,
+            log2_budget=3,
+            policies=[
+                policy("best_response", "random"),
+                policy("random", "random"),
+            ],
+            policy_counts={"policy": "best_response", "kind": "balanced"},
+            observers={
+                "defaults": {
+                    "sampling": {"kind": "periodic", "every": 1},
+                    "aggregations": ["mean"],
+                },
+                "outputs": [{"name": "density"}],
+            },
+        )
+        prepared = prepare_policy_run(config)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store_path = Path(tmpdir) / "sampled-composition.zarr"
+            writer = ZarrResultStore(
+                str(store_path),
+                output_schema=prepared.output_schema,
+                batch_size=2,
+                total_inputs=len(prepared.inputs),
+                metadata_attrs={
+                    **dict(prepared.result_attrs),
+                    "config_path": str(store_path.with_suffix(".run_config.json")),
+                },
+                metadata_arrays=prepared.result_arrays,
+            )
+            writer.add_success(
+                input_index=0,
+                output={"density.mean": np.arange(4, dtype=np.float32)},
+            )
+            writer.add_success(
+                input_index=8,
+                output={"density.mean": np.arange(10, 14, dtype=np.float32)},
+            )
+            writer.flush()
+
+            ds = load_policy_results(store_path)
+
+        self.assertEqual(ds.attrs["sweep_layout"], "sampled_composition")
+        self.assertEqual(
+            ds["x"].dims,
+            ("n_agents", "parameter_row", "step", "observable"),
+        )
+        self.assertEqual(ds["x"].shape, (2, 8, 4, 1))
+        self.assertEqual(
+            ds.coords["best_response_count"].dims,
+            ("n_agents", "parameter_row"),
+        )
+        np.testing.assert_allclose(
+            ds.coords["best_response_proportion"],
+            ds.coords["best_response_count"] / ds.coords["n_agents"],
+        )
+        np.testing.assert_array_equal(
+            ds.coords["input_index"].values,
+            np.arange(16, dtype=np.int64).reshape(2, 8),
+        )
+        self.assertNotIn("best_response_count", ds.coords["theta_parameter"].values)
+        self.assertNotIn("random_count", ds.coords["theta_parameter"].values)
+
+    def test_selected_policy_welfare_uses_configured_steps_when_normalized(self) -> None:
+        config = task_config(
+            n_agents=[2, 4],
+            n_actors=1,
+            max_steps=10,
+            policies=[policy("first", "random"), policy("second", "random")],
+            policy_proportions={"policy": "first", "values": [0.5]},
+            observers={
+                "defaults": {
+                    "sampling": {"kind": "periodic", "every": 5},
+                    "aggregations": ["mean"],
+                },
+                "outputs": [{"name": "policy_welfare"}],
+            },
+        )
+        prepared = prepare_policy_run(config)
+        values = (
+            np.asarray([[0.0, 0.0], [2.0, 3.0], [4.0, 5.0]], dtype=np.float32),
+            np.asarray([[0.0, 0.0], [6.0, 7.0], [8.0, 9.0]], dtype=np.float32),
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store_path = Path(tmpdir) / "normalized-policy-welfare.zarr"
+            writer = ZarrResultStore(
+                str(store_path),
+                output_schema=prepared.output_schema,
+                batch_size=2,
+                total_inputs=len(prepared.inputs),
+                metadata_attrs={
+                    **dict(prepared.result_attrs),
+                    "config_path": str(store_path.with_suffix(".run_config.json")),
+                },
+                metadata_arrays=prepared.result_arrays,
+            )
+            for input_index, value in enumerate(values):
+                writer.add_success(
+                    input_index=input_index,
+                    output={"policy_welfare.mean": value},
+                )
+            writer.flush()
+
+            raw = load_policy_results(store_path, stats=["policy_welfare.mean"])
+            normalized = load_policy_results(
+                store_path,
+                stats=["policy_welfare.mean"],
+                normalize_time=True,
+            )
+
+        np.testing.assert_array_equal(raw.coords["step"], [0, 5, 10])
+        np.testing.assert_allclose(normalized.coords["step"], [0.0, 2.5])
+        self.assertEqual(
+            normalized.attrs["time_axis"],
+            "activation_opportunities_per_agent",
+        )
+        np.testing.assert_allclose(
+            normalized["policy_welfare.mean"].isel(step=-1).values,
+            np.asarray([[[[2.0, 3.0]]], [[[8.0, 9.0]]]], dtype=np.float32),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

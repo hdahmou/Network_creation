@@ -11,7 +11,7 @@ import numpy as np
 from tasks.policies import load_policy_results
 from tasks.policies.outputs import SAMPLED_AGENT_PARAMETERS_FIELD
 
-from tests.tasks.config_support import continuous
+from tests.tasks.config_support import continuous, normal_heterogeneity
 from tests.tasks.policy_result_support import build_random_config, write_result_store
 
 
@@ -232,7 +232,11 @@ class RandomPolicyResultFormatterTest(unittest.TestCase):
         config = build_random_config()
         config["simulator"]["actor_scheduler"]["n_actors"] = 1
         config["population"]["policies"][0]["agent_parameters"] = {
-            "activation_weight": continuous(0.01, 1.0, std=0.1)
+            "activation_weight": continuous(
+                0.01,
+                1.0,
+                heterogeneity=normal_heterogeneity(0.1),
+            )
         }
         outputs_by_index = [
             (
@@ -291,7 +295,11 @@ class RandomPolicyResultFormatterTest(unittest.TestCase):
         config = build_random_config()
         config["simulator"]["actor_scheduler"]["n_actors"] = 1
         config["population"]["policies"][0]["agent_parameters"] = {
-            "activation_weight": continuous(0.01, 1.0, std=0.1)
+            "activation_weight": continuous(
+                0.01,
+                1.0,
+                heterogeneity=normal_heterogeneity(0.1),
+            )
         }
         outputs_by_index = [
             (
@@ -587,4 +595,74 @@ class RandomPolicyResultFormatterTest(unittest.TestCase):
         self.assertEqual(
             tuple(ds.coords["observable"].values),
             ("density.final", "centered_mean_welfare.final"),
+        )
+
+    def test_from_zarr_preserves_terminal_agent_payoff_runs(self) -> None:
+        config = build_random_config()
+        config["population"]["n_agents"] = [2, 4]
+        config["simulator"]["max_steps"] = 2
+        config["observers"]["outputs"] = [
+            {
+                "name": "agent_payoff",
+                "sampling": {"kind": "terminal"},
+                "aggregations": ["runs"],
+            }
+        ]
+        outputs_by_index = [
+            (
+                0,
+                {
+                    "agent_payoff.runs": np.asarray(
+                        [
+                            [[0.1, 0.2, np.nan, np.nan]],
+                            [[0.3, 0.4, np.nan, np.nan]],
+                        ],
+                        dtype=np.float32,
+                    ),
+                },
+            ),
+            (
+                1,
+                {
+                    "agent_payoff.runs": np.asarray(
+                        [
+                            [[1.0, 2.0, 3.0, 4.0]],
+                            [[5.0, 6.0, 7.0, 8.0]],
+                        ],
+                        dtype=np.float32,
+                    ),
+                },
+            )
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store_path = write_result_store(
+                Path(tmpdir),
+                config=config,
+                outputs_by_index=outputs_by_index,
+                total_inputs=2,
+            )
+
+            ds = load_policy_results(store_path, stats=("agent_payoff.runs",))
+
+        self.assertEqual(
+            ds["agent_payoff.runs"].dims,
+            (
+                "n_agents",
+                "random_proportion",
+                "parameter_row",
+                "episode",
+                "step",
+                "agent_slot",
+            ),
+        )
+        np.testing.assert_array_equal(ds.coords["episode"].values, [0, 1])
+        np.testing.assert_array_equal(ds.coords["step"].values, [2])
+        np.testing.assert_allclose(
+            ds["agent_payoff.runs"].sel(n_agents=2).values,
+            np.asarray(
+                [[[[[0.1, 0.2, np.nan, np.nan]], [[0.3, 0.4, np.nan, np.nan]]]]],
+                dtype=np.float32,
+            ),
+            equal_nan=True,
         )

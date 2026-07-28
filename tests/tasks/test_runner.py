@@ -351,6 +351,7 @@ class RunnerTests(unittest.TestCase):
         )
         self.assertTrue(Path(summary["output_zarr"]).exists())
         self.assertTrue(Path(summary["config_copy_path"]).exists())
+        self.assertTrue((Path(summary["output_zarr"]) / "done").is_file())
         self.assertEqual(summary["success_count"], 3)
         self.assertEqual(summary["failure_count"], 0)
         self.assertEqual(summary["success_rows_written"], 3)
@@ -451,7 +452,25 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(root["results"]["input_index"][:].tolist(), [0, 2])
         self.assertTrue(root.attrs["has_failures"])
         self.assertTrue(summary["has_failures"])
+        self.assertTrue((Path(summary["output_zarr"]) / "done").is_file())
         self.assertNotIn("failures", root)
+
+    def test_runner_does_not_write_done_marker_when_execution_stops(self) -> None:
+        inputs_path = self.write_inputs([5, 8])
+        config_path = self.write_config("vector", inputs_path)
+
+        with patch(
+            "tasks.execution.runner.execute_inputs",
+            side_effect=RuntimeError("scheduler stopped"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "scheduler stopped"):
+                run_from_config(str(config_path))
+
+        output_dirs = list(
+            (self.workdir / "artifacts" / "simulation_runs").glob("run-*.zarr")
+        )
+        self.assertEqual(len(output_dirs), 1)
+        self.assertFalse((output_dirs[0] / "done").exists())
 
     def test_runner_writes_structured_outputs_by_field(self) -> None:
         inputs_path = self.write_inputs([2, 5])

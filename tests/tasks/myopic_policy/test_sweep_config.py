@@ -238,15 +238,23 @@ class MyopicPolicyPreparationTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "log2_budget"):
             sample_parameters(input_spec)
 
-    def test_sample_parameters_requires_valid_continuous_std(self) -> None:
+    def test_sample_parameters_validates_continuous_heterogeneity(self) -> None:
         cases = (
-            ({"kind": "continuous", "min": 0.0, "max": 1.0}, "alpha.std"),
             (
                 {"kind": "continuous", "min": 0.0, "max": 1.0, "std": -0.1},
                 "alpha.std",
             ),
             (
-                {"kind": "continuous", "min": 1.0, "max": 0.0, "std": 0.0},
+                {
+                    "kind": "continuous",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "heterogeneity": {"kind": "normal", "std": -0.1},
+                },
+                "heterogeneity.std must be non-negative",
+            ),
+            (
+                {"kind": "continuous", "min": 1.0, "max": 0.0},
                 "alpha.min",
             ),
         )

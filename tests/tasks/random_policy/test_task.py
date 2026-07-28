@@ -203,6 +203,36 @@ class RandomPolicyTaskTest(unittest.TestCase):
         output = prepared.run(prepared.inputs[0])
         self.assertEqual(output["density.mean"].shape, (1,))
 
+    def test_prepare_supports_terminal_agent_payoff_runs(self) -> None:
+        config = self._base_config()
+        config["population"]["n_agents"] = [2, 4]
+        config["observers"]["outputs"] = [
+            {
+                "name": "agent_payoff",
+                "sampling": {"kind": "terminal"},
+                "aggregations": ["runs"],
+            }
+        ]
+        prepared = prepare_policy_run(config)
+
+        self.assertEqual(
+            prepared.output_schema.metadata(),
+            [
+                {
+                    "name": "agent_payoff.runs",
+                    "shape": [2, 1, 4],
+                    "dtype": "float32",
+                },
+            ],
+        )
+
+        small_output = prepared.run(0)["agent_payoff.runs"]
+        large_output = prepared.run(1)["agent_payoff.runs"]
+
+        self.assertEqual(small_output.shape, (2, 1, 4))
+        self.assertEqual(large_output.shape, (2, 1, 4))
+        self.assertTrue(np.isnan(small_output[..., 2:]).all())
+
     def test_run_supports_multiple_visibility_distance_samples(self) -> None:
         config = self._base_config()
         config["sampling"]["log2_budget"] = 1

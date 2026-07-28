@@ -9,6 +9,8 @@ from typing import Any, cast
 import numpy as np
 from numpy.typing import NDArray
 
+from .heterogeneity import parse_heterogeneity
+
 
 type ParameterSpec = Mapping[str, object]
 type ParameterConfig = Mapping[str, ParameterSpec]
@@ -27,15 +29,13 @@ def _read_finite_real(spec: ParameterSpec, key: str, *, parameter_name: str) -> 
 def validate_continuous_parameter_spec(
     name: str,
     spec: ParameterSpec,
-) -> tuple[float, float, float]:
+) -> tuple[float, float]:
+    parse_heterogeneity(name, spec)
     minimum = _read_finite_real(spec, "min", parameter_name=name)
     maximum = _read_finite_real(spec, "max", parameter_name=name)
-    std = _read_finite_real(spec, "std", parameter_name=name)
     if minimum >= maximum:
         raise ValueError(f"{name}.min must be less than {name}.max")
-    if std < 0.0:
-        raise ValueError(f"{name}.std must be non-negative")
-    return minimum, maximum, std
+    return minimum, maximum
 
 
 def build_parameter_values(
@@ -67,7 +67,7 @@ def build_parameter_values(
         return np.asarray(sampled, dtype=np.float32)
 
     if kind == "sampled_discrete_range":
-        range_values = np.arange(
+        range_values: NDArray[np.float32] = np.arange(
             int(cast(Any, spec["min"])),
             int(cast(Any, spec["max"])) + 1,
             int(cast(Any, spec.get("step", 1))),
@@ -104,7 +104,7 @@ def build_continuous_parameter_values(
     continuous_parameter_values = np.empty_like(unit_samples)
 
     for column_index, (name, spec) in enumerate(continuous_parameters):
-        minimum, maximum, _ = validate_continuous_parameter_spec(name, spec)
+        minimum, maximum = validate_continuous_parameter_spec(name, spec)
         continuous_parameter_values[:, column_index] = minimum + (
             unit_samples[:, column_index] * (maximum - minimum)
         )
@@ -120,6 +120,7 @@ def generate_parameter_space(
     *,
     sample_budget: int,
     sampler_seed: int,
+    preserve_sample_budget: bool = False,
 ) -> tuple[tuple[str, ...], NDArray[np.float32]]:
     parameter_names = tuple(parameters)
     continuous_parameters: list[tuple[str, ParameterSpec]] = []
@@ -127,7 +128,8 @@ def generate_parameter_space(
     non_continuous_parameter_columns: list[NDArray[np.float32]] = []
     effective_sample_budget = (
         sample_budget
-        if any(
+        if preserve_sample_budget
+        or any(
             str(spec["kind"]) not in {"fixed", "scaled_inverse_agents"}
             for spec in parameters.values()
         )
@@ -135,6 +137,7 @@ def generate_parameter_space(
     )
 
     for parameter_index, (name, spec) in enumerate(parameters.items()):
+        parse_heterogeneity(name, spec)
         kind = str(spec["kind"])
         if kind == "continuous":
             continuous_parameters.append((name, spec))
@@ -156,7 +159,10 @@ def generate_parameter_space(
         )
     )
 
-    output = np.empty((effective_sample_budget, len(parameter_names)), dtype=np.float32)
+    output: NDArray[np.float32] = np.empty(
+        (effective_sample_budget, len(parameter_names)),
+        dtype=np.float32,
+    )
     continuous_parameter_column_index = {
         name: index for index, name in enumerate(continuous_parameter_names)
     }

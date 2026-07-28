@@ -53,13 +53,19 @@
             "kind": "continuous",
             "min": 0.0,
             "max": 1.0,
-            "std": 0.0
+            "heterogeneity": {
+              "kind": "normal",
+              "std": 0.0
+            }
           },
           "exploration": {
             "kind": "continuous",
             "min": 0.0001,
             "max": 0.1,
-            "std": 0.0
+            "heterogeneity": {
+              "kind": "normal",
+              "std": 0.0
+            }
           }
         }
       }

@@ -34,6 +34,10 @@ def load_inversion_source(config_path: str | Path) -> InversionSource:
 
     root = cast(Any, zarr.open_group(zarr_path, mode="r"))
     attrs = dict(root.attrs)
+    if attrs.get("sweep_layout") == "sampled_composition":
+        raise ValueError(
+            "model inversion does not support sampled-composition result stores"
+        )
     results_group = root["results"]
     outputs_group = results_group["outputs"]
     metadata_group = root["metadata"]

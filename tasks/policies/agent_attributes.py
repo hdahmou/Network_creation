@@ -12,6 +12,11 @@ from numpy.typing import NDArray
 
 from network_creation.core.runtime import SimulationSettings
 
+from .heterogeneity import (
+    Heterogeneity,
+    parse_heterogeneity,
+    sample_heterogeneous_value,
+)
 from .parameter_space import ParameterSpec, validate_continuous_parameter_spec
 
 
@@ -39,9 +44,7 @@ class AgentAttributePlanEntry:
     definition: AgentAttributeDefinition
     source_column: int
     sampled_column: int | None
-    minimum: float | None
-    maximum: float | None
-    std: float
+    heterogeneity: Heterogeneity | None
 
 
 @dataclass(frozen=True)
@@ -70,7 +73,7 @@ class AgentAttributePlan:
             simulation_settings.n_agents,
             dtype=np.float32,
         )
-        sampled_values = np.full(
+        sampled_values: NDArray[np.float32] = np.full(
             (max_n_agents, len(self.sampled_names)),
             np.nan,
             dtype=np.float32,
@@ -81,25 +84,16 @@ class AgentAttributePlan:
             entry = self.entry_by_policy_id[policy_id]
 
             source_value = float(configuration[entry.source_column])
-            if entry.sampled_column is not None:
-                rng = np.random.default_rng(
-                    np.random.SeedSequence(
-                        (
-                            int(simulation_settings.seed),
-                            int(simulation_settings.n_agents),
-                            int(parameter_row_index),
-                            int(node_id),
-                            int(entry.source_column),
-                        )
-                    )
-                )
-                assert entry.minimum is not None
-                assert entry.maximum is not None
+            if entry.heterogeneity is not None:
                 source_value = float(
-                    np.clip(
-                        rng.normal(loc=source_value, scale=entry.std),
-                        entry.minimum,
-                        entry.maximum,
+                    sample_heterogeneous_value(
+                        source_value,
+                        entry.heterogeneity,
+                        seed=simulation_settings.seed,
+                        n_agents=simulation_settings.n_agents,
+                        parameter_row_index=parameter_row_index,
+                        node_id=node_id,
+                        parameter_name=entry.definition.parameter_name,
                     )
                 )
 
@@ -222,17 +216,13 @@ def build_agent_attribute_plan(
     entry_by_policy_id: dict[str, AgentAttributePlanEntry] = {}
 
     for policy_id, definition in effective_by_policy_id.items():
-        minimum: float | None = None
-        maximum: float | None = None
-        std = 0.0
-        if str(definition.parameter_spec["kind"]) == "continuous":
-            minimum, maximum, std = validate_continuous_parameter_spec(
-                definition.parameter_name,
-                definition.parameter_spec,
-            )
+        heterogeneity = parse_heterogeneity(
+            definition.parameter_name,
+            definition.parameter_spec,
+        )
 
         sampled_column: int | None = None
-        if std > 0.0:
+        if heterogeneity is not None:
             sampled_column = sampled_column_by_parameter_name.get(
                 definition.parameter_name
             )
@@ -247,9 +237,7 @@ def build_agent_attribute_plan(
             definition=definition,
             source_column=configuration_column_by_name[definition.parameter_name],
             sampled_column=sampled_column,
-            minimum=minimum,
-            maximum=maximum,
-            std=std,
+            heterogeneity=heterogeneity,
         )
 
     return AgentAttributePlan(
@@ -334,7 +322,7 @@ def _validate_numeric_spec(
         if not values:
             raise ValueError(f"{name}.values must not be empty")
     elif kind == "continuous":
-        minimum, maximum, _ = validate_continuous_parameter_spec(name, spec)
+        minimum, maximum = validate_continuous_parameter_spec(name, spec)
         with np.errstate(over="ignore", under="ignore"):
             stored_minimum = np.float32(minimum)
             stored_maximum = np.float32(maximum)
@@ -383,13 +371,8 @@ def _attributes_are_uniform(
     if not definitions:
         return True
     first = definitions[0]
-    if str(first.parameter_spec["kind"]) == "continuous":
-        _, _, std = validate_continuous_parameter_spec(
-            first.parameter_name,
-            first.parameter_spec,
-        )
-        if std > 0.0:
-            return False
+    if parse_heterogeneity(first.parameter_name, first.parameter_spec) is not None:
+        return False
     return all(
         definition.transform == first.transform
         and definition.parameter_name == first.parameter_name

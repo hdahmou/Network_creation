@@ -131,6 +131,11 @@ def build_result_metadata(
 
     attrs: dict[str, Any] = {
         "parameter_names": list(parameter_names),
+        "sweep_layout": (
+            "sampled_composition"
+            if sweep.policy_composition.kind == "balanced"
+            else "cartesian"
+        ),
         "policy_config": {
             key: config[key]
             for key in ("sampling", "simulator", "game", "population", "observers")

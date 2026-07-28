@@ -40,7 +40,7 @@ class PolicySimulationRuntime:
         simulation_settings = self.sweep.resolve(configuration)
         _, _, parameter_row_index = self.sweep.coordinates(sample_idx)
         sampled_agent_parameters = self.sampled_agent_parameter_plan.sample(
-            sample_idx,
+            parameter_row_index,
             configuration,
             simulation_settings,
             self.max_n_agents,

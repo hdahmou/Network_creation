@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 
 import numpy as np
+import zarr
 
 from network_creation.model_inversion.dataset import (
     build_row_index,
@@ -17,6 +18,21 @@ from .support import write_result_store, write_training_config
 
 
 class ZarrBackedDatasetTests(unittest.TestCase):
+    def test_source_rejects_sampled_composition_runs(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workdir = Path(temp_dir)
+            zarr_path = write_result_store(workdir / "run.zarr")
+            root = zarr.open_group(zarr_path, mode="a")
+            root.attrs["sweep_layout"] = "sampled_composition"
+            config_path = write_training_config(
+                workdir / "train.json",
+                zarr_path=zarr_path,
+                normalize_time=False,
+            )
+
+            with self.assertRaisesRegex(ValueError, "does not support"):
+                load_inversion_source(config_path)
+
     def test_source_schema_and_final_dataset_use_new_names(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             workdir = Path(temp_dir)

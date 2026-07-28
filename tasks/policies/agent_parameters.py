@@ -9,7 +9,12 @@ from typing import TYPE_CHECKING
 import numpy as np
 from numpy.typing import NDArray
 
-from .parameter_space import ParameterSpec, validate_continuous_parameter_spec
+from .heterogeneity import (
+    Heterogeneity,
+    parse_heterogeneity,
+    sample_heterogeneous_value,
+)
+from .parameter_space import ParameterSpec
 from .sweep import PolicyEntry
 
 if TYPE_CHECKING:
@@ -21,12 +26,11 @@ PolicyForNode = Callable[[int, NDArray[np.float32]], PolicyEntry]
 
 @dataclass(frozen=True)
 class SampledParameterPlanEntry:
+    parameter_name: str
     policy_kwarg: str
-    mean_column: int
+    center_column: int
     sampled_column: int
-    minimum: float
-    maximum: float
-    std: float
+    heterogeneity: Heterogeneity
 
 
 @dataclass(frozen=True)
@@ -36,13 +40,13 @@ class SampledAgentParameterPlan:
 
     def sample(
         self,
-        sample_idx: int,
+        parameter_row_index: int,
         configuration: NDArray[np.float32],
         simulation_settings: SimulationSettings,
         max_n_agents: int,
         policy_for_node: PolicyForNode,
     ) -> NDArray[np.float32]:
-        sampled = np.full(
+        sampled: NDArray[np.float32] = np.full(
             (max_n_agents, len(self.names)),
             np.nan,
             dtype=np.float32,
@@ -50,25 +54,17 @@ class SampledAgentParameterPlan:
         if not self.names:
             return sampled
 
-        rng = np.random.default_rng(
-            np.random.SeedSequence(
-                (
-                    int(simulation_settings.seed),
-                    int(sample_idx),
-                    int(simulation_settings.n_agents),
-                )
-            )
-        )
         for node_id in range(simulation_settings.n_agents):
             policy_id, _ = policy_for_node(node_id, configuration)
             for parameter in self.parameters_by_policy_id[policy_id]:
-                sampled[node_id, parameter.sampled_column] = np.clip(
-                    rng.normal(
-                        loc=configuration[parameter.mean_column],
-                        scale=parameter.std,
-                    ),
-                    parameter.minimum,
-                    parameter.maximum,
+                sampled[node_id, parameter.sampled_column] = sample_heterogeneous_value(
+                    float(configuration[parameter.center_column]),
+                    parameter.heterogeneity,
+                    seed=simulation_settings.seed,
+                    n_agents=simulation_settings.n_agents,
+                    parameter_row_index=parameter_row_index,
+                    node_id=node_id,
+                    parameter_name=parameter.parameter_name,
                 )
         return sampled
 
@@ -84,27 +80,26 @@ def build_sampled_agent_parameter_plan(
     }
     names: list[str] = []
     for name, spec in parameter_specs.items():
-        if str(spec["kind"]) != "continuous":
-            continue
-        minimum, maximum, std = validate_continuous_parameter_spec(name, spec)
-        if std == 0.0:
+        heterogeneity = parse_heterogeneity(name, spec)
+        if heterogeneity is None:
             continue
         policy_id, parameter_name = _policy_parameter_name(name)
         sampled_parameter = SampledParameterPlanEntry(
+            parameter_name=name,
             policy_kwarg=parameter_name,
-            mean_column=configuration_column_by_name[name],
+            center_column=configuration_column_by_name[name],
             sampled_column=len(names),
-            minimum=minimum,
-            maximum=maximum,
-            std=std,
+            heterogeneity=heterogeneity,
         )
-        names.append(name)
 
         if policy_id is None:
             for sampled_parameters in parameters_by_policy_id.values():
                 sampled_parameters.append(sampled_parameter)
         elif policy_id in parameters_by_policy_id:
             parameters_by_policy_id[policy_id].append(sampled_parameter)
+        else:
+            continue
+        names.append(name)
 
     return SampledAgentParameterPlan(
         names=tuple(names),

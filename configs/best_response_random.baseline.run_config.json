@@ -53,13 +53,19 @@
             "kind": "continuous",
             "min": 0.0,
             "max": 1.0,
-            "std": 0.0
+            "heterogeneity": {
+              "kind": "normal",
+              "std": 0.0
+            }
           },
           "exploration": {
             "kind": "continuous",
             "min": 0.0001,
             "max": 0.1,
-            "std": 0.0
+            "heterogeneity": {
+              "kind": "normal",
+              "std": 0.0
+            }
           }
         }
       },
@@ -71,15 +77,18 @@
             "kind": "continuous",
             "min": 0.01,
             "max": 1.0,
-            "std": 0.0
+            "heterogeneity": {
+              "kind": "normal",
+              "std": 0.0
+            }
           }
         },
         "parameters": {}
       }
     ],
-    "policy_proportions": {
+    "policy_counts": {
       "policy": "best_response",
-      "values": [0.0, 0.1, 0.2, 0.3, 0.4, 0.6, 0.8, 1.0]
+      "kind": "balanced"
     }
   },
   "observers": {
@@ -91,15 +100,6 @@
       "aggregations": ["mean"]
     },
     "outputs": [
-      {
-        "name": "central_point_of_dominance"
-      },
-      {
-        "name": "indegree"
-      },
-      {
-        "name": "centered_mean_welfare"
-      },
       {
         "name": "policy_welfare"
       }

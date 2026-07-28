@@ -11,6 +11,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from network_creation.core.runtime import SimulationSettings
+from .heterogeneity import parse_heterogeneity
 from .parameter_space import generate_parameter_space
 
 type ParameterSpec = Mapping[str, object]
@@ -41,11 +42,16 @@ class PolicyCompositionSweep:
     policy_id: str
     values: tuple[float, ...]
     unit: str
+    kind: str = "cartesian"
 
     @property
     def axis_name(self) -> str:
         suffix = "proportion" if self.unit == "proportion" else "count"
         return f"{self.policy_id}_{suffix}"
+
+    @property
+    def n_slots(self) -> int:
+        return 1 if self.kind == "balanced" else len(self.values)
 
 
 def _input_coordinates(
@@ -87,7 +93,7 @@ class SweepPlan:
 
     @property
     def n_policy_compositions(self) -> int:
-        return len(self.policy_composition.values)
+        return self.policy_composition.n_slots
 
     @property
     def n_policy_proportions(self) -> int:
@@ -161,7 +167,10 @@ def collect_parameter_specs(config: Mapping[str, Any]) -> dict[str, object]:
     for name, spec in cast(Mapping[str, object], config.get("game", {})).items():
         if not isinstance(spec, Mapping) or "kind" not in spec:
             raise ValueError(f"game.{name} must be a parameter spec")
-        parameters[name] = cast(ParameterSpec, spec)
+        parameter_spec = cast(ParameterSpec, spec)
+        if parse_heterogeneity(name, parameter_spec) is not None:
+            raise ValueError(f"game parameter {name!r} cannot define heterogeneity")
+        parameters[name] = parameter_spec
 
     for name, spec in population.items():
         if name in _POPULATION_STRUCTURAL_KEYS:
@@ -200,6 +209,7 @@ def collect_parameter_specs(config: Mapping[str, Any]) -> dict[str, object]:
     return {
         "log2_budget": sampling["log2_budget"],
         "seed": sampling["seed"],
+        "preserve_sample_budget": _uses_balanced_policy_counts(population),
         "parameters": parameters,
         "policy_parameters": policy_parameters,
         "agent_attribute_definitions": agent_attribute_definitions,
@@ -291,7 +301,22 @@ def _load_policy_counts(
     if policy_id not in policy_ids:
         raise ValueError("population.policy_counts.policy must match one policy id")
 
-    values = cast(Sequence[Any], raw_counts["values"])
+    kind = str(raw_counts.get("kind", "cartesian"))
+    if kind == "balanced":
+        if "values" in raw_counts:
+            raise ValueError("balanced policy_counts must not define values")
+        return PolicyCompositionSweep(
+            policy_id=policy_id,
+            values=(),
+            unit="count",
+            kind="balanced",
+        )
+    if kind != "cartesian":
+        raise ValueError("population.policy_counts.kind must be 'balanced'")
+
+    values = cast(Sequence[Any], raw_counts.get("values", ()))
+    if not values:
+        raise ValueError("population.policy_counts.values must not be empty")
     counts: list[float] = []
     for index, value in enumerate(values):
         if (
@@ -310,6 +335,11 @@ def _load_policy_counts(
         values=tuple(counts),
         unit="count",
     )
+
+
+def _uses_balanced_policy_counts(population: Mapping[str, object]) -> bool:
+    raw_counts = population.get("policy_counts")
+    return isinstance(raw_counts, Mapping) and raw_counts.get("kind") == "balanced"
 
 
 def _load_initial_graph(raw: Mapping[str, Any]) -> tuple[str, float | None]:
@@ -376,6 +406,7 @@ def _build_configuration_grid(
     policy_composition: PolicyCompositionSweep,
     policy_ids: Sequence[str],
     parameter_samples: ParameterSamples,
+    sampler_seed: int,
 ) -> tuple[tuple[str, ...], NDArray[np.float32]]:
     target_id = policy_composition.policy_id
     axis_name = policy_composition.axis_name
@@ -394,7 +425,7 @@ def _build_configuration_grid(
     configuration_values: NDArray[np.float32] = np.empty(
         (
             len(n_agents_values),
-            len(policy_composition.values),
+            policy_composition.n_slots,
             n_parameter_rows,
             len(configuration_names),
         ),
@@ -402,27 +433,47 @@ def _build_configuration_grid(
     )
     n_agents_array = np.asarray(n_agents_values, dtype=np.float32)
     composition_values = np.asarray(policy_composition.values, dtype=np.float32)
-    if policy_composition.unit == "proportion":
+    if policy_composition.kind == "balanced":
+        target_count_grid = _balanced_policy_counts(
+            n_agents_values=n_agents_values,
+            n_parameter_rows=n_parameter_rows,
+            sampler_seed=sampler_seed,
+        )
+        axis_value_grid = target_count_grid
+    elif policy_composition.unit == "proportion":
         target_counts = _round_policy_counts(
             composition_values[None, :] * n_agents_array[:, None]
         )
         axis_values = composition_values[None, :]
+        target_count_grid = np.broadcast_to(
+            target_counts[:, :, None],
+            (len(n_agents_values), policy_composition.n_slots, n_parameter_rows),
+        )
+        axis_value_grid = np.broadcast_to(
+            axis_values[:, :, None],
+            (len(n_agents_values), policy_composition.n_slots, n_parameter_rows),
+        )
     elif policy_composition.unit == "count":
         target_counts = np.broadcast_to(
             composition_values[None, :],
-            (len(n_agents_values), len(policy_composition.values)),
+            (len(n_agents_values), policy_composition.n_slots),
         ).astype(np.float32, copy=False)
         if np.any(target_counts > n_agents_array[:, None]):
             raise ValueError(
                 "population.policy_counts.values must not exceed population.n_agents"
             )
         axis_values = target_counts
+        target_count_grid = np.broadcast_to(
+            target_counts[:, :, None],
+            (len(n_agents_values), policy_composition.n_slots, n_parameter_rows),
+        )
+        axis_value_grid = target_count_grid
     else:
         raise ValueError(
             f"unsupported policy composition unit {policy_composition.unit!r}"
         )
     configuration_values[:, :, :, 0] = n_agents_array[:, None, None]
-    configuration_values[:, :, :, 1] = axis_values[:, :, None]
+    configuration_values[:, :, :, 1] = axis_value_grid
 
     count_start = 2
     for offset, policy_id in enumerate(
@@ -431,10 +482,10 @@ def _build_configuration_grid(
         if f"{policy_id}_count" != axis_name
     ):
         if len(policy_ids) == 1 or policy_id == target_id:
-            counts = target_counts
+            counts = target_count_grid
         else:
-            counts = n_agents_array[:, None] - target_counts
-        configuration_values[:, :, :, count_start + offset] = counts[:, :, None]
+            counts = n_agents_array[:, None, None] - target_count_grid
+        configuration_values[:, :, :, count_start + offset] = counts
 
     parameter_start = count_start + len(count_names)
     configuration_values[:, :, :, parameter_start:] = parameter_samples.parameter_values[
@@ -444,6 +495,37 @@ def _build_configuration_grid(
         :,
     ]
     return configuration_names, configuration_values
+
+
+def _balanced_policy_counts(
+    *,
+    n_agents_values: Sequence[int],
+    n_parameter_rows: int,
+    sampler_seed: int,
+) -> NDArray[np.float32]:
+    required_rows = max(n_agents_values) + 1
+    if n_parameter_rows < required_rows:
+        raise ValueError(
+            "balanced policy_counts requires at least max(n_agents) + 1 "
+            f"parameter rows ({required_rows})"
+        )
+
+    output: NDArray[np.float32] = np.empty(
+        (len(n_agents_values), 1, n_parameter_rows),
+        dtype=np.float32,
+    )
+    for n_agents_index, n_agents in enumerate(n_agents_values):
+        rng = np.random.default_rng(
+            np.random.SeedSequence((int(sampler_seed), int(n_agents)))
+        )
+        levels: NDArray[np.float32] = np.arange(n_agents + 1, dtype=np.float32)
+        repeats, remainder = divmod(n_parameter_rows, levels.size)
+        counts = np.tile(levels, repeats)
+        if remainder:
+            counts = np.concatenate((counts, rng.permutation(levels)[:remainder]))
+        rng.shuffle(counts)
+        output[n_agents_index, 0] = counts
+    return output
 
 
 def build_sweep(
@@ -463,11 +545,14 @@ def build_sweep(
         population,
         policy_ids=policy_ids,
     )
+    if policy_composition.kind == "balanced" and len(policy_ids) != 2:
+        raise ValueError("balanced policy_counts requires exactly two policies")
     configuration_names, configuration_values = _build_configuration_grid(
         n_agents_values=n_agents_values,
         policy_composition=policy_composition,
         policy_ids=policy_ids,
         parameter_samples=parameter_samples,
+        sampler_seed=int(cast(Mapping[str, Any], config["sampling"])["seed"]),
     )
     _resolve_scaled_inverse_agents(
         configuration_values,
@@ -541,6 +626,7 @@ def sample_parameters(input_spec: Mapping[str, object]) -> ParameterSamples:
         parameters,
         sample_budget=sample_budget,
         sampler_seed=sampler_seed,
+        preserve_sample_budget=bool(input_spec.get("preserve_sample_budget", False)),
     )
     column_index_by_name = {name: index for index, name in enumerate(parameter_names)}
 

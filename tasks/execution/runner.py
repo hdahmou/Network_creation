@@ -300,6 +300,8 @@ def run_from_config(config_path: str, log_level: str = "INFO") -> dict[str, Any]
     finally:
         writer.flush()
 
+    (plan.output_zarr / "done").touch()
+
     summary = {
         **stats,
         "started_at": plan.started_slug,

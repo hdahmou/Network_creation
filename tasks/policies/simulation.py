@@ -7,6 +7,7 @@ from typing import Any
 
 import numpy as np
 
+from ..execution.schema import OutputArraySpec
 from .agent_parameters import SampledAgentParameterPlan
 from .agent_attributes import AgentAttributePlan
 from .agents import PolicyAgentBuilder
@@ -17,6 +18,52 @@ from .observers import (
 )
 from .outputs import SAMPLED_AGENT_PARAMETERS_FIELD
 from .sweep import SweepPlan
+
+
+def _pad_observer_time_axis(
+    values: np.ndarray[Any, Any],
+    field: OutputArraySpec,
+    *,
+    aggregation: str,
+    is_terminal: bool,
+) -> np.ndarray[Any, Any]:
+    expected_shape = field.shape
+    actual_shape = tuple(values.shape)
+    if is_terminal:
+        if actual_shape != expected_shape:
+            raise ValueError(
+                f"terminal field {field.name!r} exported shape {actual_shape} "
+                f"but expected {expected_shape}"
+            )
+        return values
+
+    time_axis = 1 if aggregation == "runs" else 0
+    if aggregation not in {"mean", "std", "runs"}:
+        raise ValueError(f"unsupported observer aggregation {aggregation!r}")
+    if values.ndim != len(expected_shape) or any(
+        actual != expected
+        for axis, (actual, expected) in enumerate(
+            zip(actual_shape, expected_shape, strict=True)
+        )
+        if axis != time_axis
+    ):
+        raise ValueError(
+            f"field {field.name!r} exported shape {actual_shape} with non-time "
+            f"dimensions incompatible with {expected_shape}"
+        )
+    if actual_shape[time_axis] > expected_shape[time_axis]:
+        raise ValueError(
+            f"field {field.name!r} exported shape {actual_shape} longer than "
+            f"expected {expected_shape}"
+        )
+    if actual_shape == expected_shape:
+        return values
+
+    padded = np.full(expected_shape, np.nan, dtype=field.resolved_dtype)
+    valid_prefix = [slice(None)] * values.ndim
+    valid_prefix[time_axis] = slice(0, actual_shape[time_axis])
+    padded[tuple(valid_prefix)] = values
+    return padded
 
 
 @dataclass(frozen=True)
@@ -105,9 +152,17 @@ class PolicySimulationRuntime:
             result = observer.get()
             for field in spec.fields:
                 aggregation = field.name.split(".", maxsplit=1)[1]
-                output[field.name] = np.asarray(
+                values = np.asarray(
                     result.outputs[aggregation],
-                    dtype=spec.observer_class.fixed_output_dtype(),
+                    dtype=field.resolved_dtype,
+                )
+                output[field.name] = _pad_observer_time_axis(
+                    values,
+                    field,
+                    aggregation=aggregation,
+                    is_terminal=(
+                        spec.kwargs["observation_sampling"].kind == "terminal"
+                    ),
                 )
         if sampled_agent_parameters.shape[1]:
             output[SAMPLED_AGENT_PARAMETERS_FIELD] = sampled_agent_parameters

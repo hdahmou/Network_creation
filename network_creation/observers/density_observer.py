@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from typing import Any, cast
 
 import igraph as ig
 import numpy as np
@@ -41,7 +42,7 @@ class DensityObserver(EpisodeSeriesStatisticObserver):
         del cls
         result = dict(references or {})
         try:
-            n_agents = int(context["n_agents"])
+            n_agents = int(cast(Any, context["n_agents"]))
         except (KeyError, TypeError, ValueError):
             return result
         result.update({"empty": 0.0, "star": float(2.0 / n_agents)})

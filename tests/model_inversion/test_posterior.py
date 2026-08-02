@@ -34,6 +34,11 @@ class PosteriorArtifactTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "discrete_theta_values"):
             ArtifactMetadata.model_validate_json(json.dumps(payload))
 
+        payload = metadata().model_dump(mode="json")
+        payload["dataset"]["normalize_time"] = True
+        with self.assertRaisesRegex(ValueError, "normalize_time"):
+            ArtifactMetadata.model_validate_json(json.dumps(payload))
+
     def test_validate_discrete_theta_samples_checks_stored_categories(self) -> None:
         raw = np.asarray([[0.1, 10.0], [0.2, 20.0]], dtype=np.float32)
         validated = validate_discrete_theta_samples(
@@ -67,11 +72,11 @@ class PosteriorArtifactTests(unittest.TestCase):
         )
 
         x = artifact.build_x(
-            {"density.mean": np.asarray([1.0, 2.0], dtype=np.float32)},
+            {"density.mean": np.asarray([1.0, 2.0, 3.0], dtype=np.float32)},
             {"n_agents": 20},
         )
 
-        np.testing.assert_allclose(x, [2.0, 0.0, 1.0])
+        np.testing.assert_allclose(x, [3.0, 0.0, 1.0])
 
     def test_sample_posterior_observation_uses_new_theta_metadata(self) -> None:
         class RecordingPosterior:

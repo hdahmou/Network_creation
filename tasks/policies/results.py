@@ -12,14 +12,15 @@ from numpy.typing import NDArray
 import xarray as xr
 
 from network_creation.policy_result_metadata import (
+    PolicyOutputSchedule,
     configured_n_actors as _configured_n_actors,
-    configured_output_step_labels as _configured_output_step_labels,
+    derive_compatible_output_schedule as _derive_compatible_output_schedule,
     policy_composition_axis_name as _policy_composition_axis_name,
     theta_parameter_columns as _theta_parameter_columns,
 )
 from network_creation.time_normalization import (
-    common_normalized_time_grid,
-    normalize_time_tensor,
+    common_normalized_time_grid_from_raw_labels,
+    interpolate_time_axis,
 )
 
 from ..execution.zarr_store import load_zarr_results
@@ -86,8 +87,31 @@ def load_policy_results(
     result_coordinates = _result_coordinates(raw, metadata)
     grid_shape = _parameter_grid_shape(raw_parameters)
     n_agents_values = np.asarray(metadata["n_agents"], dtype=np.int64)
+    raw_step_horizons = np.asarray(
+        metadata["raw_step_horizons"],
+        dtype=np.int64,
+    )
     parameter_rows: NDArray[np.int64] = np.arange(grid_shape[2], dtype=np.int64)
     raw_outputs = _raw_outputs(raw, output_schema)
+    output_schedule = _selected_output_schedule(
+        policy_config,
+        raw_outputs,
+        n_agents_values=n_agents_values,
+        raw_step_horizons=raw_step_horizons,
+    )
+    step_labels = (
+        None
+        if output_schedule is None
+        else _raw_step_label_union(output_schedule)
+    )
+    if output_schedule is not None:
+        assert step_labels is not None
+        raw_outputs = _align_raw_outputs(
+            raw_outputs,
+            result_coordinates=result_coordinates,
+            schedule=output_schedule,
+            step_labels=step_labels,
+        )
     sampled_agent_parameters = raw_outputs.get(SAMPLED_AGENT_PARAMETERS_FIELD)
     agent_payoff_outputs = _agent_payoff_outputs(raw_outputs)
     policy_welfare_outputs = _policy_welfare_outputs(raw_outputs)
@@ -98,7 +122,6 @@ def load_policy_results(
         and name not in policy_welfare_outputs
         and name != SAMPLED_AGENT_PARAMETERS_FIELD
     }
-    step_labels = _shared_step_labels(policy_config, raw_outputs)
     output = _build_policy_output_or_empty(
         regular_outputs,
         all_outputs=raw_outputs,
@@ -160,6 +183,13 @@ def load_policy_results(
         "observable": ("observable", list(output.observable_names)),
         "step": ("step", output.step_labels),
     }
+    if output_schedule is not None:
+        coords.update(
+            _schedule_coordinates(
+                output_schedule,
+                step_labels=output.step_labels,
+            )
+        )
     if sampled_composition:
         coords.update(
             _sampled_composition_coords(
@@ -256,11 +286,17 @@ def load_policy_results(
             "config_path": str(attrs["config_path"]),
             "has_failures": attrs["has_failures"],
             "sweep_layout": sweep_layout,
+            "normalize_time": False,
+            "time_axis": "raw_simulator_steps",
         },
     )
     if not normalize_time:
         return dataset
-    return _normalize_time_axis(dataset, policy_config=policy_config)
+    return _normalize_time_axis(
+        dataset,
+        policy_config=policy_config,
+        schedule=output_schedule,
+    )
 
 
 def _requested_stats(stats: str | Sequence[str] | None) -> tuple[str, ...] | None:
@@ -451,33 +487,123 @@ def _build_policy_output_or_empty(
     )
 
 
-def _shared_step_labels(
+def _selected_output_schedule(
     policy_config: Any,
     outputs: Mapping[str, NDArray[np.generic]],
-) -> NDArray[np.int64] | None:
-    step_axis_lengths = {
-        name: step_axis_length
+    *,
+    n_agents_values: NDArray[np.int64],
+    raw_step_horizons: NDArray[np.int64],
+) -> PolicyOutputSchedule | None:
+    timed_output_names = tuple(
+        name
         for name, values in outputs.items()
-        if (step_axis_length := _step_axis_length(name, values)) is not None
-    }
-    if not step_axis_lengths or not isinstance(policy_config, Mapping):
+        if _step_axis_length(name, values) is not None
+    )
+    if not timed_output_names:
         return None
+    return _derive_compatible_output_schedule(
+        timed_output_names,
+        policy_config=policy_config,
+        n_agents=n_agents_values,
+        raw_step_horizons=raw_step_horizons,
+    )
 
-    labels_by_output = _configured_output_step_labels(policy_config)
-    shared: NDArray[np.int64] | None = None
-    for name, step_axis_length in step_axis_lengths.items():
-        labels = labels_by_output.get(name)
-        if labels is None:
-            return None
-        if labels.shape != (step_axis_length,):
-            raise ValueError(
-                f"configured step labels for {name!r} do not match output shape"
-            )
-        if shared is None:
-            shared = labels
-        elif not np.array_equal(shared, labels):
-            raise ValueError("time-series outputs must share the same step labels")
-    return shared
+
+def _raw_step_label_union(
+    schedule: PolicyOutputSchedule,
+) -> NDArray[np.int64]:
+    return np.unique(np.concatenate(schedule.valid_raw_step_labels)).astype(
+        np.int64,
+        copy=False,
+    )
+
+
+def _align_raw_outputs(
+    outputs: Mapping[str, NDArray[np.generic]],
+    *,
+    result_coordinates: _ResultCoordinates,
+    schedule: PolicyOutputSchedule,
+    step_labels: NDArray[np.int64],
+) -> dict[str, NDArray[np.generic]]:
+    aligned: dict[str, NDArray[np.generic]] = {}
+    for name, values in outputs.items():
+        step_axis = _step_axis(name, values)
+        if step_axis is None:
+            aligned[name] = values
+            continue
+        aligned[name] = _align_output_to_raw_labels(
+            name,
+            values,
+            step_axis=step_axis,
+            result_coordinates=result_coordinates,
+            schedule=schedule,
+            step_labels=step_labels,
+        )
+    return aligned
+
+
+def _align_output_to_raw_labels(
+    name: str,
+    values: NDArray[np.generic],
+    *,
+    step_axis: int,
+    result_coordinates: _ResultCoordinates,
+    schedule: PolicyOutputSchedule,
+    step_labels: NDArray[np.int64],
+) -> NDArray[np.float32]:
+    array = np.asarray(values, dtype=np.float32)
+    storage_count = schedule.storage_raw_step_labels.shape[0]
+    if array.shape[step_axis] != storage_count:
+        raise ValueError(
+            f"configured storage step labels for {name!r} do not match output shape"
+        )
+    moved = np.moveaxis(array, step_axis, 1)
+    aligned = np.full(
+        (moved.shape[0], step_labels.shape[0], *moved.shape[2:]),
+        np.nan,
+        dtype=np.float32,
+    )
+    for result_index, n_agents_index in enumerate(
+        result_coordinates.n_agents_index
+    ):
+        valid_labels = schedule.valid_raw_step_labels[int(n_agents_index)]
+        target_indices = np.searchsorted(step_labels, valid_labels)
+        valid_count = int(schedule.valid_sample_count[int(n_agents_index)])
+        aligned[result_index, target_indices] = moved[result_index, :valid_count]
+    return np.moveaxis(aligned, 1, step_axis)
+
+
+def _schedule_coordinates(
+    schedule: PolicyOutputSchedule,
+    *,
+    step_labels: NDArray[np.int64],
+) -> dict[str, Any]:
+    time_valid = np.stack(
+        [
+            np.isin(step_labels, valid_labels, assume_unique=True)
+            for valid_labels in schedule.valid_raw_step_labels
+        ],
+        axis=0,
+    )
+    return {
+        "time_valid": (("n_agents", "step"), time_valid),
+        "raw_step_horizon": (
+            "n_agents",
+            schedule.raw_step_horizons,
+        ),
+        "valid_sample_count": (
+            "n_agents",
+            schedule.valid_sample_count,
+        ),
+        "last_valid_raw_step": (
+            "n_agents",
+            schedule.last_valid_raw_step,
+        ),
+        "realized_activation_opportunities_per_agent": (
+            "n_agents",
+            schedule.realized_activation_opportunities_per_agent,
+        ),
+    }
 
 
 def _has_step_axis(outputs: Mapping[str, NDArray[np.generic]]) -> bool:
@@ -488,19 +614,29 @@ def _step_axis_length(
     name: str,
     values: NDArray[np.generic],
 ) -> int | None:
+    step_axis = _step_axis(name, values)
+    if step_axis is None:
+        return None
+    return int(np.asarray(values).shape[step_axis])
+
+
+def _step_axis(
+    name: str,
+    values: NDArray[np.generic],
+) -> int | None:
     array = np.asarray(values)
     if array.ndim == 2:
-        return int(array.shape[1])
+        return 1
     if _is_agent_payoff_output(name):
         if array.ndim == 3:
-            return int(array.shape[1])
+            return 1
         if array.ndim == 4:
-            return int(array.shape[2])
+            return 2
     if _is_policy_welfare_output(name):
         if array.ndim == 3:
-            return int(array.shape[1])
+            return 1
         if array.ndim == 4:
-            return int(array.shape[2])
+            return 2
     return None
 
 
@@ -705,21 +841,25 @@ def _normalize_time_axis(
     dataset: xr.Dataset,
     *,
     policy_config: Any,
+    schedule: PolicyOutputSchedule | None,
 ) -> xr.Dataset:
     """Return a copy of ``dataset`` resampled onto normalized simulation time."""
     if "step" not in dataset.coords:
         raise ValueError("cannot normalize time without a step coordinate")
     if not isinstance(policy_config, Mapping):
         raise ValueError("cannot normalize time without policy configuration metadata")
+    if schedule is None:
+        raise ValueError("cannot normalize time without a configured output schedule")
 
-    raw_step_labels = np.asarray(dataset.coords["step"].values, dtype=np.float64)
     n_agents_values = np.asarray(dataset.coords["n_agents"].values, dtype=np.float64)
     n_actors = _configured_n_actors(policy_config)
-    grid = common_normalized_time_grid(
-        raw_step_labels,
+    grid = common_normalized_time_grid_from_raw_labels(
+        schedule.valid_raw_step_labels,
         n_agents_values=n_agents_values,
         n_actors=n_actors,
     )
+    source_times = cast(tuple[NDArray[np.float64], ...], grid.source_times)
+    time_valid = np.asarray(dataset.coords["time_valid"].values, dtype=np.bool_)
 
     data_vars: dict[str, Any] = {}
     for raw_name, array in dataset.data_vars.items():
@@ -731,15 +871,15 @@ def _normalize_time_axis(
                 )
             data_vars[name] = (
                 array.dims,
-                normalize_time_tensor(
+                _normalize_population_time_axis(
                     array.values,
-                    raw_step_labels=raw_step_labels,
-                    n_agents=n_agents_values,
-                    n_actors=n_actors,
+                    source_times=source_times,
+                    target_times=grid.step_labels,
+                    time_valid=time_valid,
                     n_agents_axis=array.dims.index("n_agents"),
                     step_axis=array.dims.index("step"),
-                    target_times=grid.step_labels,
-                ).values,
+                    terminal=schedule.sampling.kind == "terminal",
+                ),
             )
         else:
             data_vars[name] = (array.dims, np.asarray(array.values))
@@ -747,13 +887,56 @@ def _normalize_time_axis(
     coords: dict[str, Any] = {}
     for raw_name, coord in dataset.coords.items():
         name = str(raw_name)
-        if name != "step":
+        if "step" not in coord.dims:
             coords[name] = (coord.dims, np.asarray(coord.values))
     coords["step"] = ("step", grid.step_labels)
+    coords["time_valid"] = (
+        ("n_agents", "step"),
+        np.ones(
+            (n_agents_values.shape[0], grid.step_labels.shape[0]),
+            dtype=np.bool_,
+        ),
+    )
 
     attrs = dict(dataset.attrs)
     attrs.update(grid.attrs())
     return xr.Dataset(data_vars=data_vars, coords=coords, attrs=attrs)
+
+
+def _normalize_population_time_axis(
+    values: Any,
+    *,
+    source_times: tuple[NDArray[np.float64], ...],
+    target_times: NDArray[np.float64],
+    time_valid: NDArray[np.bool_],
+    n_agents_axis: int,
+    step_axis: int,
+    terminal: bool,
+) -> NDArray[np.float32]:
+    array = np.asarray(values, dtype=np.float32)
+    moved = np.moveaxis(array, (n_agents_axis, step_axis), (0, 1))
+    normalized = np.empty(
+        (moved.shape[0], target_times.shape[0], *moved.shape[2:]),
+        dtype=np.float32,
+    )
+    for n_agents_index, source in enumerate(source_times):
+        valid_values = moved[n_agents_index, time_valid[n_agents_index]]
+        if terminal:
+            if valid_values.shape[0] != 1 or target_times.shape[0] != 1:
+                raise ValueError("terminal outputs require one shared normalized step")
+            normalized[n_agents_index, 0] = valid_values[0]
+            continue
+        normalized[n_agents_index] = interpolate_time_axis(
+            valid_values,
+            source_times=source,
+            target_times=target_times,
+            step_axis=0,
+        )
+    return np.moveaxis(
+        normalized,
+        (0, 1),
+        (n_agents_axis, step_axis),
+    )
 
 
 __all__ = [

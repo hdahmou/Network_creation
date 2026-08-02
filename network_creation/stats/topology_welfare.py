@@ -1,15 +1,17 @@
 from __future__ import annotations
 
-import igraph as ig
+from functools import cache
 from typing import Literal
+
+import igraph as ig
 import numpy as np
 from numpy.typing import NDArray
-from functools import cache
+from scipy.optimize import minimize_scalar  # type: ignore[import-untyped]
 
-_ARGMAX_P_GRID = np.linspace(0.0, 1.0, 1000, dtype=float)
+type WelfareReference = Literal["star", "empty", "random", "max"]
 
 
-def total_welfare(
+def centered_total_welfare(
     graph: ig.Graph,
     benefit_to_cost_ratio: float,
     distance_discount: float,
@@ -60,14 +62,14 @@ def agent_payoff(
     return values
 
 
-def normalized_welfare(
+def centered_mean_welfare(
     graph: ig.Graph,
     benefit_to_cost_ratio: float,
     distance_discount: float,
 ) -> float:
     n = graph.vcount()
     return (
-        total_welfare(
+        centered_total_welfare(
             graph,
             benefit_to_cost_ratio=benefit_to_cost_ratio,
             distance_discount=distance_discount,
@@ -77,91 +79,116 @@ def normalized_welfare(
 
 
 @cache
-def normalized_welfare_per_topology(
-    topology_class: Literal["star", "empty", "random", "max"],
-    n: int,
+def reference_centered_mean_welfare(
+    reference: WelfareReference,
+    n_agents: int,
     benefit_to_cost_ratio: float,
     distance_discount: float,
 ) -> float:
-    if topology_class == "star":
-        return get_star_normalized_welfare(
-            n=n,
+    if reference == "star":
+        return star_centered_mean_welfare(
+            n_agents=n_agents,
             benefit_to_cost_ratio=benefit_to_cost_ratio,
             distance_discount=distance_discount,
         )
 
-    if topology_class == "empty":
+    if reference == "empty":
         return 0.0
 
-    if topology_class == "random":
-        return max(
-            get_ER_normalized_welfare(
-                n=n,
-                benefit_to_cost_ratio=benefit_to_cost_ratio,
-                distance_discount=distance_discount,
-                p_directed=candidate_p,
-            )
-            for candidate_p in _ARGMAX_P_GRID
-        )
-
-    if topology_class == "max":
-        empty_welfare = 0.0
-        star_welfare = get_star_normalized_welfare(
-            n=n,
+    if reference == "random":
+        return max_er_centered_mean_welfare(
+            n_agents=n_agents,
             benefit_to_cost_ratio=benefit_to_cost_ratio,
             distance_discount=distance_discount,
         )
-        return max(empty_welfare, star_welfare)
+
+    if reference == "max":
+        star_welfare = star_centered_mean_welfare(
+            n_agents=n_agents,
+            benefit_to_cost_ratio=benefit_to_cost_ratio,
+            distance_discount=distance_discount,
+        )
+        return max(0.0, star_welfare)
 
     raise ValueError(
-        "topology_class must be one of 'star', 'empty', 'random', or 'max', "
-        f"but got {topology_class!r}"
+        "reference must be one of 'star', 'empty', 'random', or 'max', "
+        f"but got {reference!r}"
     )
 
 
-def get_star_normalized_welfare(
-    n: int,
+def star_centered_mean_welfare(
+    n_agents: int,
     benefit_to_cost_ratio: float,
     distance_discount: float,
 ) -> float:
-    return ((n - 1) / n) * (
+    return ((n_agents - 1) / n_agents) * (
         2 * benefit_to_cost_ratio * distance_discount
-        + (n - 2) * benefit_to_cost_ratio * distance_discount**2
+        + (n_agents - 2) * benefit_to_cost_ratio * distance_discount**2
         - 1
     )
 
 
-def get_ER_normalized_welfare(
-    n: int,
+def er_centered_mean_welfare(
+    n_agents: int,
     benefit_to_cost_ratio: float,
     distance_discount: float,
-    p_directed: float,
-    epsilon: float = 1e-9,
+    directed_link_probability: float,
 ) -> float:
-    lam = benefit_to_cost_ratio
-    delta = distance_discount
-    p = p_directed
-    p_bar = 2.0 * p - p * p
-    q = 1.0 - p_bar
+    """Return ER centered mean welfare at one directed link probability."""
+    no_link_probability = (1.0 - directed_link_probability) ** 2
+    with np.errstate(divide="ignore"):
+        log_no_link_probability = float(
+            2.0 * np.log1p(-directed_link_probability)
+        )
 
-    F = [0.0] * n
-    F[0] = 1.0
-    F[1] = q
-    for k in range(1, n - 1):
-        shell_mass = F[k - 1] - F[k]
-        exponent = (n - 1) * shell_mass
-        base = min(max(q, epsilon), 1.0)
-        next_val = F[k] * (base**exponent)
-        next_val = min(max(next_val, 0.0), F[k])
-        F[k + 1] = next_val
+    tail_at_d_minus_2 = 1.0
+    tail_at_d_minus_1 = no_link_probability
+    discount_at_distance = distance_discount
+    discounted_reachability = discount_at_distance * (
+        tail_at_d_minus_2 - tail_at_d_minus_1
+    )
 
-    benefit_sum = 0.0
-    delta_power = delta
-    for d in range(1, n):
-        prob_distance_eq_d = F[d - 1] - F[d]
-        benefit_sum += delta_power * prob_distance_eq_d
-        delta_power *= delta
+    for _distance in range(2, n_agents):
+        shell_probability = tail_at_d_minus_2 - tail_at_d_minus_1
+        exponent = (n_agents - 1) * shell_probability
+        multiplier = (
+            float(np.exp(exponent * log_no_link_probability))
+            if exponent > 0.0
+            else 1.0
+        )
+        next_tail = tail_at_d_minus_1 * multiplier
+        next_tail = min(max(next_tail, 0.0), tail_at_d_minus_1)
 
-    welfare = lam * (n - 1) * benefit_sum - (n - 1) * p
+        discount_at_distance *= distance_discount
+        discounted_reachability += discount_at_distance * (
+            tail_at_d_minus_1 - next_tail
+        )
+        tail_at_d_minus_2, tail_at_d_minus_1 = tail_at_d_minus_1, next_tail
 
-    return welfare
+    return (
+        benefit_to_cost_ratio * (n_agents - 1) * discounted_reachability
+        - (n_agents - 1) * directed_link_probability
+    )
+
+
+def max_er_centered_mean_welfare(
+    n_agents: int,
+    benefit_to_cost_ratio: float,
+    distance_discount: float,
+) -> float:
+    """Return the maximum ER centered mean welfare over p in [0, 1]."""
+    def welfare_at_probability(probability: float) -> float:
+        return er_centered_mean_welfare(
+            n_agents=n_agents,
+            benefit_to_cost_ratio=benefit_to_cost_ratio,
+            distance_discount=distance_discount,
+            directed_link_probability=probability,
+        )
+
+    result = minimize_scalar(
+        lambda probability: -welfare_at_probability(float(probability)),
+        bounds=(0.0, 1.0),
+        method="bounded",
+        options={"xatol": 1e-9, "maxiter": 500},
+    )
+    return max(0.0, welfare_at_probability(1.0), -float(result.fun))

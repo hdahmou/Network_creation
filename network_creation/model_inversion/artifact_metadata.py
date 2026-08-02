@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from datetime import datetime
 from typing import Annotated, Literal
 
@@ -17,6 +18,21 @@ from .contracts import Name, NonNegativeInt, PositiveInt, StrictModel
 Numeric = int | float
 CategoryValues = Annotated[tuple[int, ...], Field(min_length=1)]
 StepLabels = Annotated[tuple[Numeric, ...], Field(min_length=1)]
+PopulationSizes = Annotated[tuple[PositiveInt, ...], Field(min_length=1)]
+RawStepHorizons = Annotated[tuple[NonNegativeInt, ...], Field(min_length=1)]
+
+
+class ArtifactOutputSampling(StrictModel):
+    kind: Literal["periodic", "terminal"]
+    every: PositiveInt | None = None
+
+    @model_validator(mode="after")
+    def validate_sampling(self) -> "ArtifactOutputSampling":
+        if self.kind == "periodic" and self.every is None:
+            raise ValueError("periodic output sampling requires every")
+        if self.kind == "terminal" and self.every is not None:
+            raise ValueError("terminal output sampling does not accept every")
+        return self
 
 
 class ArtifactDatasetMetadata(StrictModel):
@@ -27,12 +43,12 @@ class ArtifactDatasetMetadata(StrictModel):
     x_components: tuple[Name, ...] = Field(min_length=1)
     x_event_shape: tuple[PositiveInt, ...]
     x_representation: ObservationRepresentation
-    normalize_time: bool
-    time_axis: Name | None
-    raw_step_labels: StepLabels | None
-    step_labels: StepLabels | None
-    final_step_label: Numeric | None
-    n_actors: PositiveInt | None
+    time_axis: Literal["activation_opportunities_per_agent"]
+    n_agents: PopulationSizes
+    raw_step_horizons: RawStepHorizons
+    n_actors: PositiveInt
+    output_samplings: tuple[ArtifactOutputSampling, ...] = Field(min_length=1)
+    step_labels: StepLabels
     continuous_theta_names: tuple[Name, ...]
     discrete_theta_names: tuple[Name, ...]
     continuous_input_names: tuple[Name, ...]
@@ -90,24 +106,30 @@ class ArtifactDatasetMetadata(StrictModel):
             raise ValueError("x_components do not match the stored observation schema")
         if self.x_event_shape[-1] != len(expected_components):
             raise ValueError("x_event_shape does not match the observation feature count")
-        if self.x_representation == "final" and self.step_labels is not None:
-            raise ValueError("final x metadata must not contain step_labels")
-        if self.x_representation == "timeseries" and (
-            self.step_labels is None
-            or len(self.step_labels) != self.x_event_shape[0]
+        if len(self.n_agents) != len(self.raw_step_horizons):
+            raise ValueError("raw_step_horizons must align with n_agents")
+        if len(self.n_agents) != len(set(self.n_agents)):
+            raise ValueError("n_agents must contain unique population sizes")
+        if len(self.output_samplings) != len(self.observed_outputs):
+            raise ValueError("output_samplings must align with observed_outputs")
+        if any(
+            sampling != self.output_samplings[0]
+            for sampling in self.output_samplings[1:]
         ):
+            raise ValueError("observed outputs must have compatible sampling")
+        if self.x_representation == "final" and len(self.step_labels) != 1:
+            raise ValueError("final step_labels must contain one target value")
+        if self.x_representation == "timeseries" and len(
+            self.step_labels
+        ) != self.x_event_shape[0]:
             raise ValueError("timeseries step_labels must align with the x step dimension")
-        if self.normalize_time and (
-            self.raw_step_labels is None
-            or self.n_actors is None
-            or (
-                self.x_representation == "final"
-                and self.final_step_label is None
-            )
+        if not all(math.isfinite(float(value)) for value in self.step_labels):
+            raise ValueError("step_labels must contain only finite values")
+        if any(
+            float(right) <= float(left)
+            for left, right in zip(self.step_labels, self.step_labels[1:])
         ):
-            raise ValueError(
-                "normalized x metadata requires raw_step_labels, n_actors, and target labels"
-            )
+            raise ValueError("step_labels must be strictly increasing")
         for name, values in (
             *zip(self.discrete_input_names, self.discrete_input_values, strict=True),
             *zip(self.discrete_theta_names, self.discrete_theta_values, strict=True),

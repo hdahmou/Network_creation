@@ -10,6 +10,8 @@ from numpy.typing import NDArray
 import torch
 from torch.utils.data import Dataset
 
+from network_creation.policy_result_metadata import observation_step_labels
+
 from .encoding import ObservationEncoder
 from .schema import (
     InversionSchema,
@@ -79,13 +81,10 @@ class ZarrInversionDataset(Dataset[tuple[torch.Tensor, torch.Tensor]]):
     def x_from_source_position(self, source_position: int) -> NDArray[np.float32]:
         zarr_row = int(self.source.result_rows[int(source_position)])
         input_values = self.input_values_from_source_position(source_position)
-        n_agents_value = float(
-            parameter_values_for_indices(
-                self.source,
-                ("n_agents",),
-                source_positions=np.asarray([source_position], dtype=np.int64),
-            )[0, 0]
+        population_index = int(
+            self.source.population_indices[int(source_position)]
         )
+        n_agents_value = int(self.schema.n_agents[population_index])
         observed = {
             name: np.asarray(
                 self.source.observed_output_arrays[name][zarr_row],
@@ -135,16 +134,48 @@ def build_row_index(
     if parameter_values.size:
         valid_mask &= np.isfinite(parameter_values).all(axis=1)
 
-    for name in schema.observed_outputs:
+    for name, sampling in zip(
+        schema.observed_outputs,
+        schema.output_samplings,
+        strict=True,
+    ):
         values = np.asarray(
             source.observed_output_arrays[name],
             dtype=np.float32,
         )
-        finite_result_rows = np.asarray(
-            np.isfinite(values).reshape(row_count, -1).all(axis=1),
-            dtype=np.bool_,
-        )
-        valid_mask &= finite_result_rows[source.result_rows]
+        for population_index, raw_step_horizon in enumerate(
+            schema.raw_step_horizons
+        ):
+            source_positions = np.flatnonzero(
+                source.population_indices == population_index
+            )
+            if source_positions.size == 0:
+                continue
+            result_rows = source.result_rows[source_positions]
+            valid_count = int(
+                observation_step_labels(
+                    int(raw_step_horizon),
+                    sampling,
+                ).shape[0]
+            )
+            if values.ndim == 1:
+                if valid_count != 1:
+                    raise ValueError(
+                        f"stored output {name!r} is scalar but its schedule has "
+                        f"{valid_count} valid samples"
+                    )
+                valid_values = values[result_rows]
+            else:
+                if values.shape[1] < valid_count:
+                    raise ValueError(
+                        f"stored output {name!r} is shorter than its valid schedule"
+                    )
+                valid_values = values[result_rows, :valid_count]
+            finite_rows = np.isfinite(valid_values).reshape(
+                source_positions.shape[0],
+                -1,
+            ).all(axis=1)
+            valid_mask[source_positions] &= finite_rows
         del values
 
     kept_indices = np.nonzero(valid_mask)[0].astype(np.int64)
@@ -160,14 +191,6 @@ def build_row_index(
         source_sample_ids=np.asarray(source.input_index[kept_indices], dtype=np.int64),
         diagnostic_group_ids=diagnostic_group_ids,
     )
-
-
-def make_zarr_inversion_dataset(
-    source: InversionSource,
-    row_index: InversionRowIndex,
-    schema: InversionSchema,
-) -> ZarrInversionDataset:
-    return ZarrInversionDataset(source=source, row_index=row_index, schema=schema)
 
 
 def _diagnostic_groups(

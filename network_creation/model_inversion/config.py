@@ -30,7 +30,6 @@ class InversionDataConfig(StrictModel):
     continuous_input_names: tuple[Name, ...] = ()
     discrete_input_names: tuple[Name, ...] = ()
     x_representation: ObservationRepresentation = "final"
-    normalize_time: bool = True
 
     @field_validator("zarr_path", mode="before")
     @classmethod

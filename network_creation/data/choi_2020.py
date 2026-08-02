@@ -262,8 +262,8 @@ def _group_rows_by_node_id(
     for row in rows:
         rows_by_node_id[row.node_id].append((row.step_id, row.target_node_ids))
 
-    for rows in rows_by_node_id.values():
-        rows.sort(key=lambda item: item[0])
+    for node_rows in rows_by_node_id.values():
+        node_rows.sort(key=lambda item: item[0])
     return dict(rows_by_node_id)
 
 

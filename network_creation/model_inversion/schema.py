@@ -9,13 +9,17 @@ from typing import Any, Literal
 import numpy as np
 from numpy.typing import NDArray
 
+from network_creation.core.observability import ObservationSampling
 from network_creation.policy_result_metadata import (
     configured_n_actors as _configured_n_actors,
-    configured_output_step_labels as _configured_output_step_labels,
+    derive_compatible_output_schedule as _derive_compatible_output_schedule,
     policy_composition_axis_name as _policy_composition_axis_name,
     theta_parameter_columns as _theta_parameter_columns,
 )
-from network_creation.time_normalization import common_normalized_time_grid
+from network_creation.time_normalization import (
+    TIME_AXIS_ATTR,
+    common_normalized_time_grid_from_raw_labels,
+)
 
 from .source import InversionSource
 
@@ -35,12 +39,12 @@ class InversionSchema:
     discrete_theta_values: dict[str, tuple[int, ...]]
     constant_theta: dict[str, float]
     x_representation: Literal["final", "timeseries"]
-    normalize_time: bool
-    time_axis: str | None
-    raw_step_labels: NDArray[np.float64] | None
-    step_labels: NDArray[np.float64] | None
-    final_step_label: int | float | None
-    n_actors: int | None
+    time_axis: Literal["activation_opportunities_per_agent"]
+    n_agents: NDArray[np.int64]
+    raw_step_horizons: NDArray[np.int64]
+    n_actors: int
+    output_samplings: tuple[ObservationSampling, ...]
+    step_labels: NDArray[np.float64]
 
     @property
     def theta_order(self) -> tuple[str, ...]:
@@ -177,12 +181,12 @@ def resolve_inversion_schema(source: InversionSource) -> InversionSchema:
         discrete_theta_values=discrete_theta_values,
         constant_theta=constant_theta,
         x_representation=source.config.data.x_representation,
-        normalize_time=bool(source.config.data.normalize_time),
         time_axis=time_metadata["time_axis"],
-        raw_step_labels=time_metadata["raw_step_labels"],
-        step_labels=time_metadata["step_labels"],
-        final_step_label=time_metadata["final_step_label"],
+        n_agents=time_metadata["n_agents"],
+        raw_step_horizons=time_metadata["raw_step_horizons"],
         n_actors=time_metadata["n_actors"],
+        output_samplings=time_metadata["output_samplings"],
+        step_labels=time_metadata["step_labels"],
     )
 
 
@@ -381,15 +385,13 @@ def _x_event_shape(
     *,
     observed_outputs: Sequence[str],
     x_components: Sequence[str],
-    step_labels: NDArray[np.float64] | None,
+    step_labels: NDArray[np.float64],
 ) -> tuple[int, ...]:
     representation = source.config.data.x_representation
     if representation == "final":
         return (len(x_components),)
     if representation != "timeseries":
         raise ValueError(f"unsupported x_representation: {representation}")
-    if step_labels is None:
-        raise ValueError("timeseries representation requires step labels")
     return (int(step_labels.shape[0]), len(x_components))
 
 
@@ -403,72 +405,45 @@ def _time_metadata(
     ]
     if any(len(shape) > 1 for shape in output_shapes):
         raise ValueError("model inversion supports scalar or one-dimensional outputs")
-    step_count = max((shape[0] if shape else 1) for shape in output_shapes)
-    raw_step_labels = _raw_step_labels(source, observed_outputs, step_count)
-    n_actors = None
-    step_labels = raw_step_labels
-    time_axis = "raw_simulator_steps"
-    final_step_label: int | float | None = _numeric_scalar(raw_step_labels[-1])
+    n_agents = np.asarray(source.metadata_arrays["n_agents"], dtype=np.int64)
+    raw_step_horizons = np.asarray(
+        source.metadata_arrays["raw_step_horizons"],
+        dtype=np.int64,
+    )
+    policy_config = source.attrs.get("policy_config", {})
+    schedule = _derive_compatible_output_schedule(
+        observed_outputs,
+        policy_config=policy_config,
+        n_agents=n_agents,
+        raw_step_horizons=raw_step_horizons,
+    )
+    output_samplings = (schedule.sampling,) * len(observed_outputs)
+    storage_step_count = int(schedule.storage_raw_step_labels.shape[0])
+    for name, shape in zip(observed_outputs, output_shapes, strict=True):
+        output_step_count = shape[0] if shape else 1
+        if output_step_count != storage_step_count:
+            raise ValueError(
+                f"stored step count for {name!r} does not match its configured schedule"
+            )
 
-    if source.config.data.normalize_time:
-        n_actors = _configured_n_actors(source.attrs.get("policy_config", {}))
-        grid = common_normalized_time_grid(
-            raw_step_labels,
-            n_agents_values=np.asarray(source.metadata_arrays["n_agents"]),
-            n_actors=n_actors,
-        )
-        step_labels = grid.step_labels
-        time_axis = "activation_opportunities_per_agent"
-        final_step_label = float(grid.step_labels[-1])
-
+    n_actors = _configured_n_actors(policy_config)
+    grid = common_normalized_time_grid_from_raw_labels(
+        schedule.valid_raw_step_labels,
+        n_agents_values=n_agents,
+        n_actors=n_actors,
+    )
+    step_labels = np.asarray(grid.step_labels, dtype=np.float64)
     if source.config.data.x_representation == "final":
-        stored_step_labels = None
-    else:
-        stored_step_labels = np.asarray(step_labels, dtype=np.float64)
+        step_labels = step_labels[-1:]
 
     return {
-        "time_axis": time_axis,
-        "raw_step_labels": np.asarray(raw_step_labels, dtype=np.float64),
-        "step_labels": stored_step_labels,
-        "final_step_label": final_step_label,
+        "time_axis": TIME_AXIS_ATTR,
+        "n_agents": n_agents,
+        "raw_step_horizons": raw_step_horizons,
         "n_actors": n_actors,
+        "output_samplings": output_samplings,
+        "step_labels": step_labels,
     }
-
-
-def _raw_step_labels(
-    source: InversionSource,
-    observed_outputs: Sequence[str],
-    step_count: int,
-) -> NDArray[np.float64]:
-    policy_config = source.attrs.get("policy_config", {})
-    labels_by_output = _configured_output_step_labels(policy_config)
-    labels: NDArray[np.int64] | None = None
-    scalar_labels: NDArray[np.int64] | None = None
-    for name in observed_outputs:
-        shape = tuple(int(value) for value in source.observed_output_arrays[name].shape[1:])
-        output_step_count = shape[0] if shape else 1
-        output_labels = labels_by_output.get(str(name))
-        if output_labels is None:
-            output_labels = np.arange(output_step_count, dtype=np.int64)
-        if output_labels.shape != (output_step_count,):
-            raise ValueError(
-                f"configured step labels for {name!r} do not match output shape"
-            )
-        if output_step_count == 1:
-            if scalar_labels is None:
-                scalar_labels = output_labels
-            continue
-        if labels is None:
-            labels = output_labels
-        elif not np.array_equal(labels, output_labels):
-            raise ValueError("non-scalar observed outputs must share step labels")
-    if labels is None:
-        labels = (
-            scalar_labels
-            if scalar_labels is not None
-            else np.arange(step_count, dtype=np.int64)
-        )
-    return np.asarray(labels, dtype=np.float64)
 
 
 def _resolve_names(
@@ -496,10 +471,3 @@ def _resolve_names(
             f"unknown {kind} {name!r}; available values are {list(available_tuple)}"
         )
     return tuple(resolved)
-
-
-def _numeric_scalar(value: Any) -> int | float:
-    scalar = np.asarray(value).item()
-    if isinstance(scalar, (np.integer, int)):
-        return int(scalar)
-    return float(scalar)

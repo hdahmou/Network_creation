@@ -11,14 +11,19 @@ import numpy as np
 from tasks.policies import load_policy_results
 from tasks.policies.outputs import SAMPLED_AGENT_PARAMETERS_FIELD
 
-from tests.tasks.config_support import continuous, normal_heterogeneity
+from tests.tasks.config_support import (
+    activation_opportunities_per_agent,
+    continuous,
+    normal_heterogeneity,
+    raw_simulator_steps,
+)
 from tests.tasks.policy_result_support import build_random_config, write_result_store
 
 
 class RandomPolicyResultFormatterTest(unittest.TestCase):
     def test_from_zarr_reconstructs_timeseries_outputs(self) -> None:
         config = build_random_config()
-        config["simulator"]["max_steps"] = 2
+        config["simulator"]["budget"] = raw_simulator_steps(2)
         outputs_by_index = [
             (
                 0,
@@ -76,7 +81,7 @@ class RandomPolicyResultFormatterTest(unittest.TestCase):
 
     def test_from_zarr_loads_only_requested_stats(self) -> None:
         config = build_random_config()
-        config["simulator"]["max_steps"] = 2
+        config["simulator"]["budget"] = raw_simulator_steps(2)
         outputs_by_index = [
             (
                 0,
@@ -105,6 +110,85 @@ class RandomPolicyResultFormatterTest(unittest.TestCase):
         np.testing.assert_allclose(
             ds["x"].isel(step=-1).values,
             np.asarray([[[[2.0]]]], dtype=np.float32),
+        )
+
+    def test_from_zarr_loads_periodic_and_terminal_subsets_from_mixed_store(
+        self,
+    ) -> None:
+        config = build_random_config()
+        config["simulator"]["budget"] = raw_simulator_steps(2)
+        config["observers"]["outputs"] = [
+            {"name": "density"},
+            {
+                "name": "agent_payoff",
+                "sampling": {"kind": "terminal"},
+                "aggregations": ["runs"],
+            },
+        ]
+        outputs_by_index = [
+            (
+                0,
+                {
+                    "density.mean": np.asarray(
+                        [0.0, 1.0, 2.0],
+                        dtype=np.float32,
+                    ),
+                    "agent_payoff.runs": np.asarray(
+                        [
+                            [[0.1, 0.2, 0.3, 0.4]],
+                            [[0.5, 0.6, 0.7, 0.8]],
+                        ],
+                        dtype=np.float32,
+                    ),
+                },
+            )
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store_path = write_result_store(
+                Path(tmpdir),
+                config=config,
+                outputs_by_index=outputs_by_index,
+                total_inputs=1,
+            )
+
+            periodic = load_policy_results(
+                store_path,
+                stats=("density.mean",),
+                normalize_time=True,
+            )
+            terminal = load_policy_results(
+                store_path,
+                stats=("agent_payoff.runs",),
+                normalize_time=True,
+            )
+            with self.assertRaisesRegex(ValueError, "must share one observation"):
+                load_policy_results(store_path)
+
+        np.testing.assert_allclose(periodic.coords["step"], [0.0, 0.5, 1.0])
+        self.assertEqual(tuple(periodic.coords["observable"].values), ("density.mean",))
+        np.testing.assert_allclose(
+            periodic["x"].values,
+            np.asarray([[[[[0.0], [1.0], [2.0]]]]], dtype=np.float32),
+        )
+        np.testing.assert_allclose(terminal.coords["step"], [1.0])
+        self.assertEqual(
+            terminal["agent_payoff.runs"].dims,
+            (
+                "n_agents",
+                "random_proportion",
+                "parameter_row",
+                "episode",
+                "step",
+                "agent_slot",
+            ),
+        )
+        np.testing.assert_allclose(
+            terminal["agent_payoff.runs"].values,
+            np.asarray(
+                [[[[[[0.1, 0.2, 0.3, 0.4]], [[0.5, 0.6, 0.7, 0.8]]]]]],
+                dtype=np.float32,
+            ),
         )
 
     def test_from_zarr_rejects_prefix_stats(self) -> None:
@@ -160,7 +244,7 @@ class RandomPolicyResultFormatterTest(unittest.TestCase):
     def test_from_zarr_preserves_agent_payoff_axis(self) -> None:
         config = build_random_config()
         config["population"]["n_agents"] = [2, 4]
-        config["simulator"]["max_steps"] = 2
+        config["simulator"]["budget"] = raw_simulator_steps(2)
         config["observers"]["outputs"] = [
             {"name": "density"},
             {"name": "agent_payoff"},
@@ -341,7 +425,7 @@ class RandomPolicyResultFormatterTest(unittest.TestCase):
 
     def test_from_zarr_uses_observer_sampling_for_step_coordinates(self) -> None:
         config = build_random_config()
-        config["simulator"]["max_steps"] = 10
+        config["simulator"]["budget"] = raw_simulator_steps(10)
         config["observers"]["defaults"]["sampling"]["every"] = 5
         outputs_by_index = [
             (
@@ -367,10 +451,179 @@ class RandomPolicyResultFormatterTest(unittest.TestCase):
 
         np.testing.assert_array_equal(ds.coords["step"].values, np.asarray([0, 5, 10]))
 
+    def test_from_zarr_aligns_heterogeneous_periodic_prefixes_before_normalizing(
+        self,
+    ) -> None:
+        config = build_random_config()
+        config["population"]["n_agents"] = [3, 5]
+        config["simulator"]["actor_scheduler"]["n_actors"] = 2
+        config["simulator"]["budget"] = activation_opportunities_per_agent(2.5)
+        config["observers"]["defaults"]["sampling"]["every"] = 3
+        config["observers"]["outputs"] = [{"name": "density"}]
+        outputs_by_index = [
+            (
+                0,
+                {
+                    "density.mean": np.asarray(
+                        [0.0, 30.0, 999.0],
+                        dtype=np.float32,
+                    )
+                },
+            ),
+            (
+                1,
+                {
+                    "density.mean": np.asarray(
+                        [100.0, 130.0, 160.0],
+                        dtype=np.float32,
+                    )
+                },
+            ),
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store_path = write_result_store(
+                Path(tmpdir),
+                config=config,
+                outputs_by_index=outputs_by_index,
+                total_inputs=2,
+            )
+
+            raw = load_policy_results(store_path)
+            normalized = load_policy_results(store_path, normalize_time=True)
+
+        np.testing.assert_array_equal(raw.coords["step"], [0, 3, 6])
+        self.assertEqual(raw.attrs["time_axis"], "raw_simulator_steps")
+        self.assertFalse(raw.attrs["normalize_time"])
+        self.assertEqual(raw.coords["time_valid"].dims, ("n_agents", "step"))
+        np.testing.assert_array_equal(
+            raw.coords["time_valid"],
+            [[True, True, False], [True, True, True]],
+        )
+        np.testing.assert_array_equal(raw.coords["raw_step_horizon"], [4, 7])
+        np.testing.assert_array_equal(raw.coords["valid_sample_count"], [2, 3])
+        np.testing.assert_array_equal(raw.coords["last_valid_raw_step"], [3, 6])
+        np.testing.assert_allclose(
+            raw.coords["realized_activation_opportunities_per_agent"],
+            [8.0 / 3.0, 14.0 / 5.0],
+        )
+        small_raw = raw["x"].sel(n_agents=3, observable="density.mean").values
+        np.testing.assert_allclose(
+            small_raw,
+            np.asarray([[[0.0, 30.0, np.nan]]], dtype=np.float32),
+            equal_nan=True,
+        )
+
+        np.testing.assert_allclose(normalized.coords["step"], [0.0, 2.0])
+        self.assertEqual(normalized.attrs["common_normalized_time_max"], 2.0)
+        self.assertEqual(normalized.attrs["normalized_time_resolution"], 2.0)
+        self.assertTrue(normalized.coords["time_valid"].values.all())
+        np.testing.assert_allclose(
+            normalized["x"]
+            .sel(n_agents=3, observable="density.mean")
+            .values,
+            np.asarray([[[0.0, 30.0]]], dtype=np.float32),
+        )
+        np.testing.assert_allclose(
+            normalized["x"]
+            .sel(n_agents=5, observable="density.mean")
+            .values,
+            np.asarray([[[100.0, 150.0]]], dtype=np.float32),
+        )
+
+    def test_from_zarr_uses_truthful_terminal_union_and_rejects_unequal_endpoints(
+        self,
+    ) -> None:
+        config = build_random_config()
+        config["population"]["n_agents"] = [3, 5]
+        config["simulator"]["actor_scheduler"]["n_actors"] = 2
+        config["simulator"]["budget"] = activation_opportunities_per_agent(2.5)
+        config["observers"]["outputs"] = [
+            {
+                "name": "density",
+                "sampling": {"kind": "terminal"},
+                "aggregations": ["mean"],
+            }
+        ]
+        outputs_by_index = [
+            (0, {"density.mean": np.asarray([4.0], dtype=np.float32)}),
+            (1, {"density.mean": np.asarray([7.0], dtype=np.float32)}),
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store_path = write_result_store(
+                Path(tmpdir),
+                config=config,
+                outputs_by_index=outputs_by_index,
+                total_inputs=2,
+            )
+
+            raw = load_policy_results(store_path)
+            with self.assertRaisesRegex(ValueError, "differing normalized endpoints"):
+                load_policy_results(store_path, normalize_time=True)
+
+        np.testing.assert_array_equal(raw.coords["step"], [4, 7])
+        np.testing.assert_array_equal(
+            raw.coords["time_valid"],
+            [[True, False], [False, True]],
+        )
+        np.testing.assert_array_equal(raw.coords["valid_sample_count"], [1, 1])
+        np.testing.assert_array_equal(raw.coords["last_valid_raw_step"], [4, 7])
+        np.testing.assert_allclose(
+            raw["x"].sel(n_agents=3, observable="density.mean").values,
+            np.asarray([[[4.0, np.nan]]], dtype=np.float32),
+            equal_nan=True,
+        )
+        np.testing.assert_allclose(
+            raw["x"].sel(n_agents=5, observable="density.mean").values,
+            np.asarray([[[np.nan, 7.0]]], dtype=np.float32),
+            equal_nan=True,
+        )
+
+    def test_from_zarr_directly_maps_terminal_values_at_equal_normalized_endpoint(
+        self,
+    ) -> None:
+        config = build_random_config()
+        config["population"]["n_agents"] = [2, 4]
+        config["simulator"]["actor_scheduler"]["n_actors"] = 1
+        config["simulator"]["budget"] = activation_opportunities_per_agent(2)
+        config["observers"]["outputs"] = [
+            {
+                "name": "density",
+                "sampling": {"kind": "terminal"},
+                "aggregations": ["mean"],
+            }
+        ]
+        outputs_by_index = [
+            (0, {"density.mean": np.asarray([20.0], dtype=np.float32)}),
+            (1, {"density.mean": np.asarray([40.0], dtype=np.float32)}),
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store_path = write_result_store(
+                Path(tmpdir),
+                config=config,
+                outputs_by_index=outputs_by_index,
+                total_inputs=2,
+            )
+
+            normalized = load_policy_results(store_path, normalize_time=True)
+
+        np.testing.assert_allclose(normalized.coords["step"], [2.0])
+        self.assertEqual(normalized.attrs["common_normalized_time_max"], 2.0)
+        self.assertIsNone(normalized.attrs["normalized_time_resolution"])
+        np.testing.assert_allclose(
+            normalized["x"]
+            .sel(observable="density.mean")
+            .isel(step=0)
+            .values,
+            np.asarray([[[20.0]], [[40.0]]], dtype=np.float32),
+        )
+
     def test_from_zarr_normalize_time_false_matches_default(self) -> None:
         config = build_random_config()
         config["population"]["n_agents"] = [2, 4]
-        config["simulator"]["max_steps"] = 2
+        config["simulator"]["budget"] = raw_simulator_steps(2)
         config["simulator"]["actor_scheduler"]["n_actors"] = 1
         outputs_by_index = [
             (
@@ -409,7 +662,7 @@ class RandomPolicyResultFormatterTest(unittest.TestCase):
     def test_from_zarr_normalizes_time_to_common_range_and_interpolates(self) -> None:
         config = build_random_config()
         config["population"]["n_agents"] = [2, 4]
-        config["simulator"]["max_steps"] = 4
+        config["simulator"]["budget"] = raw_simulator_steps(4)
         config["simulator"]["actor_scheduler"]["n_actors"] = 1
         outputs_by_index = [
             (
@@ -477,7 +730,7 @@ class RandomPolicyResultFormatterTest(unittest.TestCase):
     def test_from_zarr_normalizes_agent_payoff_time_axis(self) -> None:
         config = build_random_config()
         config["population"]["n_agents"] = [2, 4]
-        config["simulator"]["max_steps"] = 2
+        config["simulator"]["budget"] = raw_simulator_steps(2)
         config["simulator"]["actor_scheduler"]["n_actors"] = 1
         config["observers"]["outputs"] = [
             {"name": "density"},
@@ -600,7 +853,7 @@ class RandomPolicyResultFormatterTest(unittest.TestCase):
     def test_from_zarr_preserves_terminal_agent_payoff_runs(self) -> None:
         config = build_random_config()
         config["population"]["n_agents"] = [2, 4]
-        config["simulator"]["max_steps"] = 2
+        config["simulator"]["budget"] = raw_simulator_steps(2)
         config["observers"]["outputs"] = [
             {
                 "name": "agent_payoff",

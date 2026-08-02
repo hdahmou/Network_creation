@@ -25,14 +25,16 @@ from tasks.policies.sweep import (
     sample_parameters,
 )
 from tests.tasks.config_support import (
+    activation_opportunities_per_agent,
     continuous,
-    discrete_offset_heterogeneity,
     fixed,
     normal_heterogeneity,
     policy,
+    raw_simulator_steps,
     sampled_discrete_range,
     scaled_other_agents,
     task_config,
+    three_point_heterogeneity,
 )
 
 
@@ -286,6 +288,7 @@ class PolicyRunTest(unittest.TestCase):
             n_agents=[2, 4],
             n_actors=2,
             log2_budget=0,
+            budget=activation_opportunities_per_agent(2.5),
             policies=[
                 policy(
                     "myopic",
@@ -370,7 +373,7 @@ class PolicyRunTest(unittest.TestCase):
             visibility_distance=sampled_discrete_range(
                 2,
                 5,
-                heterogeneity=discrete_offset_heterogeneity((-1, 0, 1)),
+                heterogeneity=three_point_heterogeneity((0.2, 0.5, 0.3)),
             ),
             policies=[policy("random", "random")],
         )
@@ -410,6 +413,43 @@ class PolicyRunTest(unittest.TestCase):
             prepared.run(0)[SAMPLED_AGENT_PARAMETERS_FIELD][:, 0],
             realized,
         )
+
+    def test_visibility_distance_three_point_probabilities_control_sampling(
+        self,
+    ) -> None:
+        for probabilities, expected_offset in (
+            ((1.0, 0.0, 0.0), -1),
+            ((0.0, 1.0, 0.0), 0),
+            ((0.0, 0.0, 1.0), 1),
+        ):
+            with self.subTest(probabilities=probabilities):
+                config = task_config(
+                    n_agents=4,
+                    n_actors=1,
+                    visibility_distance=sampled_discrete_range(
+                        3,
+                        3,
+                        heterogeneity=three_point_heterogeneity(probabilities),
+                    ),
+                )
+                _, sweep, sampled_parameter_plan, agent_builder = _policy_components(
+                    config
+                )
+                configuration = sweep.configuration_at(0)
+                settings = sweep.resolve(configuration)
+
+                sampled = sampled_parameter_plan.sample(
+                    0,
+                    configuration,
+                    settings,
+                    max_n_agents=4,
+                    policy_for_node=agent_builder.policy_entry_for_node,
+                )
+
+                np.testing.assert_array_equal(
+                    sampled[:, 0],
+                    np.full(4, 3 + expected_offset, dtype=np.float32),
+                )
 
     def test_zero_normal_heterogeneity_saves_agent_level_centers(self) -> None:
         config = task_config(
@@ -510,7 +550,7 @@ class PolicyRunTest(unittest.TestCase):
             n_actors=1,
             log2_budget=0,
             n_episodes=1,
-            max_steps=1,
+            budget=raw_simulator_steps(1),
             agent_parameters={"activation_weight": fixed(1.0)},
             policies=[
                 policy(
@@ -571,7 +611,7 @@ class PolicyRunTest(unittest.TestCase):
             n_actors=1,
             log2_budget=0,
             n_episodes=1,
-            max_steps=1,
+            budget=raw_simulator_steps(1),
             agent_parameters={
                 "activation_weight": continuous(
                     0.8,

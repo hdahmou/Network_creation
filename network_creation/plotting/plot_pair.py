@@ -160,15 +160,15 @@ def _render_point_descriptor(
             Rectangle((x0, y0), x1 - x0, y1 - y0)
             for (x0, x1), (y0, y1) in zip(x_spans, y_spans)
         ]
-        collection = PatchCollection(
+        patch_collection = PatchCollection(
             rectangles,
             cmap=cmap,
             norm=norm,
             alpha=alpha,
             linewidths=0,
         )
-        collection.set_array(np.asarray(z, dtype=float))
-        ax.add_collection(collection)
+        patch_collection.set_array(np.asarray(z, dtype=float))
+        ax.add_collection(patch_collection)
         _apply_axis_metadata(ax, x_spec, y_spec)
         return ax
 
@@ -190,15 +190,15 @@ def _render_point_descriptor(
             ),
             axis=1,
         )
-    collection = LineCollection(
-        segments,
+    line_collection = LineCollection(
+        list(segments),
         cmap=cmap,
         norm=norm,
         linewidths=_point_linewidth(point_size),
         alpha=alpha,
     )
-    collection.set_array(np.asarray(z, dtype=float))
-    ax.add_collection(collection)
+    line_collection.set_array(np.asarray(z, dtype=float))
+    ax.add_collection(line_collection)
     _apply_axis_metadata(ax, x_spec, y_spec)
     return ax
 

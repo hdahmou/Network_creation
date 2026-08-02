@@ -47,7 +47,7 @@ def prepare_policy_run(config: Mapping[str, Any]) -> PreparedRun[int]:
     max_n_agents = max(sweep.n_agents_values)
     observer_specs = build_observer_specs(
         raw_observers=policy_config["observers"],
-        max_steps=sweep.max_steps,
+        max_steps=sweep.storage_max_steps,
         n_episodes=sweep.n_episodes,
         n_agent_slots=max_n_agents,
         policy_ids=policy_ids,

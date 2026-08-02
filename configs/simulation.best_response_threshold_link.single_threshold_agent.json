@@ -5,12 +5,15 @@
     "write_batch_size": 64
   },
   "sampling": {
-    "log2_budget": 14,
-    "seed": 123
+    "log2_budget": 15,
+    "seed": 13
   },
   "simulator": {
-    "seed": 11,
-    "max_steps": 4000,
+    "seed": 13,
+    "budget": {
+      "kind": "activation_opportunities_per_agent",
+      "value": 60
+    },
     "n_episodes": 16,
     "actor_scheduler": {
       "n_actors": 1
@@ -36,23 +39,38 @@
       50,
       100
     ],
+    "visibility_distance": {
+      "kind": "sampled_discrete_range",
+      "min": 1,
+      "max": 7,
+      "step": 1
+    },
     "agent_parameters": {
       "activation_weight": {
         "kind": "fixed",
         "value": 1.0
       }
     },
-    "visibility_distance": {
-      "kind": "sampled_discrete_range",
-      "min": 2,
-      "max": 5,
-      "step": 1,
-      "heterogeneity": {
-        "kind": "discrete_offsets",
-        "offsets": [-1, 0, 1]
-      }
-    },
     "policies": [
+      {
+        "id": "threshold_link",
+        "kind": "threshold-link",
+        "parameters": {
+          "link_threshold": {
+            "kind": "continuous",
+            "min": 0.0,
+            "max": 1.0,
+            "heterogeneity": {
+              "kind": "normal",
+              "std": 0.0
+            }
+          },
+          "p_act": {
+            "kind": "fixed",
+            "value": 1.0
+          }
+        }
+      },
       {
         "id": "best_response",
         "kind": "best-response",
@@ -63,7 +81,7 @@
             "max": 1.0,
             "heterogeneity": {
               "kind": "normal",
-              "std": 0.1
+              "std": 0.0
             }
           },
           "exploration": {
@@ -72,16 +90,17 @@
             "max": 0.1,
             "heterogeneity": {
               "kind": "normal",
-              "std": 0.01
+              "std": 0.0
             }
           }
         }
       }
     ],
-    "policy_proportions": {
-      "policy": "best_response",
+    "policy_counts": {
+      "policy": "threshold_link",
       "values": [
-        1.0
+        0,
+        1
       ]
     }
   },
@@ -92,8 +111,7 @@
         "every": 1
       },
       "aggregations": [
-        "mean",
-        "std"
+        "mean"
       ]
     },
     "outputs": [
@@ -105,6 +123,9 @@
       },
       {
         "name": "centered_mean_welfare"
+      },
+      {
+        "name": "policy_welfare"
       }
     ]
   }

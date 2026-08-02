@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
-from typing import Any, Callable, Union
+from collections.abc import Callable, Iterable
+from typing import Any
 
 import igraph as ig
 import matplotlib.pyplot as plt
@@ -31,7 +31,7 @@ def build_circle_layout(n_nodes: int) -> dict[int, tuple[float, float]]:
 def plot_graph_history(
     steps: NDArray[np.int_],
     graphs: Iterable[ig.Graph],
-    layout: Union[dict[int, tuple[float, float]], Callable[[nx.Graph], Any]],
+    layout: dict[int, tuple[float, float]] | Callable[[nx.Graph], Any],
     figure_title: str,
     max_cols: int,
 ) -> tuple[Figure, np.ndarray[Any, Any]]:
@@ -58,10 +58,10 @@ def plot_graph_history(
 
     for axis, step, graph in zip(axes_grid.ravel(), steps, graph_history, strict=False):
         graph_nx = graph.to_networkx(vertex_attr_hashable="name")
-        if isinstance(layout, Callable):
-            layout_nx = layout(graph_nx)
-        else:
+        if isinstance(layout, dict):
             layout_nx = layout
+        else:
+            layout_nx = layout(graph_nx)
         nx.draw_networkx(
             graph_nx,
             pos=layout_nx,

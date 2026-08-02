@@ -16,8 +16,9 @@ from network_creation.observers.statistics.episode_series import (
     EpisodeSeriesStatisticObserver,
 )
 from network_creation.stats.topology_welfare import (
-    normalized_welfare,
-    normalized_welfare_per_topology,
+    WelfareReference,
+    centered_mean_welfare,
+    reference_centered_mean_welfare,
 )
 
 
@@ -45,26 +46,26 @@ class CenteredMeanWelfareObserver(EpisodeSeriesStatisticObserver):
         )
         self.benefit_to_cost_ratio = benefit_to_cost_ratio
         self.distance_discount = distance_discount
-        self.max_normalized_welfare = normalized_welfare_per_topology(
-            topology_class="max",
-            n=self.n_agents,
+        self.max_centered_mean_welfare = reference_centered_mean_welfare(
+            reference="max",
+            n_agents=self.n_agents,
             benefit_to_cost_ratio=benefit_to_cost_ratio,
             distance_discount=distance_discount,
         )
 
     def compute_initial_value(self, event: EpisodeStartEvent) -> float:
-        return normalized_welfare(
+        return centered_mean_welfare(
             graph=event.initial_state.graph,
             benefit_to_cost_ratio=self.benefit_to_cost_ratio,
             distance_discount=self.distance_discount,
-        ) / (self.max_normalized_welfare + 1e-8)
+        ) / (self.max_centered_mean_welfare + 1e-8)
 
     def compute_step_value(self, event: StepEvent) -> float:
-        return normalized_welfare(
+        return centered_mean_welfare(
             graph=event.post_state.graph,
             benefit_to_cost_ratio=self.benefit_to_cost_ratio,
             distance_discount=self.distance_discount,
-        ) / (self.max_normalized_welfare + 1e-8)
+        ) / (self.max_centered_mean_welfare + 1e-8)
 
     @classmethod
     def reference_values(
@@ -81,10 +82,10 @@ class CenteredMeanWelfareObserver(EpisodeSeriesStatisticObserver):
         except (KeyError, TypeError, ValueError):
             return result
 
-        def welfare(topology_class: str) -> float:
-            return normalized_welfare_per_topology(
-                topology_class=topology_class,  # type: ignore[arg-type]
-                n=n_agents,
+        def welfare(reference: WelfareReference) -> float:
+            return reference_centered_mean_welfare(
+                reference=reference,
+                n_agents=n_agents,
                 benefit_to_cost_ratio=benefit_to_cost_ratio,
                 distance_discount=distance_discount,
             )

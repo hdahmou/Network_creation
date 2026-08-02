@@ -8,17 +8,15 @@
     ],
     "continuous_theta_names": [
       "outside_optimism",
-      "exploration"
-    ],
-    "discrete_theta_names": [
+      "exploration",
       "visibility_distance"
     ],
+    "discrete_theta_names": [],
     "continuous_input_names": [],
     "discrete_input_names": [
       "n_agents"
     ],
-    "x_representation": "timeseries",
-    "normalize_time": true
+    "x_representation": "timeseries"
   },
   "model": {
     "density_estimator": {

@@ -29,10 +29,10 @@ from network_creation.observers.social_welfare_observer import (
 )
 from network_creation.stats.topology_welfare import (
     agent_payoff,
-    get_ER_normalized_welfare,
-    normalized_welfare,
-    normalized_welfare_per_topology,
-    total_welfare,
+    centered_mean_welfare,
+    centered_total_welfare,
+    max_er_centered_mean_welfare,
+    reference_centered_mean_welfare,
 )
 from tests.core.simulation_support import ConstantPolicy
 from tests.graph_factories import graph_from_adjacency_matrix
@@ -78,10 +78,10 @@ def _record_agent_payoff_episode(
 
 
 class SocialWelfareTest(unittest.TestCase):
-    def test_total_welfare_is_zero_on_empty_graph(self) -> None:
+    def test_centered_total_welfare_is_zero_on_empty_graph(self) -> None:
         graph = create_empty_graph(3)
 
-        welfare = total_welfare(
+        welfare = centered_total_welfare(
             graph,
             benefit_to_cost_ratio=1.0,
             distance_discount=0.5,
@@ -89,7 +89,7 @@ class SocialWelfareTest(unittest.TestCase):
 
         self.assertAlmostEqual(welfare, 0.0)
 
-    def test_total_welfare_counts_one_directed_link_in_raw_units(self) -> None:
+    def test_centered_total_welfare_counts_one_directed_link(self) -> None:
         graph = graph_from_adjacency_matrix(
             np.array(
                 [
@@ -101,7 +101,7 @@ class SocialWelfareTest(unittest.TestCase):
             )
         )
 
-        welfare = total_welfare(
+        welfare = centered_total_welfare(
             graph,
             benefit_to_cost_ratio=2.0,
             distance_discount=0.5,
@@ -146,7 +146,7 @@ class SocialWelfareTest(unittest.TestCase):
             np.array([0.0, 0.5, 0.0], dtype=np.float32),
         )
 
-    def test_normalized_welfare_divides_total_by_number_of_agents(self) -> None:
+    def test_centered_mean_welfare_divides_total_by_number_of_agents(self) -> None:
         graph = graph_from_adjacency_matrix(
             np.array(
                 [
@@ -157,7 +157,7 @@ class SocialWelfareTest(unittest.TestCase):
             )
         )
 
-        welfare = normalized_welfare(
+        welfare = centered_mean_welfare(
             graph,
             benefit_to_cost_ratio=2.0,
             distance_discount=0.5,
@@ -165,32 +165,32 @@ class SocialWelfareTest(unittest.TestCase):
 
         self.assertAlmostEqual(welfare, 0.5)
 
-    def test_reference_topologies_match_closed_forms_and_er_argmax(self) -> None:
+    def test_welfare_references_match_closed_forms_and_er_argmax(self) -> None:
         n = 4
         distance_discount = 0.5
         benefit_to_cost_ratio = 1.0
 
-        star_reference = normalized_welfare_per_topology(
-            topology_class="star",
-            n=n,
+        star_reference = reference_centered_mean_welfare(
+            reference="star",
+            n_agents=n,
             benefit_to_cost_ratio=benefit_to_cost_ratio,
             distance_discount=distance_discount,
         )
-        empty_reference = normalized_welfare_per_topology(
-            topology_class="empty",
-            n=n,
+        empty_reference = reference_centered_mean_welfare(
+            reference="empty",
+            n_agents=n,
             benefit_to_cost_ratio=benefit_to_cost_ratio,
             distance_discount=distance_discount,
         )
-        random_reference = normalized_welfare_per_topology(
-            topology_class="random",
-            n=n,
+        random_reference = reference_centered_mean_welfare(
+            reference="random",
+            n_agents=n,
             benefit_to_cost_ratio=benefit_to_cost_ratio,
             distance_discount=distance_discount,
         )
-        max_reference = normalized_welfare_per_topology(
-            topology_class="max",
-            n=n,
+        max_reference = reference_centered_mean_welfare(
+            reference="max",
+            n_agents=n,
             benefit_to_cost_ratio=benefit_to_cost_ratio,
             distance_discount=distance_discount,
         )
@@ -200,14 +200,10 @@ class SocialWelfareTest(unittest.TestCase):
             + (n - 2) * benefit_to_cost_ratio * distance_discount**2
             - 1
         )
-        expected_random = max(
-            get_ER_normalized_welfare(
-                n=n,
-                benefit_to_cost_ratio=benefit_to_cost_ratio,
-                distance_discount=distance_discount,
-                p_directed=candidate_p,
-            )
-            for candidate_p in np.linspace(0.0, 1.0, 1000, dtype=float)
+        expected_random = max_er_centered_mean_welfare(
+            n_agents=n,
+            benefit_to_cost_ratio=benefit_to_cost_ratio,
+            distance_discount=distance_discount,
         )
 
         self.assertAlmostEqual(star_reference, expected_star)
@@ -215,14 +211,25 @@ class SocialWelfareTest(unittest.TestCase):
         self.assertAlmostEqual(random_reference, expected_random)
         self.assertAlmostEqual(max_reference, max(empty_reference, star_reference))
 
-    def test_reference_topologies_reject_invalid_name(self) -> None:
+    def test_random_reference_resolves_optimum_below_uniform_grid_spacing(self) -> None:
+        n = 4000
+        random_reference = reference_centered_mean_welfare(
+            reference="random",
+            n_agents=n,
+            benefit_to_cost_ratio=5.0 / n,
+            distance_discount=0.9,
+        )
+
+        self.assertGreater(random_reference, 0.7)
+
+    def test_welfare_references_reject_invalid_name(self) -> None:
         with self.assertRaisesRegex(
             ValueError,
-            "topology_class must be one of 'star', 'empty', 'random', or 'max'",
+            "reference must be one of 'star', 'empty', 'random', or 'max'",
         ):
-            normalized_welfare_per_topology(
-                topology_class="cycle",
-                n=4,
+            reference_centered_mean_welfare(
+                reference="cycle",  # type: ignore[arg-type]
+                n_agents=4,
                 benefit_to_cost_ratio=1.0,
                 distance_discount=0.5,
             )

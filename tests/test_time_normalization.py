@@ -6,6 +6,7 @@ import numpy as np
 
 from network_creation.time_normalization import (
     common_normalized_time_grid,
+    common_normalized_time_grid_from_raw_labels,
     interpolate_time_axis,
     normalize_time_tensor,
     normalized_source_times,
@@ -43,6 +44,28 @@ class TimeNormalizationTests(unittest.TestCase):
         self.assertEqual(grid.attrs()["raw_step_labels"], [0.0, 1.0, 2.0, 3.0, 4.0])
         self.assertEqual(grid.common_normalized_time_max, 1.0)
         self.assertEqual(grid.normalized_time_resolution, 0.5)
+
+    def test_common_grid_supports_population_specific_valid_raw_labels(self) -> None:
+        grid = common_normalized_time_grid_from_raw_labels(
+            ([0, 3], [0, 3, 6]),
+            n_agents_values=[3, 5],
+            n_actors=2,
+        )
+
+        np.testing.assert_allclose(grid.step_labels, [0.0, 2.0])
+        np.testing.assert_allclose(grid.source_times[0], [0.0, 2.0])
+        np.testing.assert_allclose(grid.source_times[1], [0.0, 1.2, 2.4])
+        np.testing.assert_allclose(grid.raw_step_labels, [0.0, 3.0, 6.0])
+        self.assertEqual(grid.common_normalized_time_max, 2.0)
+        self.assertEqual(grid.normalized_time_resolution, 2.0)
+
+    def test_common_grid_rejects_differing_singleton_endpoints(self) -> None:
+        with self.assertRaisesRegex(ValueError, "differing normalized endpoints"):
+            common_normalized_time_grid_from_raw_labels(
+                ([4], [7]),
+                n_agents_values=[3, 5],
+                n_actors=2,
+            )
 
     def test_interpolate_time_axis_handles_non_leading_step_axis(self) -> None:
         values = np.asarray(

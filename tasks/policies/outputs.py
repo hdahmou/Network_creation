@@ -154,6 +154,10 @@ def build_result_metadata(
                 sweep.n_agents_values,
                 dtype=np.int64,
             ),
+            "raw_step_horizons": np.asarray(
+                sweep.raw_step_horizons,
+                dtype=np.int64,
+            ),
             "parameters": parameters,
             "parameter_low": parameter_low,
             "parameter_high": parameter_high,

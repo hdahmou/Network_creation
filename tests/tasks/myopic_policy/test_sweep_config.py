@@ -270,6 +270,61 @@ class MyopicPolicyPreparationTest(unittest.TestCase):
                         }
                     )
 
+    def test_sample_parameters_validates_three_point_heterogeneity(self) -> None:
+        cases = (
+            (
+                [0.5, 0.5],
+                "must contain exactly three probabilities",
+            ),
+            (
+                [0.5, -0.1, 0.6],
+                "must contain finite, non-negative numbers",
+            ),
+            (
+                [0.2, 0.3, 0.4],
+                "must sum to 1",
+            ),
+        )
+
+        for probabilities, expected_error in cases:
+            with self.subTest(probabilities=probabilities):
+                with self.assertRaisesRegex(ValueError, expected_error):
+                    sample_parameters(
+                        {
+                            "log2_budget": 0,
+                            "seed": 123,
+                            "parameters": {
+                                "visibility_distance": sampled_discrete_range(
+                                    2,
+                                    5,
+                                    heterogeneity={
+                                        "kind": "three_point",
+                                        "probabilities": probabilities,
+                                    },
+                                )
+                            },
+                        }
+                    )
+
+    def test_three_point_visibility_distribution_must_remain_positive(self) -> None:
+        with self.assertRaisesRegex(ValueError, "must produce positive values"):
+            sample_parameters(
+                {
+                    "log2_budget": 0,
+                    "seed": 123,
+                    "parameters": {
+                        "visibility_distance": sampled_discrete_range(
+                            1,
+                            4,
+                            heterogeneity={
+                                "kind": "three_point",
+                                "probabilities": [0.1, 0.8, 0.1],
+                            },
+                        )
+                    },
+                }
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

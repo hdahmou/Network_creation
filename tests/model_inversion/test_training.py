@@ -9,8 +9,8 @@ import numpy as np
 import torch
 
 from network_creation.model_inversion.dataset import (
+    ZarrInversionDataset,
     build_row_index,
-    make_zarr_inversion_dataset,
 )
 from network_creation.model_inversion.schema import resolve_inversion_schema
 from network_creation.model_inversion.source import load_inversion_source
@@ -67,7 +67,11 @@ class ZarrTrainingTests(unittest.TestCase):
         source = load_inversion_source(config_path)
         schema = resolve_inversion_schema(source)
         row_index = build_row_index(source, schema)
-        dataset = make_zarr_inversion_dataset(source, row_index, schema)
+        dataset = ZarrInversionDataset(
+            source=source,
+            row_index=row_index,
+            schema=schema,
+        )
         split = split_inversion_rows(row_index, dataset, source.config)
         return source, schema, dataset, split
 

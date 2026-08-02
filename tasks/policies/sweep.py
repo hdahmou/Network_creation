@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+import math
 from numbers import Integral, Real
 from typing import Any, cast
 
@@ -17,6 +18,11 @@ from .parameter_space import generate_parameter_space
 type ParameterSpec = Mapping[str, object]
 type ParameterConfig = Mapping[str, ParameterSpec]
 type PolicyEntry = tuple[str, str]
+
+
+_RAW_SIMULATOR_STEPS = "raw_simulator_steps"
+_ACTIVATION_OPPORTUNITIES_PER_AGENT = "activation_opportunities_per_agent"
+_MAX_RAW_STEP_HORIZON = int(np.iinfo(np.int64).max)
 
 
 _POPULATION_STRUCTURAL_KEYS = frozenset(
@@ -81,7 +87,9 @@ class SweepPlan:
     policy_composition: PolicyCompositionSweep
     n_actors: int
     seed: int
-    max_steps: int
+    budget_kind: str
+    budget_value: int | float
+    raw_step_horizons: tuple[int, ...]
     n_episodes: int
     stagnation_patience: int | None
     initial_graph_kind: str = "empty"
@@ -107,6 +115,10 @@ class SweepPlan:
             * self.n_parameter_rows
         )
 
+    @property
+    def storage_max_steps(self) -> int:
+        return max(self.raw_step_horizons)
+
     def coordinates(self, input_index: int) -> tuple[int, int, int]:
         return _input_coordinates(
             input_index,
@@ -126,11 +138,12 @@ class SweepPlan:
 
     def resolve(self, configuration: NDArray[np.float32]) -> SimulationSettings:
         n_agents = int(configuration[self.column_index_by_name["n_agents"]])
+        n_agents_index = self.n_agents_values.index(n_agents)
         return SimulationSettings(
             n_agents=n_agents,
             n_actors=min(self.n_actors, n_agents),
             seed=self.seed,
-            max_steps=self.max_steps,
+            max_steps=self.raw_step_horizons[n_agents_index],
             n_episodes=self.n_episodes,
             stagnation_patience=self.stagnation_patience,
             initial_graph_kind=self.initial_graph_kind,
@@ -400,6 +413,83 @@ def _load_n_agents_values(raw_n_agents: Any) -> tuple[int, ...]:
     return tuple(n_agents_values)
 
 
+def _load_n_actors(raw_n_actors: Any) -> int:
+    if (
+        isinstance(raw_n_actors, bool)
+        or not isinstance(raw_n_actors, Integral)
+        or int(raw_n_actors) < 1
+    ):
+        raise ValueError(
+            "simulator.actor_scheduler.n_actors must be a positive integer"
+        )
+    return int(raw_n_actors)
+
+
+def _load_simulation_budget(
+    raw_budget: Mapping[str, Any],
+    *,
+    n_agents_values: Sequence[int],
+    n_actors: int,
+) -> tuple[str, int | float, tuple[int, ...]]:
+    kind = str(raw_budget["kind"])
+    raw_value = raw_budget["value"]
+    value: int | float
+    if kind == _RAW_SIMULATOR_STEPS:
+        if (
+            isinstance(raw_value, bool)
+            or not isinstance(raw_value, Integral)
+            or int(raw_value) < 0
+        ):
+            raise ValueError(
+                "simulator.budget.value must be a non-negative integer for "
+                "raw_simulator_steps"
+            )
+        value = int(raw_value)
+        if value > _MAX_RAW_STEP_HORIZON:
+            raise ValueError("simulator.budget resolves to an invalid raw horizon")
+        return kind, value, (value,) * len(n_agents_values)
+
+    if kind != _ACTIVATION_OPPORTUNITIES_PER_AGENT:
+        raise ValueError(
+            "simulator.budget.kind must be 'raw_simulator_steps' or "
+            "'activation_opportunities_per_agent'"
+        )
+    if isinstance(raw_value, bool) or not isinstance(raw_value, Real):
+        raise ValueError(
+            "simulator.budget.value must be a finite non-negative number for "
+            "activation_opportunities_per_agent"
+        )
+    if isinstance(raw_value, Integral):
+        value = int(raw_value)
+        value_numerator, value_denominator = value, 1
+    else:
+        value = float(raw_value)
+        if not math.isfinite(value):
+            raise ValueError(
+                "simulator.budget.value must be a finite non-negative number for "
+                "activation_opportunities_per_agent"
+            )
+        value_numerator, value_denominator = value.as_integer_ratio()
+    if value < 0:
+        raise ValueError(
+            "simulator.budget.value must be a finite non-negative number for "
+            "activation_opportunities_per_agent"
+        )
+
+    horizons: list[int] = []
+    for n_agents in n_agents_values:
+        effective_actors = min(n_actors, n_agents)
+        horizon_numerator = value_numerator * n_agents
+        horizon_denominator = value_denominator * effective_actors
+        horizon = (
+            horizon_numerator + horizon_denominator - 1
+        ) // horizon_denominator
+        if horizon > _MAX_RAW_STEP_HORIZON:
+            raise ValueError("simulator.budget resolves to an invalid raw horizon")
+        horizons.append(horizon)
+    return kind, value, tuple(horizons)
+
+
 def _build_configuration_grid(
     *,
     n_agents_values: Sequence[int],
@@ -540,6 +630,13 @@ def build_sweep(
     initial_graph_kind, initial_graph_p = _load_initial_graph(simulator)
     stagnation_patience = simulator.get("stagnation_patience")
     n_agents_values = _load_n_agents_values(population["n_agents"])
+    actor_scheduler = cast(Mapping[str, Any], simulator["actor_scheduler"])
+    n_actors = _load_n_actors(actor_scheduler["n_actors"])
+    budget_kind, budget_value, raw_step_horizons = _load_simulation_budget(
+        cast(Mapping[str, Any], simulator["budget"]),
+        n_agents_values=n_agents_values,
+        n_actors=n_actors,
+    )
 
     policy_composition = _load_policy_composition(
         population,
@@ -570,9 +667,11 @@ def build_sweep(
         },
         n_agents_values=n_agents_values,
         policy_composition=policy_composition,
-        n_actors=int(simulator["actor_scheduler"]["n_actors"]),
+        n_actors=n_actors,
         seed=int(simulator["seed"]),
-        max_steps=int(simulator["max_steps"]),
+        budget_kind=budget_kind,
+        budget_value=budget_value,
+        raw_step_horizons=raw_step_horizons,
         n_episodes=int(simulator["n_episodes"]),
         stagnation_patience=(
             None if stagnation_patience is None else int(stagnation_patience)

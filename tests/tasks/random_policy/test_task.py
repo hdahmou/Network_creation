@@ -6,10 +6,14 @@ import unittest
 
 import numpy as np
 
+from tasks.execution.schema import OutputArraySpec
 from tasks.policies import prepare_policy_run
+from tasks.policies.simulation import _pad_observer_time_axis
 from tests.tasks.config_support import (
+    activation_opportunities_per_agent,
     fixed,
     policy,
+    raw_simulator_steps,
     sampled_discrete_range,
     scaled_inverse_agents,
     task_config,
@@ -161,6 +165,107 @@ class RandomPolicyTaskTest(unittest.TestCase):
         self.assertEqual(output["density.mean"].shape, (4,))
         self.assertEqual(output["triad_census.mean"].shape, (4, 7))
 
+    def test_activation_budget_pads_scalar_and_tensor_series_time_axes(self) -> None:
+        observers = {
+            "defaults": {
+                "sampling": {"kind": "periodic", "every": 1},
+                "aggregations": ["mean", "std"],
+            },
+            "outputs": [{"name": "density"}, {"name": "triad_census"}],
+        }
+        config = task_config(
+            n_agents=[3, 5],
+            n_actors=2,
+            budget=activation_opportunities_per_agent(2.5),
+            observers=observers,
+        )
+        native_config = task_config(
+            n_agents=3,
+            n_actors=2,
+            budget=raw_simulator_steps(4),
+            observers=observers,
+        )
+
+        prepared = prepare_policy_run(config)
+        output = prepared.run(0)
+        native_output = prepare_policy_run(native_config).run(0)
+
+        self.assertEqual(output["density.mean"].shape, (8,))
+        self.assertEqual(output["density.std"].shape, (8,))
+        self.assertEqual(output["triad_census.mean"].shape, (8, 7))
+        self.assertEqual(output["triad_census.std"].shape, (8, 7))
+        for field_name, values in output.items():
+            np.testing.assert_allclose(values[:5], native_output[field_name])
+            self.assertTrue(np.isnan(values[5:]).all())
+
+    def test_activation_budget_pads_runs_after_episode_axis(self) -> None:
+        observers = {
+            "defaults": {
+                "sampling": {"kind": "periodic", "every": 1},
+                "aggregations": ["runs"],
+            },
+            "outputs": [{"name": "density"}],
+        }
+        config = task_config(
+            n_agents=[3, 5],
+            n_actors=2,
+            n_episodes=2,
+            budget=activation_opportunities_per_agent(2.5),
+            observers=observers,
+        )
+        native_config = task_config(
+            n_agents=3,
+            n_actors=2,
+            n_episodes=2,
+            budget=raw_simulator_steps(4),
+            observers=observers,
+        )
+
+        prepared = prepare_policy_run(config)
+        output = prepared.run(0)["density.runs"]
+        native_output = prepare_policy_run(native_config).run(0)["density.runs"]
+
+        self.assertEqual(output.shape, (2, 8))
+        np.testing.assert_allclose(output[:, :5], native_output)
+        self.assertTrue(np.isnan(output[:, 5:]).all())
+
+    def test_observer_time_padding_rejects_invalid_shapes_and_leaves_terminal(
+        self,
+    ) -> None:
+        field = OutputArraySpec(
+            name="example.mean",
+            shape=(3, 2),
+            dtype=np.float32,
+        )
+        for values, expected_error in (
+            (np.zeros((4, 2), dtype=np.float32), "longer"),
+            (np.zeros((2, 3), dtype=np.float32), "non-time"),
+        ):
+            with self.subTest(shape=values.shape):
+                with self.assertRaisesRegex(ValueError, expected_error):
+                    _pad_observer_time_axis(
+                        values,
+                        field,
+                        aggregation="mean",
+                        is_terminal=False,
+                    )
+
+        terminal_field = OutputArraySpec(
+            name="example.mean",
+            shape=(1, 2),
+            dtype=np.float32,
+        )
+        terminal = np.ones((1, 2), dtype=np.float32)
+        self.assertIs(
+            _pad_observer_time_axis(
+                terminal,
+                terminal_field,
+                aggregation="mean",
+                is_terminal=True,
+            ),
+            terminal,
+        )
+
     def test_prepare_pads_agent_payoff_for_n_agents_sweeps(self) -> None:
         config = self._base_config()
         config["population"]["n_agents"] = [2, 4]
@@ -205,7 +310,9 @@ class RandomPolicyTaskTest(unittest.TestCase):
 
     def test_prepare_supports_terminal_agent_payoff_runs(self) -> None:
         config = self._base_config()
-        config["population"]["n_agents"] = [2, 4]
+        config["population"]["n_agents"] = [3, 5]
+        config["simulator"]["actor_scheduler"]["n_actors"] = 2
+        config["simulator"]["budget"] = activation_opportunities_per_agent(2.5)
         config["observers"]["outputs"] = [
             {
                 "name": "agent_payoff",
@@ -220,7 +327,7 @@ class RandomPolicyTaskTest(unittest.TestCase):
             [
                 {
                     "name": "agent_payoff.runs",
-                    "shape": [2, 1, 4],
+                    "shape": [2, 1, 5],
                     "dtype": "float32",
                 },
             ],
@@ -229,9 +336,9 @@ class RandomPolicyTaskTest(unittest.TestCase):
         small_output = prepared.run(0)["agent_payoff.runs"]
         large_output = prepared.run(1)["agent_payoff.runs"]
 
-        self.assertEqual(small_output.shape, (2, 1, 4))
-        self.assertEqual(large_output.shape, (2, 1, 4))
-        self.assertTrue(np.isnan(small_output[..., 2:]).all())
+        self.assertEqual(small_output.shape, (2, 1, 5))
+        self.assertEqual(large_output.shape, (2, 1, 5))
+        self.assertTrue(np.isnan(small_output[..., 3:]).all())
 
     def test_run_supports_multiple_visibility_distance_samples(self) -> None:
         config = self._base_config()

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import cast
+
 import numpy as np
 from numpy.typing import NDArray
 
@@ -88,8 +90,8 @@ class BestResponsePolicy(Policy):
         bridge_action = bridge_actions[0] if bridge_actions else None
 
         source_idx = pass_action.source
-        add_targets = [int(action.target) for action in add_actions]
-        delete_targets = [int(action.target) for action in delete_actions]
+        add_targets = [cast(int, action.target) for action in add_actions]
+        delete_targets = [cast(int, action.target) for action in delete_actions]
         outside_node_idxs = observation.outside_node_idxs
 
         (
@@ -158,8 +160,8 @@ class BestResponsePolicy(Policy):
             rng=self._rng,
         )
 
-        chosen_action = self.candidate_actions[chosen_idx]
-        if chosen_action is not None and chosen_action.type is ActionType.BRIDGE:
+        chosen_action = cast(Action, self.candidate_actions[chosen_idx])
+        if chosen_action.type is ActionType.BRIDGE:
             chosen_action = Action(
                 ActionType.BRIDGE,
                 source_idx,
@@ -171,6 +173,5 @@ class BestResponsePolicy(Policy):
             actions=(chosen_action,),
             value={
                 "value": float(self.candidate_values[chosen_idx]),
-                # "other_actions_values": list(zip(self.candidate_actions[: candidate_idx + 1],self.candidate_values[: candidate_idx + 1],)),
             },
         )

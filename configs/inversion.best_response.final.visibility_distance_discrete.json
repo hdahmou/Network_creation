@@ -17,8 +17,7 @@
     "discrete_input_names": [
       "n_agents"
     ],
-    "x_representation": "final",
-    "normalize_time": true
+    "x_representation": "final"
   },
   "model": {
     "density_estimator": {

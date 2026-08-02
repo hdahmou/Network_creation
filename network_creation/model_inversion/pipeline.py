@@ -12,7 +12,7 @@ from .artifacts import (
     write_inversion_artifact,
 )
 from .config import InversionConfig
-from .dataset import build_row_index, make_zarr_inversion_dataset
+from .dataset import ZarrInversionDataset, build_row_index
 from .schema import resolve_inversion_schema
 from .source import load_inversion_source
 from .splits import select_prior_samples, split_inversion_rows
@@ -41,7 +41,11 @@ def train_inversion_from_config(config_path: str | Path) -> TrainingRunSummary:
         schema.x_event_shape,
     )
     row_index = build_row_index(source, schema)
-    dataset = make_zarr_inversion_dataset(source, row_index, schema)
+    dataset = ZarrInversionDataset(
+        source=source,
+        row_index=row_index,
+        schema=schema,
+    )
     split = split_inversion_rows(row_index, dataset, config)
     prior_samples = select_prior_samples(dataset, split, config)
     estimator = build_posterior_estimator(dataset, split, schema, config)

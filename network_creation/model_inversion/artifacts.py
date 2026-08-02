@@ -16,6 +16,7 @@ from network_creation.io import write_json
 from .artifact_metadata import (
     ArtifactDatasetMetadata,
     ArtifactMetadata,
+    ArtifactOutputSampling,
     ArtifactPriorSamplesMetadata,
     ArtifactSbiMetadata,
 )
@@ -176,16 +177,20 @@ def _metadata(
             x_components=tuple(schema.x_components),
             x_event_shape=tuple(schema.x_event_shape),
             x_representation=schema.x_representation,
-            normalize_time=schema.normalize_time,
             time_axis=schema.time_axis,
-            raw_step_labels=_numeric_tuple(schema.raw_step_labels),
-            step_labels=_numeric_tuple(schema.step_labels),
-            final_step_label=(
-                None
-                if schema.final_step_label is None
-                else _numeric_scalar(schema.final_step_label)
+            n_agents=tuple(int(value) for value in schema.n_agents),
+            raw_step_horizons=tuple(
+                int(value) for value in schema.raw_step_horizons
             ),
             n_actors=schema.n_actors,
+            output_samplings=tuple(
+                ArtifactOutputSampling(
+                    kind=sampling.kind,
+                    every=sampling.every,
+                )
+                for sampling in schema.output_samplings
+            ),
+            step_labels=tuple(float(value) for value in schema.step_labels),
             continuous_theta_names=tuple(schema.continuous_theta_names),
             discrete_theta_names=tuple(schema.discrete_theta_names),
             continuous_input_names=tuple(schema.continuous_input_names),
@@ -263,17 +268,3 @@ def _bounded_indices(
     return np.sort(
         rng.choice(values, size=max_count, replace=False).astype(np.int64)
     )
-
-
-def _numeric_tuple(values: Any) -> tuple[int | float, ...] | None:
-    if values is None:
-        return None
-    array = np.asarray(values)
-    return tuple(_numeric_scalar(value) for value in array.reshape(-1))
-
-
-def _numeric_scalar(value: Any) -> int | float:
-    scalar = np.asarray(value).item()
-    if isinstance(scalar, (np.integer, int)):
-        return int(scalar)
-    return float(scalar)

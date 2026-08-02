@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -24,12 +25,12 @@ def artifact_metadata(
         "x_components": ["density.mean", "n_agents=10", "n_agents=20"],
         "x_event_shape": [3],
         "x_representation": "final",
-        "normalize_time": False,
-        "time_axis": "raw_simulator_steps",
-        "raw_step_labels": [0, 1],
-        "step_labels": None,
-        "final_step_label": 1,
-        "n_actors": None,
+        "time_axis": "activation_opportunities_per_agent",
+        "n_agents": [10, 20],
+        "raw_step_horizons": [1, 2],
+        "n_actors": 1,
+        "output_samplings": [{"kind": "periodic", "every": 1}],
+        "step_labels": [0.1],
         "continuous_theta_names": ["alpha"],
         "discrete_theta_names": ["n_agents"],
         "continuous_input_names": [],
@@ -73,8 +74,15 @@ def artifact_metadata(
     return ArtifactMetadata.model_validate_json(json.dumps(payload))
 
 
-def write_result_store(path: Path, *, include_nan: bool = False) -> Path:
+def write_result_store(
+    path: Path,
+    *,
+    include_nan: bool = False,
+    include_terminal_agent_payoff: bool = False,
+    physical_input_order: Sequence[int] | None = None,
+) -> Path:
     n_agents = np.asarray([10, 20], dtype=np.int64)
+    raw_step_horizons = np.asarray([2, 4], dtype=np.int64)
     visibility = np.asarray([1, 1, 1, 2, 2, 2], dtype=np.float32)
     outside = np.asarray([0.1, 0.2, 0.3, 0.4, 0.5, 0.6], dtype=np.float32)
     exploration = np.asarray([0.01, 0.02, 0.03, 0.04, 0.05, 0.06], dtype=np.float32)
@@ -97,9 +105,37 @@ def write_result_store(path: Path, *, include_nan: bool = False) -> Path:
         [[agent_index, 0, row] for agent_index in range(2) for row in range(6)],
         dtype=np.int64,
     )
+    observer_outputs: list[dict[str, Any]] = [
+        {"name": "density"},
+        {"name": "distance"},
+    ]
+    output_fields = [
+        OutputArraySpec(name="density.mean", shape=(5,), dtype=np.float32),
+        OutputArraySpec(name="distance.mean", shape=(5,), dtype=np.float32),
+    ]
+    if include_terminal_agent_payoff:
+        observer_outputs.append(
+            {
+                "name": "agent_payoff",
+                "sampling": {"kind": "terminal"},
+                "aggregations": ["runs"],
+            }
+        )
+        output_fields.append(
+            OutputArraySpec(
+                name="agent_payoff.runs",
+                shape=(2, 1, 20),
+                dtype=np.float32,
+            )
+        )
+
     policy_config: dict[str, Any] = {
         "simulator": {
-            "max_steps": 2,
+            "budget": {
+                "kind": "activation_opportunities_per_agent",
+                "value": 0.2,
+            },
+            "n_episodes": 2,
             "actor_scheduler": {"n_actors": 1},
         },
         "population": {
@@ -115,10 +151,7 @@ def write_result_store(path: Path, *, include_nan: bool = False) -> Path:
                 "sampling": {"kind": "periodic", "every": 1},
                 "aggregations": ["mean"],
             },
-            "outputs": [
-                {"name": "density"},
-                {"name": "distance"},
-            ],
+            "outputs": observer_outputs,
         },
     }
     config_path = path / "run_config.json"
@@ -126,12 +159,7 @@ def write_result_store(path: Path, *, include_nan: bool = False) -> Path:
     config_path.write_text(json.dumps({"ok": True}), encoding="utf-8")
     store = ZarrResultStore(
         str(path),
-        output_schema=OutputSpec(
-            fields=(
-                OutputArraySpec(name="density.mean", shape=(3,), dtype=np.float32),
-                OutputArraySpec(name="distance.mean", shape=(3,), dtype=np.float32),
-            )
-        ),
+        output_schema=OutputSpec(fields=tuple(output_fields)),
         batch_size=4,
         total_inputs=int(input_coordinates.shape[0]),
         metadata_attrs={
@@ -141,30 +169,42 @@ def write_result_store(path: Path, *, include_nan: bool = False) -> Path:
         },
         metadata_arrays={
             "n_agents": n_agents,
+            "raw_step_horizons": raw_step_horizons,
             "parameters": parameters,
             "parameter_low": np.asarray([1.0, 1.0, 0.0, 0.0, 5.0], dtype=np.float32),
             "parameter_high": np.asarray([1.0, 2.0, 1.0, 0.1, 5.0], dtype=np.float32),
             "input_coordinates": input_coordinates,
         },
     )
-    for input_index in range(input_coordinates.shape[0]):
-        density = np.asarray(
-            [float(input_index), float(input_index) + 1.0, float(input_index) + 2.0],
+    input_order = (
+        range(input_coordinates.shape[0])
+        if physical_input_order is None
+        else physical_input_order
+    )
+    for input_index in input_order:
+        population_index = int(input_coordinates[input_index, 0])
+        valid_count = int(raw_step_horizons[population_index]) + 1
+        density = np.full(5, np.nan, dtype=np.float32)
+        distance = np.full(5, np.nan, dtype=np.float32)
+        density[:valid_count] = float(input_index) + np.arange(
+            valid_count,
             dtype=np.float32,
         )
-        distance = np.asarray(
-            [float(input_index) + 10.0, float(input_index) + 11.0, float(input_index) + 12.0],
+        distance[:valid_count] = float(input_index) + 10.0 + np.arange(
+            valid_count,
             dtype=np.float32,
         )
         if include_nan and input_index == 0:
-            density[-1] = np.nan
-        store.add_success(
-            int(input_index),
-            {
-                "density.mean": density,
-                "distance.mean": distance,
-            },
-        )
+            density[1] = np.nan
+        output = {
+            "density.mean": density,
+            "distance.mean": distance,
+        }
+        if include_terminal_agent_payoff:
+            agent_payoff = np.full((2, 1, 20), np.nan, dtype=np.float32)
+            agent_payoff[:, :, : int(n_agents[population_index])] = float(input_index)
+            output["agent_payoff.runs"] = agent_payoff
+        store.add_success(int(input_index), output)
     store.flush()
     return path
 
@@ -177,7 +217,6 @@ def write_training_config(
     artifact_name: str = "run",
     discrete_theta: bool = True,
     x_representation: str = "final",
-    normalize_time: bool = False,
 ) -> Path:
     payload = {
         "data": {
@@ -188,7 +227,6 @@ def write_training_config(
             "continuous_input_names": [],
             "discrete_input_names": ["n_agents"],
             "x_representation": x_representation,
-            "normalize_time": normalize_time,
         },
         "model": {
             "density_estimator": {"flow_model": "nsf"},

@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
 from numpy.typing import NDArray
 
+from network_creation.core.observability import ObservationSampling
+from network_creation.policy_result_metadata import observation_step_labels
 from network_creation.time_normalization import normalize_time_tensor
 
 from .artifact_metadata import ArtifactDatasetMetadata
@@ -24,11 +26,11 @@ class ObservationEncoder:
     x_components: tuple[str, ...]
     x_event_shape: tuple[int, ...]
     x_representation: str
-    normalize_time: bool
-    raw_step_labels: NDArray[np.float64] | None
-    step_labels: NDArray[np.float64] | None
-    final_step_label: int | float | None
-    n_actors: int | None
+    n_agents_values: NDArray[np.int64]
+    raw_step_horizons: NDArray[np.int64]
+    n_actors: int
+    output_samplings: tuple[ObservationSampling, ...]
+    step_labels: NDArray[np.float64]
 
     @classmethod
     def from_schema(cls, schema: InversionSchema) -> "ObservationEncoder":
@@ -43,11 +45,14 @@ class ObservationEncoder:
             x_components=tuple(schema.x_components),
             x_event_shape=tuple(schema.x_event_shape),
             x_representation=schema.x_representation,
-            normalize_time=schema.normalize_time,
-            raw_step_labels=_optional_float_array(schema.raw_step_labels),
-            step_labels=_optional_float_array(schema.step_labels),
-            final_step_label=schema.final_step_label,
+            n_agents_values=np.asarray(schema.n_agents, dtype=np.int64),
+            raw_step_horizons=np.asarray(
+                schema.raw_step_horizons,
+                dtype=np.int64,
+            ),
             n_actors=schema.n_actors,
+            output_samplings=tuple(schema.output_samplings),
+            step_labels=np.asarray(schema.step_labels, dtype=np.float64),
         )
 
     @classmethod
@@ -60,11 +65,20 @@ class ObservationEncoder:
             x_components=dataset.x_components,
             x_event_shape=dataset.x_event_shape,
             x_representation=dataset.x_representation,
-            normalize_time=dataset.normalize_time,
-            raw_step_labels=_optional_float_array(dataset.raw_step_labels),
-            step_labels=_optional_float_array(dataset.step_labels),
-            final_step_label=dataset.final_step_label,
+            n_agents_values=np.asarray(dataset.n_agents, dtype=np.int64),
+            raw_step_horizons=np.asarray(
+                dataset.raw_step_horizons,
+                dtype=np.int64,
+            ),
             n_actors=dataset.n_actors,
+            output_samplings=tuple(
+                ObservationSampling(
+                    kind=sampling.kind,
+                    every=sampling.every,
+                )
+                for sampling in dataset.output_samplings
+            ),
+            step_labels=np.asarray(dataset.step_labels, dtype=np.float64),
         )
 
     def encode(
@@ -73,25 +87,23 @@ class ObservationEncoder:
         input_values: Mapping[str, Any] | None = None,
         *,
         n_agents: int | float | None = None,
-        n_actors: int | None = None,
     ) -> NDArray[np.float32]:
         resolved_inputs = {} if input_values is None else dict(input_values)
-        if n_agents is not None and "n_agents" not in resolved_inputs:
-            resolved_inputs["n_agents"] = n_agents
+        resolved_n_agents = _required_integer(
+            n_agents if n_agents is not None else resolved_inputs.get("n_agents"),
+            name="n_agents",
+        )
+        if "n_agents" in resolved_inputs and _required_integer(
+            resolved_inputs["n_agents"],
+            name="n_agents",
+        ) != resolved_n_agents:
+            raise ValueError("n_agents does not match the supplied input value")
+        resolved_inputs.setdefault("n_agents", resolved_n_agents)
 
-        observed = _stack_observed_outputs(observed_outputs, self.observed_outputs)
-        if self.normalize_time:
-            observed = self._normalize(
-                observed,
-                n_agents=_required_integer(
-                    n_agents if n_agents is not None else resolved_inputs.get("n_agents"),
-                    name="n_agents",
-                ),
-                n_actors=_required_integer(
-                    n_actors if n_actors is not None else self.n_actors,
-                    name="n_actors",
-                ),
-            )
+        observed = self._normalize_outputs(
+            observed_outputs,
+            n_agents=resolved_n_agents,
+        )
 
         values = observed[-1] if self.x_representation == "final" else observed
         encoded_inputs = self._encode_inputs(resolved_inputs)
@@ -110,31 +122,66 @@ class ObservationEncoder:
             )
         return result
 
-    def _normalize(
+    def _normalize_outputs(
         self,
-        values: NDArray[np.float32],
+        outputs: Mapping[str, Any],
         *,
         n_agents: int,
-        n_actors: int,
     ) -> NDArray[np.float32]:
-        if self.raw_step_labels is None:
-            raise ValueError("normalized x requires raw_step_labels")
-        if self.x_representation == "final":
-            if self.final_step_label is None:
-                raise ValueError("normalized final x requires final_step_label")
-            target_times = np.asarray([self.final_step_label], dtype=np.float64)
-        else:
-            if self.step_labels is None:
-                raise ValueError("normalized timeseries x requires step_labels")
-            target_times = self.step_labels
-        return normalize_time_tensor(
-            values,
-            raw_step_labels=self.raw_step_labels,
-            n_agents=n_agents,
-            n_actors=n_actors,
-            step_axis=0,
-            target_times=target_times,
-        ).values
+        matches = np.flatnonzero(self.n_agents_values == n_agents)
+        if matches.shape[0] != 1:
+            raise ValueError(f"unknown n_agents value: {n_agents}")
+        population_index = int(matches[0])
+        raw_step_horizon = int(self.raw_step_horizons[population_index])
+        storage_raw_step_horizon = int(np.max(self.raw_step_horizons))
+
+        normalized_outputs: list[NDArray[np.float32]] = []
+        for name, sampling in zip(
+            self.observed_outputs,
+            self.output_samplings,
+            strict=True,
+        ):
+            values = _output_series(outputs[name], name=name)
+            raw_labels = observation_step_labels(raw_step_horizon, sampling)
+            valid_count = int(raw_labels.shape[0])
+            storage_count = int(
+                observation_step_labels(
+                    storage_raw_step_horizon,
+                    sampling,
+                ).shape[0]
+            )
+            sample_count = int(values.shape[0])
+            if sample_count not in {valid_count, storage_count}:
+                expected = (
+                    f"exactly {valid_count} sample"
+                    f"{'s' if valid_count != 1 else ''}"
+                    if valid_count == storage_count
+                    else (
+                        f"either {valid_count} native samples or "
+                        f"{storage_count} fixed-storage samples"
+                    )
+                )
+                raise ValueError(
+                    f"observed output {name!r} must contain {expected} for "
+                    f"n_agents={n_agents}; got {sample_count}"
+                )
+            valid_values = np.asarray(values[:valid_count], dtype=np.float32)
+            if not np.isfinite(valid_values).all():
+                raise ValueError(
+                    f"observed output {name!r} has non-finite values inside its "
+                    "structurally valid prefix"
+                )
+            normalized_outputs.append(
+                normalize_time_tensor(
+                    valid_values,
+                    raw_step_labels=raw_labels,
+                    n_agents=n_agents,
+                    n_actors=self.n_actors,
+                    step_axis=0,
+                    target_times=self.step_labels,
+                ).values
+            )
+        return np.stack(normalized_outputs, axis=1).astype(np.float32, copy=False)
 
     def _encode_inputs(
         self,
@@ -162,26 +209,6 @@ class ObservationEncoder:
         return np.asarray(encoded, dtype=np.float32)
 
 
-def _stack_observed_outputs(
-    outputs: Mapping[str, Any],
-    observed_order: Sequence[str],
-) -> NDArray[np.float32]:
-    arrays = [_output_series(outputs[name], name=name) for name in observed_order]
-    step_count = max(int(array.shape[0]) for array in arrays)
-    expanded: list[NDArray[np.float32]] = []
-    for name, array in zip(observed_order, arrays, strict=True):
-        if array.shape[0] == step_count:
-            expanded.append(array)
-        elif array.shape[0] == 1:
-            expanded.append(np.repeat(array, step_count))
-        else:
-            raise ValueError(
-                f"observed output {name!r} has {array.shape[0]} steps; "
-                f"expected 1 or {step_count}"
-            )
-    return np.stack(expanded, axis=1).astype(np.float32)
-
-
 def _output_series(values: Any, *, name: str) -> NDArray[np.float32]:
     array = np.asarray(values, dtype=np.float32)
     if array.ndim == 0:
@@ -204,9 +231,3 @@ def _required_integer(value: Any, *, name: str) -> int:
     if not np.isclose(scalar, rounded, rtol=0.0, atol=1e-6):
         raise ValueError(f"{name!r} must be integer-valued")
     return int(rounded)
-
-
-def _optional_float_array(values: Any) -> NDArray[np.float64] | None:
-    if values is None:
-        return None
-    return np.asarray(values, dtype=np.float64)

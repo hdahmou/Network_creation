@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from typing import Any, cast
 
 import igraph as ig
 import numpy as np
@@ -46,7 +47,7 @@ class IndegreeObserver(EpisodeSeriesStatisticObserver):
         result = dict(references or {})
         result["empty"] = 0.0
         try:
-            n_agents = int(context["n_agents"])
+            n_agents = int(cast(Any, context["n_agents"]))
         except (KeyError, TypeError, ValueError):
             return result
         result["star"] = float((n_agents - 1) / n_agents)

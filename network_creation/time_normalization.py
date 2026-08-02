@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -15,7 +16,7 @@ TIME_AXIS_ATTR = "activation_opportunities_per_agent"
 class NormalizedTimeGrid:
     raw_step_labels: NDArray[np.float64]
     step_labels: NDArray[np.float64]
-    source_times: NDArray[np.float64]
+    source_times: NDArray[np.float64] | tuple[NDArray[np.float64], ...]
     common_normalized_time_max: float
     normalized_time_resolution: float | None
 
@@ -66,26 +67,51 @@ def common_normalized_time_grid(
         n_agents=agents,
         n_actors=n_actors,
     )
-    common_max = float(np.min(source_times[:, -1]))
-
-    # Use the coarsest normalized spacing so every population size can be
-    # represented on the shared grid without extrapolating past common_max.
-    step_deltas = np.diff(source_times, axis=1)
-    positive_deltas = step_deltas[step_deltas > 0.0]
-    if positive_deltas.size == 0:
-        target_labels = np.asarray([common_max], dtype=np.float64)
-        resolution: float | None = None
-    else:
-        resolution = float(np.max(positive_deltas))
-        count = int(np.floor((common_max / resolution) + 1e-12))
-        target_labels = np.arange(count + 1, dtype=np.float64) * resolution
-        if not np.isclose(target_labels[-1], common_max, rtol=0.0, atol=1e-12):
-            target_labels = np.concatenate(
-                [target_labels, np.asarray([common_max], dtype=np.float64)]
-            )
+    target_labels, common_max, resolution = _common_grid_labels(
+        tuple(source_times[index] for index in range(source_times.shape[0]))
+    )
 
     return NormalizedTimeGrid(
         raw_step_labels=raw_labels,
+        step_labels=target_labels,
+        source_times=source_times,
+        common_normalized_time_max=common_max,
+        normalized_time_resolution=resolution,
+    )
+
+
+def common_normalized_time_grid_from_raw_labels(
+    raw_step_labels_by_population: Sequence[ArrayLike],
+    *,
+    n_agents_values: ArrayLike,
+    n_actors: int,
+) -> NormalizedTimeGrid:
+    """Build a shared grid from each population's valid raw observations."""
+
+    raw_vectors = tuple(
+        _time_vector(labels, name="raw_step_labels")
+        for labels in raw_step_labels_by_population
+    )
+    agents = _n_agents_vector(n_agents_values)
+    if len(raw_vectors) != agents.shape[0]:
+        raise ValueError(
+            "raw_step_labels_by_population must align exactly with n_agents_values"
+        )
+    source_times = tuple(
+        normalized_source_times(
+            labels,
+            n_agents=agents[index],
+            n_actors=n_actors,
+        )
+        for index, labels in enumerate(raw_vectors)
+    )
+    target_labels, common_max, resolution = _common_grid_labels(source_times)
+    raw_union = np.unique(np.concatenate(raw_vectors)).astype(
+        np.float64,
+        copy=False,
+    )
+    return NormalizedTimeGrid(
+        raw_step_labels=raw_union,
         step_labels=target_labels,
         source_times=source_times,
         common_normalized_time_max=common_max,
@@ -251,6 +277,39 @@ def _time_grid_from_target(
     )
 
 
+def _common_grid_labels(
+    source_times: tuple[NDArray[np.float64], ...],
+) -> tuple[NDArray[np.float64], float, float | None]:
+    if not source_times:
+        raise ValueError("source time vectors must not be empty")
+    endpoints = np.asarray([times[-1] for times in source_times], dtype=np.float64)
+    common_max = float(np.min(endpoints))
+    positive_deltas = tuple(
+        deltas[deltas > 0.0]
+        for times in source_times
+        if (deltas := np.diff(times)).size
+    )
+    non_empty_deltas = tuple(deltas for deltas in positive_deltas if deltas.size)
+    if not non_empty_deltas:
+        if not np.allclose(endpoints, endpoints[0], rtol=0.0, atol=1e-12):
+            raise ValueError(
+                "cannot build a shared singleton time grid from differing "
+                "normalized endpoints"
+            )
+        return np.asarray([common_max], dtype=np.float64), common_max, None
+
+    # Use the coarsest normalized spacing so every population size can be
+    # represented on the shared grid without extrapolating past common_max.
+    resolution = float(np.max(np.concatenate(non_empty_deltas)))
+    count = int(np.floor((common_max / resolution) + 1e-12))
+    target_labels = np.arange(count + 1, dtype=np.float64) * resolution
+    if not np.isclose(target_labels[-1], common_max, rtol=0.0, atol=1e-12):
+        target_labels = np.concatenate(
+            [target_labels, np.asarray([common_max], dtype=np.float64)]
+        )
+    return target_labels, common_max, resolution
+
+
 def _time_vector(values: ArrayLike, *, name: str) -> NDArray[np.float64]:
     array = np.asarray(values, dtype=np.float64)
     if array.ndim != 1 or array.shape[0] == 0:
@@ -314,6 +373,7 @@ __all__ = [
     "NormalizedTimeTensor",
     "TIME_AXIS_ATTR",
     "common_normalized_time_grid",
+    "common_normalized_time_grid_from_raw_labels",
     "interpolate_time_axis",
     "normalize_time_tensor",
     "normalized_source_times",

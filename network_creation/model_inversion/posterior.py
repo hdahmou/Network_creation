@@ -177,13 +177,11 @@ class PosteriorArtifact:
         input_values: Mapping[str, Any] | None = None,
         *,
         n_agents: int | None = None,
-        n_actors: int | None = None,
     ) -> NDArray[np.float32]:
         return self.observation_encoder.encode(
             observed_outputs,
             input_values,
             n_agents=n_agents,
-            n_actors=n_actors,
         )
 
 

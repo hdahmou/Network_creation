@@ -10,8 +10,8 @@ import numpy as np
 from network_creation.model_inversion.artifacts import write_inversion_artifact
 from network_creation.model_inversion.config import load_inversion_config
 from network_creation.model_inversion.dataset import (
+    ZarrInversionDataset,
     build_row_index,
-    make_zarr_inversion_dataset,
 )
 from network_creation.model_inversion.posterior import load_posterior_artifact
 from network_creation.model_inversion.schema import resolve_inversion_schema
@@ -29,9 +29,9 @@ class InversionConfigAndArtifactTests(unittest.TestCase):
     def test_checked_training_configs_use_the_strict_schema(self) -> None:
         project_root = Path(__file__).resolve().parents[2]
         config_names = (
-            "model_inversion.baseline.train_mnpe_config.json",
-            "model_inversion.pure.rnn.train_mnpe_config.json",
-            "model_inversion.std.rnn.train_mnpe_config.json",
+            "inversion.best_response.timeseries.visibility_distance_continuous.json",
+            "inversion.best_response.timeseries.visibility_distance_discrete.json",
+            "inversion.best_response.final.visibility_distance_discrete.json",
         )
 
         for config_name in config_names:
@@ -49,7 +49,6 @@ class InversionConfigAndArtifactTests(unittest.TestCase):
                 output_root=Path("../out"),
                 artifact_name="manual",
                 x_representation="timeseries",
-                normalize_time=True,
             )
 
             config = load_inversion_config(config_path)
@@ -63,7 +62,6 @@ class InversionConfigAndArtifactTests(unittest.TestCase):
             self.assertEqual(config.data.discrete_theta_names, ("visibility_distance",))
             self.assertEqual(config.data.discrete_input_names, ("n_agents",))
             self.assertEqual(config.data.x_representation, "timeseries")
-            self.assertTrue(config.data.normalize_time)
             self.assertEqual(config.model.density_estimator.flow_model, "nsf")
             self.assertEqual(config.training.batch_size, 4)
             self.assertEqual(config.output.artifact_name, "manual")
@@ -83,7 +81,7 @@ class InversionConfigAndArtifactTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "batch_szie"):
                 load_inversion_config(config_path)
 
-    def test_load_inversion_config_rejects_string_boolean(self) -> None:
+    def test_load_inversion_config_rejects_removed_normalize_time_field(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             workdir = Path(temp_dir)
             zarr_path = write_result_store(workdir / "run.zarr")
@@ -92,7 +90,7 @@ class InversionConfigAndArtifactTests(unittest.TestCase):
                 zarr_path=zarr_path,
             )
             payload = json.loads(config_path.read_text(encoding="utf-8"))
-            payload["data"]["normalize_time"] = "false"
+            payload["data"]["normalize_time"] = True
             config_path.write_text(json.dumps(payload), encoding="utf-8")
 
             with self.assertRaisesRegex(ValueError, "normalize_time"):
@@ -121,7 +119,11 @@ class InversionConfigAndArtifactTests(unittest.TestCase):
             source = load_inversion_source(config_path)
             schema = resolve_inversion_schema(source)
             row_index = build_row_index(source, schema)
-            dataset = make_zarr_inversion_dataset(source, row_index, schema)
+            dataset = ZarrInversionDataset(
+                source=source,
+                row_index=row_index,
+                schema=schema,
+            )
 
             split = split_inversion_rows(row_index, dataset, source.config)
             prior = select_prior_samples(dataset, split, source.config)
@@ -144,7 +146,11 @@ class InversionConfigAndArtifactTests(unittest.TestCase):
             source = load_inversion_source(config_path)
             schema = resolve_inversion_schema(source)
             row_index = build_row_index(source, schema)
-            dataset = make_zarr_inversion_dataset(source, row_index, schema)
+            dataset = ZarrInversionDataset(
+                source=source,
+                row_index=row_index,
+                schema=schema,
+            )
             split = split_inversion_rows(row_index, dataset, source.config)
             prior = select_prior_samples(dataset, split, source.config)
             training = EstimatorTrainingResult(
@@ -190,6 +196,21 @@ class InversionConfigAndArtifactTests(unittest.TestCase):
                 metadata["dataset"]["discrete_theta_names"],
                 ["visibility_distance"],
             )
+            self.assertEqual(
+                metadata["dataset"]["time_axis"],
+                "activation_opportunities_per_agent",
+            )
+            self.assertEqual(metadata["dataset"]["n_agents"], [10, 20])
+            self.assertEqual(metadata["dataset"]["raw_step_horizons"], [2, 4])
+            self.assertEqual(metadata["dataset"]["n_actors"], 1)
+            self.assertEqual(
+                metadata["dataset"]["output_samplings"],
+                [{"kind": "periodic", "every": 1}],
+            )
+            self.assertEqual(metadata["dataset"]["step_labels"], [0.2])
+            self.assertNotIn("normalize_time", metadata["dataset"])
+            self.assertNotIn("raw_step_labels", metadata["dataset"])
+            self.assertNotIn("final_step_label", metadata["dataset"])
             self.assertEqual(metadata["sbi"]["method"], "MNPE")
             self.assertEqual(metadata["sbi"]["prior_samples"]["count"], 3)
             self.assertEqual(

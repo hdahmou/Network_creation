@@ -20,6 +20,11 @@ from .base import Policy
 class ThresholdLinkPolicy(Policy):
     """Create outgoing links until a proportional threshold, then delete them."""
 
+    link_threshold: float
+    p_act: float
+    _rng: np.random.Generator
+    _is_deleting: bool
+
     def __init__(
         self,
         seed: int,

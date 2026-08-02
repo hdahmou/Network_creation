@@ -3,12 +3,28 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
 from numpy.typing import NDArray
 
 from network_creation.core.observability import ObservationSampling
+
+
+@dataclass(frozen=True)
+class PolicyOutputSchedule:
+    """Population-specific raw and normalized labels for one saved output."""
+
+    output_name: str
+    sampling: ObservationSampling
+    n_agents: NDArray[np.int64]
+    raw_step_horizons: NDArray[np.int64]
+    valid_sample_count: NDArray[np.int64]
+    valid_raw_step_labels: tuple[NDArray[np.int64], ...]
+    storage_raw_step_labels: NDArray[np.int64]
+    last_valid_raw_step: NDArray[np.int64]
+    realized_activation_opportunities_per_agent: NDArray[np.float64]
 
 
 def policy_composition_axis_name(
@@ -60,36 +76,151 @@ def theta_parameter_columns(
 
 def configured_output_step_labels(
     policy_config: Any,
+    raw_step_horizon: int,
 ) -> dict[str, NDArray[np.int64]]:
-    if not isinstance(policy_config, Mapping):
-        return {}
-    simulator = policy_config.get("simulator", {})
-    raw_observers = policy_config.get("observers", {})
-    if not isinstance(simulator, Mapping) or not isinstance(raw_observers, Mapping):
-        return {}
-    max_steps = int(simulator["max_steps"])
-    defaults = raw_observers.get("defaults", {})
-    if not isinstance(defaults, Mapping):
-        return {}
-    default_sampling = defaults.get("sampling")
-    outputs = raw_observers.get("outputs", ())
-    if not isinstance(outputs, Sequence):
-        return {}
+    """Return configured labels for callers with one homogeneous raw horizon."""
 
-    labels: dict[str, NDArray[np.int64]] = {}
+    return {
+        output_name: observation_step_labels(raw_step_horizon, sampling)
+        for output_name, sampling in _configured_output_samplings(
+            policy_config
+        ).items()
+    }
+
+
+def configured_output_sampling(
+    output_name: str,
+    *,
+    policy_config: Any,
+) -> ObservationSampling:
+    """Load the observation sampling policy for one persisted output name."""
+
+    samplings = _configured_output_samplings(policy_config)
+    try:
+        return samplings[str(output_name)]
+    except KeyError as error:
+        raise ValueError(
+            f"output {output_name!r} is not configured as a saved observer output"
+        ) from error
+
+
+def derive_policy_output_schedule(
+    output_name: str,
+    *,
+    policy_config: Any,
+    n_agents: Any,
+    raw_step_horizons: Any,
+) -> PolicyOutputSchedule:
+    """Derive one output's complete schedule from authoritative store metadata."""
+
+    agents = np.asarray(n_agents, dtype=np.int64)
+    horizons = np.asarray(raw_step_horizons, dtype=np.int64)
+    if agents.ndim != 1 or agents.shape[0] == 0:
+        raise ValueError("n_agents must be a non-empty one-dimensional array")
+    if horizons.shape != agents.shape:
+        raise ValueError("raw_step_horizons must align exactly with n_agents")
+    if np.any(agents <= 0):
+        raise ValueError("n_agents must contain only positive values")
+    if np.any(horizons < 0):
+        raise ValueError("raw_step_horizons must contain only non-negative values")
+
+    sampling = configured_output_sampling(
+        output_name,
+        policy_config=policy_config,
+    )
+    valid_labels = tuple(
+        observation_step_labels(int(horizon), sampling) for horizon in horizons
+    )
+    valid_counts = np.asarray(
+        [labels.shape[0] for labels in valid_labels],
+        dtype=np.int64,
+    )
+    last_valid_steps = np.asarray(
+        [labels[-1] for labels in valid_labels],
+        dtype=np.int64,
+    )
+    n_actors = configured_n_actors(policy_config)
+    effective_actors = np.minimum(n_actors, agents).astype(np.float64)
+
+    return PolicyOutputSchedule(
+        output_name=str(output_name),
+        sampling=sampling,
+        n_agents=agents,
+        raw_step_horizons=horizons,
+        valid_sample_count=valid_counts,
+        valid_raw_step_labels=valid_labels,
+        storage_raw_step_labels=observation_step_labels(
+            int(np.max(horizons)),
+            sampling,
+        ),
+        last_valid_raw_step=last_valid_steps,
+        realized_activation_opportunities_per_agent=np.asarray(
+            horizons * effective_actors / agents,
+            dtype=np.float64,
+        ),
+    )
+
+
+def derive_compatible_output_schedule(
+    output_names: Sequence[str],
+    *,
+    policy_config: Any,
+    n_agents: Any,
+    raw_step_horizons: Any,
+) -> PolicyOutputSchedule:
+    """Derive the shared schedule required to stack selected saved outputs."""
+
+    names = tuple(str(name) for name in output_names)
+    if not names:
+        raise ValueError("at least one saved output is required")
+    shared = derive_policy_output_schedule(
+        names[0],
+        policy_config=policy_config,
+        n_agents=n_agents,
+        raw_step_horizons=raw_step_horizons,
+    )
+    for name in names[1:]:
+        if configured_output_sampling(
+            name,
+            policy_config=policy_config,
+        ) != shared.sampling:
+            raise ValueError(
+                "selected outputs must share one observation sampling kind and "
+                "periodic interval"
+            )
+    return shared
+
+
+def _configured_output_samplings(
+    policy_config: Any,
+) -> dict[str, ObservationSampling]:
+    if not isinstance(policy_config, Mapping):
+        raise ValueError("policy configuration metadata must be a mapping")
+    raw_observers = policy_config.get("observers")
+    if not isinstance(raw_observers, Mapping):
+        raise ValueError("policy configuration must contain observer metadata")
+    defaults = raw_observers.get("defaults")
+    if not isinstance(defaults, Mapping):
+        raise ValueError("observer defaults metadata must be a mapping")
+    default_sampling = defaults.get("sampling")
+    outputs = raw_observers.get("outputs")
+    if not isinstance(outputs, Sequence):
+        raise ValueError("observer outputs metadata must be a sequence")
+
+    samplings: dict[str, ObservationSampling] = {}
     for observer in outputs:
         if not isinstance(observer, Mapping):
             continue
         sampling = load_observation_sampling(
             observer.get("sampling", default_sampling)
         )
-        aggregations = observer.get("aggregations", defaults.get("aggregations", ()))
+        aggregations = observer.get(
+            "aggregations",
+            defaults.get("aggregations", ()),
+        )
         for aggregation in aggregations:
-            labels[f"{observer['name']}.{aggregation}"] = observation_step_labels(
-                max_steps,
-                sampling,
-            )
-    return labels
+            samplings[f"{observer['name']}.{aggregation}"] = sampling
+    return samplings
 
 
 def load_observation_sampling(raw: Any) -> ObservationSampling:
@@ -129,8 +260,12 @@ def configured_n_actors(policy_config: Any) -> int:
 
 
 __all__ = [
+    "PolicyOutputSchedule",
     "configured_n_actors",
+    "configured_output_sampling",
     "configured_output_step_labels",
+    "derive_compatible_output_schedule",
+    "derive_policy_output_schedule",
     "load_observation_sampling",
     "observation_step_labels",
     "policy_composition_axis_name",

@@ -5,12 +5,15 @@
     "write_batch_size": 64
   },
   "sampling": {
-    "log2_budget": 14,
-    "seed": 123
+    "log2_budget": 15,
+    "seed": 13
   },
   "simulator": {
-    "seed": 11,
-    "max_steps": 4000,
+    "seed": 13,
+    "budget": {
+      "kind": "activation_opportunities_per_agent",
+      "value": 60
+    },
     "n_episodes": 16,
     "actor_scheduler": {
       "n_actors": 1
@@ -21,9 +24,8 @@
   },
   "game": {
     "benefit_to_cost_ratio": {
-      "kind": "scaled_inverse_agents",
-      "numerator": 10.0,
-      "factor": 2.0
+      "kind": "fixed",
+      "value": 0.5
     },
     "distance_discount": {
       "kind": "fixed",
@@ -41,7 +43,7 @@
     "visibility_distance": {
       "kind": "sampled_discrete_range",
       "min": 1,
-      "max": 6,
+      "max": 7,
       "step": 1
     },
     "policies": [

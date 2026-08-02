@@ -10,7 +10,13 @@ import numpy as np
 
 from tasks.execution.zarr_store import ZarrResultStore
 from tasks.policies import load_policy_results, prepare_policy_run
-from tests.tasks.config_support import continuous, fixed, policy, task_config
+from tests.tasks.config_support import (
+    continuous,
+    fixed,
+    policy,
+    raw_simulator_steps,
+    task_config,
+)
 
 
 class PolicyRunResultFormatterTest(unittest.TestCase):
@@ -324,7 +330,7 @@ class PolicyRunResultFormatterTest(unittest.TestCase):
         config = task_config(
             n_agents=[2, 4],
             n_actors=1,
-            max_steps=10,
+            budget=raw_simulator_steps(10),
             policies=[policy("first", "random"), policy("second", "random")],
             policy_proportions={"policy": "first", "values": [0.5]},
             observers={

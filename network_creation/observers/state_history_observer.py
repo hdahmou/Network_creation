@@ -31,6 +31,9 @@ class StateHistoryResult:
 class StateHistoryObserver(SimulationObserver):
     """Accumulate sampled graph history and optionally keep every episode."""
 
+    _runs_steps: list[NDArray[np.int_]] | None
+    _runs_graphs: list[tuple[ig.Graph, ...]] | None
+
     def __init__(self, observation_sampling: ObservationSampling, keep_runs: bool) -> None:
         self.observation_sampling = observation_sampling
         self.keep_runs = keep_runs

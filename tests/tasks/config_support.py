@@ -28,10 +28,18 @@ def normal_heterogeneity(std: float) -> dict[str, object]:
     return {"kind": "normal", "std": std}
 
 
-def discrete_offset_heterogeneity(
-    offsets: Sequence[int],
+def three_point_heterogeneity(
+    probabilities: Sequence[float],
 ) -> dict[str, object]:
-    return {"kind": "discrete_offsets", "offsets": list(offsets)}
+    return {"kind": "three_point", "probabilities": list(probabilities)}
+
+
+def raw_simulator_steps(value: int) -> dict[str, object]:
+    return {"kind": "raw_simulator_steps", "value": value}
+
+
+def activation_opportunities_per_agent(value: float | int) -> dict[str, object]:
+    return {"kind": "activation_opportunities_per_agent", "value": value}
 
 
 def sampled_choice(values: Sequence[float | int]) -> dict[str, object]:
@@ -71,7 +79,7 @@ def task_config(
     log2_budget: int = 0,
     seed: int = 123,
     simulator_seed: int = 11,
-    max_steps: int = 3,
+    budget: Mapping[str, object] | None = None,
     n_episodes: int = 2,
     stagnation_patience: int | None = None,
     game: Mapping[str, object] | None = None,
@@ -107,7 +115,9 @@ def task_config(
         "sampling": {"log2_budget": log2_budget, "seed": seed},
         "simulator": {
             "seed": simulator_seed,
-            "max_steps": max_steps,
+            "budget": dict(
+                budget if budget is not None else raw_simulator_steps(3)
+            ),
             "n_episodes": n_episodes,
             "stagnation_patience": stagnation_patience,
             "actor_scheduler": {"n_actors": n_actors},

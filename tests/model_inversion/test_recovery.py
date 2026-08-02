@@ -26,13 +26,12 @@ class RecoveryBuildXTests(unittest.TestCase):
         )
 
         x = observation_from_policy_outputs(
-            {"density.mean": np.asarray([1.0, 2.0], dtype=np.float32)},
+            {"density.mean": np.asarray([1.0, 2.0, 3.0], dtype=np.float32)},
             artifact,
             n_agents=20,
-            n_actors=1,
         )
 
-        np.testing.assert_allclose(x, [2.0, 0.0, 1.0])
+        np.testing.assert_allclose(x, [3.0, 0.0, 1.0])
 
     def test_build_x_interpolates_normalized_timeseries(self) -> None:
         artifact = PosteriorArtifact(
@@ -42,11 +41,7 @@ class RecoveryBuildXTests(unittest.TestCase):
                 dataset_overrides={
                     "x_event_shape": [2, 3],
                     "x_representation": "timeseries",
-                    "normalize_time": True,
-                    "raw_step_labels": [0, 1, 2],
                     "step_labels": [0.0, 0.1],
-                    "final_step_label": 0.1,
-                    "n_actors": 1,
                     "discrete_theta_names": [],
                     "discrete_theta_values": [],
                 }
@@ -56,7 +51,7 @@ class RecoveryBuildXTests(unittest.TestCase):
         )
 
         x = artifact.build_x(
-            {"density.mean": np.asarray([0.0, 1.0, 2.0], dtype=np.float32)},
+            {"density.mean": np.asarray([0.0, 1.0, np.nan], dtype=np.float32)},
             {"n_agents": 10},
         )
 

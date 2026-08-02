@@ -5,19 +5,20 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from numbers import Integral, Real
-from typing import Literal
+from typing import Literal, cast
 
 import numpy as np
 
 
-type HeterogeneityKind = Literal["normal", "discrete_offsets"]
+type HeterogeneityKind = Literal["normal", "three_point"]
+_THREE_POINT_OFFSETS = (-1, 0, 1)
 
 
 @dataclass(frozen=True)
 class Heterogeneity:
     kind: HeterogeneityKind
     std: float | None = None
-    offsets: tuple[int, ...] = ()
+    probabilities: tuple[float, float, float] | None = None
     minimum: float | None = None
     maximum: float | None = None
 
@@ -58,17 +59,18 @@ def parse_heterogeneity(
             maximum=maximum,
         )
 
-    if kind == "discrete_offsets":
-        offsets = _integer_offsets(
-            raw.get("offsets"),
-            name=f"{parameter_name}.heterogeneity.offsets",
+    if kind == "three_point":
+        probabilities = _probability_triplet(
+            raw.get("probabilities"),
+            name=f"{parameter_name}.heterogeneity.probabilities",
         )
-        _validate_integer_centers(parameter_name, parameter_spec)
-        return Heterogeneity(kind="discrete_offsets", offsets=offsets)
+        minimum_center = _validate_integer_centers(parameter_name, parameter_spec)
+        _validate_visibility_support(parameter_name, minimum_center, probabilities)
+        return Heterogeneity(kind="three_point", probabilities=probabilities)
 
     raise ValueError(
         f"{parameter_name}.heterogeneity.kind must be 'normal' or "
-        "'discrete_offsets'"
+        "'three_point'"
     )
 
 
@@ -104,7 +106,9 @@ def sample_heterogeneous_value(
                 heterogeneity.maximum,
             )
         )
-    return np.float32(center + rng.choice(heterogeneity.offsets))
+    assert heterogeneity.probabilities is not None
+    offset = rng.choice(_THREE_POINT_OFFSETS, p=heterogeneity.probabilities)
+    return np.float32(center + offset)
 
 
 def _finite_real(value: object, *, name: str) -> float:
@@ -116,31 +120,46 @@ def _finite_real(value: object, *, name: str) -> float:
     return numeric
 
 
-def _integer_offsets(value: object, *, name: str) -> tuple[int, ...]:
+def _probability_triplet(
+    value: object,
+    *,
+    name: str,
+) -> tuple[float, float, float]:
     if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
-        raise ValueError(f"{name} must be a non-empty sequence of integers")
-    offsets = tuple(value)
-    if not offsets or any(
-        isinstance(offset, bool) or not isinstance(offset, Integral)
-        for offset in offsets
+        raise ValueError(f"{name} must contain exactly three probabilities")
+    raw_probabilities = tuple(value)
+    if len(raw_probabilities) != 3:
+        raise ValueError(f"{name} must contain exactly three probabilities")
+    if any(
+        isinstance(probability, bool) or not isinstance(probability, Real)
+        for probability in raw_probabilities
     ):
-        raise ValueError(f"{name} must be a non-empty sequence of integers")
-    integer_offsets = tuple(int(offset) for offset in offsets)
-    if len(set(integer_offsets)) != len(integer_offsets):
-        raise ValueError(f"{name} must contain unique values")
-    if sum(integer_offsets) != 0:
-        raise ValueError(f"{name} must have mean zero")
-    return integer_offsets
+        raise ValueError(f"{name} must contain finite, non-negative numbers")
+
+    probabilities = tuple(float(probability) for probability in raw_probabilities)
+    if any(
+        not np.isfinite(probability) or probability < 0.0
+        for probability in probabilities
+    ):
+        raise ValueError(f"{name} must contain finite, non-negative numbers")
+    total = sum(probabilities)
+    if not np.isclose(total, 1.0, rtol=0.0, atol=1e-9):
+        raise ValueError(f"{name} must sum to 1")
+
+    lower, center, upper = probabilities
+    return lower / total, center / total, upper / total
 
 
 def _validate_integer_centers(
     parameter_name: str,
     parameter_spec: Mapping[str, object],
-) -> None:
+) -> int:
     kind = str(parameter_spec.get("kind"))
     values: tuple[object, ...]
+    centers: tuple[object, ...]
     if kind == "fixed":
         values = (parameter_spec.get("value"),)
+        centers = values
     elif kind == "sampled_choice":
         raw_values = parameter_spec.get("values")
         if not isinstance(raw_values, Sequence) or isinstance(
@@ -148,21 +167,45 @@ def _validate_integer_centers(
         ):
             raise ValueError(f"{parameter_name}.values must be a sequence")
         values = tuple(raw_values)
+        centers = values
     elif kind == "sampled_discrete_range":
         values = (
             parameter_spec.get("min"),
             parameter_spec.get("max"),
             parameter_spec.get("step", 1),
         )
+        centers = values[:1]
     else:
         raise ValueError(
-            f"{parameter_name} discrete-offset heterogeneity requires an "
+            f"{parameter_name} three-point heterogeneity requires an "
             "integer-valued parameter kind"
         )
-    if any(
+    if not centers or any(
         isinstance(value, bool) or not isinstance(value, Integral) for value in values
     ):
         raise ValueError(f"{parameter_name} centers must be integers")
+    return min(int(cast(Integral, center)) for center in centers)
+
+
+def _validate_visibility_support(
+    parameter_name: str,
+    minimum_center: int,
+    probabilities: tuple[float, float, float],
+) -> None:
+    if parameter_name.rsplit(".", maxsplit=1)[-1] != "visibility_distance":
+        return
+
+    supported_offsets = tuple(
+        offset
+        for offset, probability in zip(
+            _THREE_POINT_OFFSETS, probabilities, strict=True
+        )
+        if probability > 0.0
+    )
+    if minimum_center + min(supported_offsets) < 1:
+        raise ValueError(
+            f"{parameter_name} three-point distribution must produce positive values"
+        )
 
 
 __all__ = [

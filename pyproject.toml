@@ -43,7 +43,6 @@ dependencies = [
     "pyzmq>=27.1.0",
     "ipywidgets>=8.1.8",
     "jupyterlab-widgets>=3.0.16",
-    "tqdm>=4.67.3",
 ]
 
 [project.scripts]
@@ -60,6 +59,7 @@ igraph = { url = "https://github.com/hdahmou/python-igraph/releases/download/whe
 
 [tool.mypy]
 python_version = "3.13"
+disable_error_code = ["import-untyped"]
 
 [[tool.mypy.overrides]]
 module = ["igraph"]

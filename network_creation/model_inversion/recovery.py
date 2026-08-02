@@ -16,7 +16,6 @@ def observation_from_policy_outputs(
     artifact: PosteriorArtifact,
     *,
     n_agents: int,
-    n_actors: int,
     input_values: Mapping[str, Any] | None = None,
 ) -> NDArray[np.float32]:
     values = {"n_agents": n_agents}
@@ -26,7 +25,6 @@ def observation_from_policy_outputs(
         outputs,
         values,
         n_agents=n_agents,
-        n_actors=n_actors,
     )
 
 

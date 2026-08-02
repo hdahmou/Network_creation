@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from math import comb
+from typing import Any, cast
 
 import igraph as ig
 import numpy as np
@@ -71,7 +72,7 @@ class TriadCensusObserver(EpisodeSeriesTensorStatisticObserver):
         del cls
         result = dict(references or {})
         try:
-            n_agents = int(context["n_agents"])
+            n_agents = int(cast(Any, context["n_agents"]))
         except (KeyError, TypeError, ValueError):
             return result
 

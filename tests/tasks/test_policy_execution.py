@@ -45,23 +45,6 @@ class _FakeClient:
     def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
         del exc_type, exc, tb
 
-    @staticmethod
-    def _resolve(value: Any) -> Any:
-        return value.result() if isinstance(value, _FakeFuture) else value
-
-    def submit(
-        self,
-        task_fn: Any,
-        *args: Any,
-        key: str,
-        pure: bool,
-    ) -> _FakeFuture:
-        del pure
-        return _FakeFuture(
-            key,
-            lambda: task_fn(*(self._resolve(arg) for arg in args)),
-        )
-
     def map(
         self,
         task_fn: Any,
@@ -77,10 +60,7 @@ class _FakeClient:
                 task_key,
                 lambda task_input=task_input: task_fn(
                     task_input,
-                    **{
-                        name: self._resolve(value)
-                        for name, value in kwargs.items()
-                    },
+                    **kwargs,
                 ),
             )
             for task_key, task_input in zip(key, task_inputs_list, strict=True)

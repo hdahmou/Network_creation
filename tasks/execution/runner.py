@@ -113,20 +113,6 @@ def _build_run_plan(
     )
 
 
-def _materialize_run_fn(
-    run_fn: Callable[[Any], RunOutput],
-) -> Callable[[Any], RunOutput]:
-    return run_fn
-
-
-def _execute_run_input(
-    run_input: Any,
-    *,
-    run_fn: Callable[[Any], RunOutput],
-) -> RunOutput:
-    return run_fn(run_input)
-
-
 def execute_inputs(
     scheduler_address: str,
     run_key: str,
@@ -144,89 +130,79 @@ def execute_inputs(
     with Client(scheduler_address) as client:
         logger.info("Connected to scheduler %s", scheduler_address)
         run_token = uuid4().hex
-        run_fn_future = client.submit(
-            _materialize_run_fn,
-            run_fn,
-            key=f"{run_key}-runtime-{run_token}",
-            pure=False,
-        )
         completed = as_completed()
         future_context: dict[str, tuple[int, Any]] = {}
         next_input_index = 0
         success_count = 0
         failure_count = 0
 
-        try:
-            with tqdm(
-                total=total_inputs,
-                desc="Simulations",
-                unit="run",
-                dynamic_ncols=True,
-                disable=None,
-            ) as progress:
-                while next_input_index < total_inputs or future_context:
-                    worker_threads = client.nthreads()
-                    worker_count = len(worker_threads)
-                    in_flight_target = max(
-                        1,
-                        _IN_FLIGHT_TASKS_PER_THREAD * sum(worker_threads.values()),
-                    )
+        with tqdm(
+            total=total_inputs,
+            desc="Simulations",
+            unit="run",
+            dynamic_ncols=True,
+            disable=None,
+        ) as progress:
+            while next_input_index < total_inputs or future_context:
+                worker_threads = client.nthreads()
+                worker_count = len(worker_threads)
+                in_flight_target = max(
+                    1,
+                    _IN_FLIGHT_TASKS_PER_THREAD * sum(worker_threads.values()),
+                )
 
-                    submit_count = min(
-                        in_flight_target - len(future_context),
-                        total_inputs - next_input_index,
-                    )
-                    if submit_count > 0:
-                        stop_input_index = next_input_index + submit_count
-                        indexed_inputs = [
-                            (input_index, run_inputs[input_index])
-                            for input_index in range(
-                                next_input_index,
-                                stop_input_index,
-                            )
-                        ]
-                        futures = client.map(
-                            _execute_run_input,
-                            [run_input for _, run_input in indexed_inputs],
-                            key=[
-                                f"{run_key}-{run_token}-{input_index}"
-                                for input_index, _ in indexed_inputs
-                            ],
-                            pure=False,
-                            run_fn=run_fn_future,
+                submit_count = min(
+                    in_flight_target - len(future_context),
+                    total_inputs - next_input_index,
+                )
+                if submit_count > 0:
+                    stop_input_index = next_input_index + submit_count
+                    indexed_inputs = [
+                        (input_index, run_inputs[input_index])
+                        for input_index in range(
+                            next_input_index,
+                            stop_input_index,
                         )
-                        for future, context in zip(
-                            futures,
-                            indexed_inputs,
-                            strict=True,
-                        ):
-                            future_context[future.key] = context
-                        completed.update(futures)
-                        next_input_index = stop_input_index
-
-                    completed_batch = completed.next_batch()
-                    for future in completed_batch:
-                        input_index, run_input = future_context.pop(future.key)
-                        try:
-                            run_output = future.result()
-                            on_result(input_index, run_input, run_output)
-                        except Exception as exc:
-                            failure_count += 1
-                            on_failure(input_index, run_input, exc)
-                        else:
-                            success_count += 1
-                        finally:
-                            future.release()
-
-                    progress.set_postfix(
-                        successes=success_count,
-                        failures=failure_count,
-                        workers=worker_count,
-                        refresh=False,
+                    ]
+                    futures = client.map(
+                        run_fn,
+                        [run_input for _, run_input in indexed_inputs],
+                        key=[
+                            f"{run_key}-{run_token}-{input_index}"
+                            for input_index, _ in indexed_inputs
+                        ],
+                        pure=False,
                     )
-                    progress.update(len(completed_batch))
-        finally:
-            run_fn_future.release()
+                    for future, context in zip(
+                        futures,
+                        indexed_inputs,
+                        strict=True,
+                    ):
+                        future_context[future.key] = context
+                    completed.update(futures)
+                    next_input_index = stop_input_index
+
+                completed_batch = completed.next_batch()
+                for future in completed_batch:
+                    input_index, run_input = future_context.pop(future.key)
+                    try:
+                        run_output = future.result()
+                        on_result(input_index, run_input, run_output)
+                    except Exception as exc:
+                        failure_count += 1
+                        on_failure(input_index, run_input, exc)
+                    else:
+                        success_count += 1
+                    finally:
+                        future.release()
+
+                progress.set_postfix(
+                    successes=success_count,
+                    failures=failure_count,
+                    workers=worker_count,
+                    refresh=False,
+                )
+                progress.update(len(completed_batch))
 
     return {
         "success_count": success_count,

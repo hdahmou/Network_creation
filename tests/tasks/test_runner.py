@@ -50,7 +50,6 @@ class _FakeClient:
         self.scheduler_address = scheduler_address
         self.dashboard_link = "http://dashboard.test/status"
         self.futures: list[_FakeFuture] = []
-        self.runtime_future: _FakeFuture | None = None
         self.map_batch_sizes: list[int] = []
         self._nthreads_call_count = 0
         self.__class__.instances.append(self)
@@ -60,25 +59,6 @@ class _FakeClient:
 
     def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
         del exc_type, exc, tb
-
-    @staticmethod
-    def _resolve(value: Any) -> Any:
-        return value.result() if isinstance(value, _FakeFuture) else value
-
-    def submit(
-        self,
-        task_fn: Any,
-        *args: Any,
-        key: str,
-        pure: bool,
-    ) -> _FakeFuture:
-        del pure
-        future = _FakeFuture(
-            key,
-            lambda: task_fn(*(self._resolve(arg) for arg in args)),
-        )
-        self.runtime_future = future
-        return future
 
     def map(
         self,
@@ -96,10 +76,7 @@ class _FakeClient:
                 task_key,
                 lambda task_input=task_input: task_fn(
                     task_input,
-                    **{
-                        name: self._resolve(value)
-                        for name, value in kwargs.items()
-                    },
+                    **kwargs,
                 ),
             )
             for task_key, task_input in zip(key, task_inputs_list, strict=True)
@@ -266,9 +243,6 @@ class RunnerTests(unittest.TestCase):
         )
         client = _FakeClient.instances[-1]
         self.assertEqual(client.map_batch_sizes, [2, 1])
-        self.assertIsNotNone(client.runtime_future)
-        assert client.runtime_future is not None
-        self.assertEqual(client.runtime_future.release_calls, 1)
         self.assertEqual(
             [future.release_calls for future in client.futures],
             [1, 1, 1],

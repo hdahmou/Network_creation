@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any, cast
+
+from network_creation.core.observability import SimulationObserver
 
 from ..execution.schema import PreparedRun
 from .agent_parameters import build_sampled_agent_parameter_plan
@@ -15,7 +17,7 @@ from .agents import PolicyAgentBuilder
 from .observers import build_observer_specs
 from .outputs import build_policy_output_spec, build_result_metadata
 from .parameter_space import ParameterSpec
-from .simulation import PolicySimulationRuntime
+from .simulation import PreparedPolicySimulation, PolicySimulationRuntime
 from .sweep import (
     build_sweep,
     collect_parameter_specs,
@@ -24,7 +26,13 @@ from .sweep import (
 )
 
 
-def prepare_policy_run(config: Mapping[str, Any]) -> PreparedRun[int]:
+def _build_policy_simulation_runtime(
+    config: Mapping[str, Any],
+) -> tuple[
+    PolicySimulationRuntime,
+    Mapping[str, ParameterSpec],
+    tuple[str, ...],
+]:
     policy_config = cast(Mapping[str, Any], config)
     policy_entries = parse_policy_entries(policy_config)
     policy_ids = tuple(policy_id for policy_id, _ in policy_entries)
@@ -82,6 +90,32 @@ def prepare_policy_run(config: Mapping[str, Any]) -> PreparedRun[int]:
         agent_attribute_plan=agent_attribute_plan,
         max_n_agents=max_n_agents,
     )
+
+    return runtime, parameter_specs, sampled_agent_parameter_names
+
+
+def prepare_instrumented_policy_simulation(
+    config: Mapping[str, Any],
+    *,
+    input_index: int,
+    observers: Sequence[SimulationObserver],
+) -> PreparedPolicySimulation:
+    """Prepare one policy input with caller-provided simulation observers."""
+
+    runtime, _, _ = _build_policy_simulation_runtime(config)
+    return runtime.prepare_simulation(
+        input_index,
+        observers=tuple(observers),
+    )
+
+
+def prepare_policy_run(config: Mapping[str, Any]) -> PreparedRun[int]:
+    runtime, parameter_specs, sampled_agent_parameter_names = (
+        _build_policy_simulation_runtime(config)
+    )
+    sweep = runtime.sweep
+    observer_specs = runtime.observer_specs
+    max_n_agents = runtime.max_n_agents
     result_attrs, result_arrays = build_result_metadata(
         config=config,
         sweep=sweep,

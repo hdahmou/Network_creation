@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
+from numpy.typing import NDArray
 
 from ..execution.schema import OutputArraySpec
 from .agent_parameters import SampledAgentParameterPlan
@@ -18,6 +19,11 @@ from .observers import (
 )
 from .outputs import SAMPLED_AGENT_PARAMETERS_FIELD
 from .sweep import SweepPlan
+
+if TYPE_CHECKING:
+    from network_creation.core.observability import SimulationObserver
+    from network_creation.core.runtime import SimulationSettings
+    from network_creation.core.simulator import Simulator
 
 
 def _pad_observer_time_axis(
@@ -67,6 +73,16 @@ def _pad_observer_time_axis(
 
 
 @dataclass(frozen=True)
+class PreparedPolicySimulation:
+    """One resolved policy input ready to run with chosen observers."""
+
+    simulator: Simulator
+    settings: SimulationSettings
+    configuration: NDArray[np.float32]
+    sampled_agent_parameters: NDArray[np.float32]
+
+
+@dataclass(frozen=True)
 class PolicySimulationRuntime:
     sweep: SweepPlan
     observer_specs: tuple[ObserverOutputSpec, ...]
@@ -79,7 +95,14 @@ class PolicySimulationRuntime:
         if not 0 <= sample_idx < self.sweep.total_inputs:
             raise IndexError(f"sample_idx {sample_idx} is out of range")
 
-    def run(self, sample_idx: int) -> dict[str, np.ndarray[Any, Any]]:
+    def prepare_simulation(
+        self,
+        sample_idx: int,
+        *,
+        observers: tuple[SimulationObserver, ...] | None = None,
+    ) -> PreparedPolicySimulation:
+        """Resolve one sweep input and construct its simulation runtime."""
+
         from network_creation.core.runtime import create_simulation_runtime
 
         self.validate_sample_idx(sample_idx)
@@ -108,26 +131,29 @@ class PolicySimulationRuntime:
                 ),
                 axis=1,
             )
-        policy_assignment = (
-            self.agent_builder.policy_assignment_for_configuration(
-                configuration,
-                n_agents=simulation_settings.n_agents,
+        if observers is None:
+            policy_assignment = (
+                self.agent_builder.policy_assignment_for_configuration(
+                    configuration,
+                    n_agents=simulation_settings.n_agents,
+                )
+                if any(
+                    spec.name == POLICY_WELFARE_OBSERVER_NAME
+                    for spec in self.observer_specs
+                )
+                else None
             )
-            if any(
-                spec.name == POLICY_WELFARE_OBSERVER_NAME
+            resolved_observers = tuple(
+                build_observer_instance(
+                    spec,
+                    configuration,
+                    column_index_by_name=self.sweep.column_index_by_name,
+                    policy_assignment=policy_assignment,
+                )
                 for spec in self.observer_specs
             )
-            else None
-        )
-        observers = tuple(
-            build_observer_instance(
-                spec,
-                configuration,
-                column_index_by_name=self.sweep.column_index_by_name,
-                policy_assignment=policy_assignment,
-            )
-            for spec in self.observer_specs
-        )
+        else:
+            resolved_observers = observers
         _, _, simulator = create_simulation_runtime(
             simulation_settings=simulation_settings,
             build_agent=lambda node_id: self.agent_builder.build_agent(
@@ -139,16 +165,30 @@ class PolicySimulationRuntime:
                     resolved_agent_attributes.activation_weights[node_id]
                 ),
             ),
-            observers=observers,
+            observers=resolved_observers,
             seed=simulation_settings.seed,
         )
-        simulator.run(
-            n_episodes=simulation_settings.n_episodes,
+
+        return PreparedPolicySimulation(
+            simulator=simulator,
+            settings=simulation_settings,
+            configuration=configuration.copy(),
+            sampled_agent_parameters=sampled_agent_parameters.copy(),
+        )
+
+    def run(self, sample_idx: int) -> dict[str, np.ndarray[Any, Any]]:
+        prepared = self.prepare_simulation(sample_idx)
+        prepared.simulator.run(
+            n_episodes=prepared.settings.n_episodes,
             reset_observers=True,
         )
 
         output = {}
-        for spec, observer in zip(self.observer_specs, observers, strict=True):
+        for spec, observer in zip(
+            self.observer_specs,
+            prepared.simulator.observers,
+            strict=True,
+        ):
             result = observer.get()
             for field in spec.fields:
                 aggregation = field.name.split(".", maxsplit=1)[1]
@@ -164,6 +204,8 @@ class PolicySimulationRuntime:
                         spec.kwargs["observation_sampling"].kind == "terminal"
                     ),
                 )
-        if sampled_agent_parameters.shape[1]:
-            output[SAMPLED_AGENT_PARAMETERS_FIELD] = sampled_agent_parameters
+        if prepared.sampled_agent_parameters.shape[1]:
+            output[SAMPLED_AGENT_PARAMETERS_FIELD] = (
+                prepared.sampled_agent_parameters
+            )
         return output

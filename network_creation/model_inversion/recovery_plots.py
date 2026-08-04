@@ -83,6 +83,7 @@ def plot_posterior_ridgelines(
     true_theta: Any,
     n_cols: int = 3,
     bins: int = 80,
+    title: str = "Posterior marginals across held-out cases",
 ):
     import matplotlib.pyplot as plt
     from matplotlib.lines import Line2D
@@ -100,16 +101,16 @@ def plot_posterior_ridgelines(
     n_cases, _, n_theta = posterior.shape
     n_cols = min(max(1, n_cols), n_theta)
     n_rows = math.ceil(n_theta / n_cols)
-    panel_height = max(2.6, 0.24 * n_cases + 1.4)
+    panel_height = max(3.0, 0.24 * n_cases + 1.8)
     fig, axes = plt.subplots(
         n_rows,
         n_cols,
-        figsize=(4.4 * n_cols, panel_height * n_rows),
+        figsize=(4.6 * n_cols, panel_height * n_rows),
         squeeze=False,
     )
-    posterior_color = "#78a9cf"
-    prior_color = "#8fcb8f"
-    truth_color = "#e63946"
+    posterior_color = "#4477AA"
+    prior_color = "#B8B8B8"
+    truth_color = "#CC6677"
     ridge_height = 0.72
     prior_y = n_cases + 0.65
 
@@ -158,8 +159,8 @@ def plot_posterior_ridgelines(
                 linewidth=1.6,
             )
 
-        ax.set_title(name, fontsize=10)
-        ax.set_xlabel("parameter value")
+        ax.set_title(_parameter_display_name(name))
+        ax.set_xlabel("Parameter value")
         ax.set_xlim(x_min, x_max)
         ax.set_ylim(-0.35, n_cases + 1.3)
         ax.set_yticks([])
@@ -176,7 +177,7 @@ def plot_posterior_ridgelines(
     for ax in axes.ravel()[n_theta:]:
         ax.set_axis_off()
 
-    fig.suptitle("Posterior ridgelines vs ground truth", fontsize=13)
+    fig.suptitle(title, y=0.995)
     fig.legend(
         handles=[
             Patch(
@@ -187,11 +188,12 @@ def plot_posterior_ridgelines(
             Patch(facecolor=prior_color, alpha=0.8, label="Prior density/mass"),
             Line2D([0], [0], color=truth_color, linewidth=1.6, label="True value"),
         ],
-        loc="upper right",
+        loc="upper center",
+        bbox_to_anchor=(0.5, 0.965),
         frameon=False,
         ncol=3,
     )
-    fig.tight_layout(rect=(0, 0, 1, 0.94))
+    fig.tight_layout(rect=(0, 0, 1, 0.91))
     return fig
 
 
@@ -281,6 +283,10 @@ def _thin(
         return values
     rng = np.random.default_rng(seed)
     return values[np.sort(rng.choice(len(values), size=max_points, replace=False))]
+
+
+def _parameter_display_name(name: str) -> str:
+    return name.rsplit(".", 1)[-1].replace("_", " ").capitalize()
 
 
 def _category_bars(ax, artifact, name: str, prior, posterior, true_value) -> None:

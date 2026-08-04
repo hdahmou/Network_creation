@@ -101,9 +101,13 @@ def plot_sbc_ranks(
 ):
     from sbi.analysis.plot import sbc_rank_plot  # type: ignore[import-untyped]
 
+    parameter_labels = plot_kwargs.pop(
+        "parameter_labels",
+        list(artifact.theta_order),
+    )
     return sbc_rank_plot(
         coverage["ranks"],
         coverage["num_posterior_samples"],
-        parameter_labels=list(artifact.theta_order),
+        parameter_labels=parameter_labels,
         **plot_kwargs,
     )

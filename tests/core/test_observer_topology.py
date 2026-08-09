@@ -23,6 +23,10 @@ from network_creation.observers.global_closeness_centrality_observer import (
 from network_creation.observers.hub_persistence_observer import (
     HubPersistenceObserver,
 )
+from network_creation.observers.hub_sponsorship_observer import (
+    HubSponsorshipObserver,
+    compute_hub_sponsorship_share,
+)
 from network_creation.observers.indegree_observer import IndegreeObserver
 from network_creation.observers.triad_census_observer import (
     TRIAD_TYPE_NAMES,
@@ -440,6 +444,150 @@ class TopologyObserverTest(unittest.TestCase):
                 {"choi2020": 0.8},
             ),
             {"choi2020": 0.8, "empty": 0.0, "star": 1.0},
+        )
+
+    def test_hub_sponsorship_share_handles_star_variants_and_tied_hubs(
+        self,
+    ) -> None:
+        cases = {
+            "empty": (np.zeros((4, 4), dtype=np.int8), 0.5),
+            "periphery-sponsored": (
+                np.array(
+                    [
+                        [0, 0, 0, 0],
+                        [1, 0, 0, 0],
+                        [1, 0, 0, 0],
+                        [1, 0, 0, 0],
+                    ],
+                    dtype=np.int8,
+                ),
+                0.0,
+            ),
+            "center-sponsored": (
+                np.array(
+                    [
+                        [0, 1, 1, 1],
+                        [0, 0, 0, 0],
+                        [0, 0, 0, 0],
+                        [0, 0, 0, 0],
+                    ],
+                    dtype=np.int8,
+                ),
+                1.0,
+            ),
+            "incomplete-mixed": (
+                np.array(
+                    [
+                        [0, 1, 1, 0, 0],
+                        [0, 0, 0, 0, 0],
+                        [0, 0, 0, 0, 0],
+                        [1, 0, 0, 0, 0],
+                        [0, 0, 0, 0, 0],
+                    ],
+                    dtype=np.int8,
+                ),
+                2.0 / 3.0,
+            ),
+            "reciprocal": (
+                np.array(
+                    [
+                        [0, 1, 0, 1],
+                        [1, 0, 0, 0],
+                        [1, 0, 0, 0],
+                        [0, 0, 0, 0],
+                    ],
+                    dtype=np.int8,
+                ),
+                0.5,
+            ),
+            "tied-hubs": (
+                np.array(
+                    [
+                        [0, 0, 0, 0],
+                        [1, 0, 1, 0],
+                        [0, 0, 0, 0],
+                        [0, 0, 1, 0],
+                    ],
+                    dtype=np.int8,
+                ),
+                0.5,
+            ),
+        }
+
+        for name, (adjacency, expected) in cases.items():
+            with self.subTest(name=name):
+                self.assertAlmostEqual(
+                    compute_hub_sponsorship_share(
+                        graph_from_adjacency_matrix(adjacency)
+                    ),
+                    expected,
+                )
+
+    def test_hub_sponsorship_observer_tracks_current_hub_share(self) -> None:
+        observer = HubSponsorshipObserver(
+            n_agents=3,
+            observation_sampling=ObservationSampling.periodic(1),
+            aggregations=(),
+        )
+        simulator = Simulator(
+            env=Environment(create_empty_graph(3), seed=43),
+            agents=(
+                Agent(
+                    activation_weight=1.0,
+                    id=0,
+                    visibility_distance=3,
+                    policy=ConstantPolicy(Action(ActionType.PASS, source=0)),
+                    seed=47,
+                ),
+                Agent(
+                    activation_weight=1.0,
+                    id=1,
+                    visibility_distance=3,
+                    policy=ConstantPolicy(
+                        Action(ActionType.BRIDGE, source=1, target=0)
+                    ),
+                    seed=53,
+                ),
+                Agent(
+                    activation_weight=1.0,
+                    id=2,
+                    visibility_distance=3,
+                    policy=ConstantPolicy(
+                        Action(ActionType.BRIDGE, source=2, target=0)
+                    ),
+                    seed=59,
+                ),
+            ),
+            actor_scheduler=ActorScheduler(
+                n_agents=3,
+                n_actors=3,
+                activation_weights=(1.0, 1.0, 1.0),
+                seed=61,
+            ),
+            max_steps=1,
+            rng=np.random.default_rng(67),
+            observers=(observer,),
+        )
+
+        simulator.run(n_episodes=1, reset_observers=False)
+
+        np.testing.assert_array_equal(observer.steps, np.array([0, 1]))
+        np.testing.assert_allclose(
+            observer.values,
+            np.array([0.5, 0.0], dtype=np.float32),
+        )
+
+    def test_hub_sponsorship_reference_values_cover_both_star_orientations(
+        self,
+    ) -> None:
+        self.assertEqual(
+            HubSponsorshipObserver.reference_values({}, {"choi2020": 0.25}),
+            {
+                "choi2020": 0.25,
+                "periphery_sponsored_star": 0.0,
+                "empty": 0.5,
+                "center_sponsored_star": 1.0,
+            },
         )
 
     def test_distance_observer_aggregates_mean_and_runs(self) -> None:

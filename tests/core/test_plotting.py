@@ -983,6 +983,26 @@ class PlotPairTest(unittest.TestCase):
         self.assertIsNotNone(norm)
         self.assertEqual((norm.vmin, norm.vmax), (0.0, 1.0))
 
+        references, norm = get_observer_reference_style(
+            "hub_sponsorship.mean",
+            np.array([0.2, 0.8], dtype=float),
+            n_agents=10,
+            theta_labels=(),
+            theta_values=np.empty((1, 0), dtype=float),
+            cache_path=Path("/tmp/missing-choi-reference-cache.pkl"),
+        )
+
+        self.assertEqual(
+            references,
+            {
+                "periphery_sponsored_star": 0.0,
+                "empty": 0.5,
+                "center_sponsored_star": 1.0,
+            },
+        )
+        self.assertIsNotNone(norm)
+        self.assertEqual((norm.vmin, norm.vmax), (0.0, 1.0))
+
     def test_reference_style_looks_up_welfare_cache_with_choi_parameters(self) -> None:
         request = ReferenceRequest("centered_mean_welfare", 10, 0.5, 0.9)
 

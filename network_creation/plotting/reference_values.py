@@ -31,6 +31,7 @@ BOUNDED_OBSERVER_NAMES = {
     "central_point_of_dominance",
     "density",
     "global_closeness_centrality",
+    "hub_sponsorship",
 }
 WELFARE_OBSERVER_NAME = "centered_mean_welfare"
 

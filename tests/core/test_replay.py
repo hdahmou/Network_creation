@@ -952,6 +952,7 @@ class ReplayTest(unittest.TestCase):
         self.assertIn("triad_census", observer_names)
         self.assertIn("agent_payoff", observer_names)
         self.assertIn("centered_mean_welfare", observer_names)
+        self.assertIn("hub_sponsorship", observer_names)
         self.assertNotIn("hub_persistence", observer_names)
         self.assertNotIn("action_print", observer_names)
         self.assertNotIn("state_history", observer_names)

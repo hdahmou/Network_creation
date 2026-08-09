@@ -14,7 +14,7 @@
       "kind": "activation_opportunities_per_agent",
       "value": 60
     },
-    "n_episodes": 16,
+    "n_episodes": 32,
     "actor_scheduler": {
       "n_actors": 1
     },
@@ -105,6 +105,15 @@
     "outputs": [
       {
         "name": "policy_welfare"
+      },
+      {
+        "name": "central_point_of_dominance"
+      },
+      {
+        "name": "indegree"
+      },
+      {
+        "name": "hub_sponsorship"
       }
     ]
   }

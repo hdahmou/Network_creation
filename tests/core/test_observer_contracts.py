@@ -166,6 +166,11 @@ def _build_contract_test_observer(name: str):
             "window_size": 1,
             "aggregations": (),
         },
+        "hub_sponsorship": {
+            "n_agents": 3,
+            "observation_sampling": periodic,
+            "aggregations": (),
+        },
         "indegree": {
             "n_agents": 3,
             "observation_sampling": periodic,

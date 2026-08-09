@@ -110,6 +110,9 @@
         "name": "centered_mean_welfare"
       },
       {
+        "name": "hub_sponsorship"
+      },
+      {
         "name": "agent_payoff",
         "sampling": {
           "kind": "terminal"

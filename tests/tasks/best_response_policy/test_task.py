@@ -65,6 +65,23 @@ class BestResponsePolicyTaskTest(unittest.TestCase):
         for field_name in first:
             np.testing.assert_allclose(first[field_name], second[field_name])
 
+    def test_run_records_hub_sponsorship_observer(self) -> None:
+        config = self._base_config()
+        config["observers"]["outputs"].append({"name": "hub_sponsorship"})
+        prepared = prepare_policy_run(config)
+
+        self.assertEqual(
+            prepared.output_schema.metadata()[-1],
+            {"name": "hub_sponsorship.mean", "shape": [4], "dtype": "float32"},
+        )
+
+        values = prepared.run(prepared.inputs[0])["hub_sponsorship.mean"]
+
+        self.assertEqual(values.shape, (4,))
+        self.assertEqual(values.dtype, np.float32)
+        self.assertEqual(float(values[0]), 0.5)
+        self.assertTrue(np.all((values >= 0.0) & (values <= 1.0)))
+
     def test_run_matches_explicit_centered_mean_welfare_settings(self) -> None:
         inferred_prepared = prepare_policy_run(self._base_config())
 

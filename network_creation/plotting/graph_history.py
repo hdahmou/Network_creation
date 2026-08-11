@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from typing import Any
 
 import igraph as ig
@@ -32,8 +32,10 @@ def plot_graph_history(
     steps: NDArray[np.int_],
     graphs: Iterable[ig.Graph],
     layout: dict[int, tuple[float, float]] | Callable[[nx.Graph], Any],
-    figure_title: str,
+    figure_title: str | None,
     max_cols: int,
+    *,
+    draw_kwargs: Mapping[str, Any] | None = None,
 ) -> tuple[Figure, np.ndarray[Any, Any]]:
     """Plot one directed graph per sampled step."""
 
@@ -56,6 +58,21 @@ def plot_graph_history(
     for axis in axes_grid.ravel():
         axis.axis("off")
 
+    draw_options: dict[str, Any] = {
+        "node_color": _NODE_COLOR,
+        "edge_color": _EDGE_COLOR,
+        "arrows": True,
+        "arrowsize": 16,
+        "node_size": 700,
+        "node_shape": "o",
+        "width": 2,
+        "connectionstyle": "arc3,rad=0.08",
+        "font_size": 10,
+        "with_labels": True,
+    }
+    if draw_kwargs is not None:
+        draw_options.update(draw_kwargs)
+
     for axis, step, graph in zip(axes_grid.ravel(), steps, graph_history, strict=False):
         graph_nx = graph.to_networkx(vertex_attr_hashable="name")
         if isinstance(layout, dict):
@@ -66,24 +83,19 @@ def plot_graph_history(
             graph_nx,
             pos=layout_nx,
             ax=axis,
-            node_color=_NODE_COLOR,
-            edge_color=_EDGE_COLOR,
-            arrows=True,
-            arrowsize=16,
-            node_size=700,
-            width=2,
-            connectionstyle="arc3,rad=0.08",
-            font_size=10,
+            **draw_options,
         )
+        axis.set_aspect("equal", adjustable="box")
         axis.set_title(f"step {int(step)}")
         axis.set_axis_off()
 
-    figure.suptitle(figure_title, fontsize=14)
+    if figure_title is not None:
+        figure.suptitle(figure_title, fontsize=14)
     figure.tight_layout()
     return figure, axes_grid
 
 
 def _compute_subplot_shape(n_plots: int, max_cols: int) -> tuple[int, int]:
-    n_cols = min(max_cols, max(1, int(np.ceil(np.sqrt(n_plots)))))
+    n_cols = min(max_cols, max(1, n_plots))
     n_rows = int(np.ceil(n_plots / n_cols))
     return n_rows, n_cols

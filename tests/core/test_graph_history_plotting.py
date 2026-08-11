@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest import mock
 
 import matplotlib
 
@@ -47,6 +48,8 @@ class GraphHistoryPlottingTest(unittest.TestCase):
         self.assertEqual(axes.shape, (1, 2))
         self.assertEqual(axes[0, 0].get_title(), "step 0")
         self.assertEqual(axes[0, 1].get_title(), "step 1")
+        self.assertEqual(axes[0, 0].get_aspect(), 1.0)
+        self.assertEqual(axes[0, 1].get_aspect(), 1.0)
         assert figure._suptitle is not None
         self.assertEqual(figure._suptitle.get_text(), "Graph history")
         plt.close(figure)
@@ -73,13 +76,42 @@ class GraphHistoryPlottingTest(unittest.TestCase):
             steps=steps,
             graphs=graphs,
             layout=build_circle_layout(n_nodes=2),
-            figure_title="Graph history",
+            figure_title=None,
             max_cols=4,
         )
 
         self.assertEqual(axes.shape, (1, 2))
         self.assertEqual(axes[0, 0].get_title(), "step 0")
         self.assertEqual(axes[0, 1].get_title(), "step 1")
+        self.assertIsNone(figure._suptitle)
+        plt.close(figure)
+
+    @mock.patch("network_creation.plotting.graph_history.nx.draw_networkx")
+    def test_plot_graph_history_uses_available_columns_and_draw_options(
+        self,
+        draw_networkx: mock.Mock,
+    ) -> None:
+        graphs = tuple(create_empty_graph(3) for _ in range(4))
+
+        figure, axes = plot_graph_history(
+            steps=np.arange(4, dtype=np.int_),
+            graphs=graphs,
+            layout=build_circle_layout(n_nodes=3),
+            figure_title="Graph history",
+            max_cols=4,
+            draw_kwargs={
+                "with_labels": False,
+                "node_shape": "o",
+                "node_size": 45,
+            },
+        )
+
+        self.assertEqual(axes.shape, (1, 4))
+        self.assertEqual(draw_networkx.call_count, 4)
+        for call in draw_networkx.call_args_list:
+            self.assertFalse(call.kwargs["with_labels"])
+            self.assertEqual(call.kwargs["node_shape"], "o")
+            self.assertEqual(call.kwargs["node_size"], 45)
         plt.close(figure)
 
     def test_plot_graph_history_rejects_mismatched_lengths(self) -> None:

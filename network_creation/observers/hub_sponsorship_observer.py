@@ -60,9 +60,9 @@ class HubSponsorshipObserver(EpisodeSeriesStatisticObserver):
         result = dict(references or {})
         result.update(
             {
-                "periphery_sponsored_star": 0.0,
-                "empty": 0.5,
-                "center_sponsored_star": 1.0,
+                "Periphery_sponsored_star": 0.0,
+                "Empty/Balanced": 0.5,
+                "Center_sponsored_star": 1.0,
             }
         )
         return result

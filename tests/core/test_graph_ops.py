@@ -12,6 +12,7 @@ from network_creation.core.graph import (
     build_observation_from_state,
     build_state_from_graph,
     create_erdos_renyi_graph,
+    create_uniform_random_tree,
     get_action_space,
 )
 from network_creation.core.local_global_map import LocalGlobalMap
@@ -98,6 +99,30 @@ class GraphOpsTest(unittest.TestCase):
     def test_create_erdos_renyi_graph_is_deterministic_for_seed(self) -> None:
         first = create_erdos_renyi_graph(n_agents=5, p=0.4, seed=17)
         second = create_erdos_renyi_graph(n_agents=5, p=0.4, seed=17)
+
+        self.assertEqual(sorted(first.get_edgelist()), sorted(second.get_edgelist()))
+
+    def test_create_uniform_random_tree_is_weakly_connected(self) -> None:
+        graph = create_uniform_random_tree(n_agents=10, seed=19)
+
+        self.assertTrue(graph.is_directed())
+        self.assertTrue(graph.is_simple())
+        self.assertTrue(graph.is_tree(mode="all"))
+        self.assertTrue(graph.is_connected(mode="weak"))
+        self.assertEqual(graph.vs["name"], list(range(10)))
+        self.assertEqual(graph.ecount(), 9)
+
+    def test_create_uniform_random_tree_supports_single_agent(self) -> None:
+        graph = create_uniform_random_tree(n_agents=1, seed=23)
+
+        self.assertTrue(graph.is_directed())
+        self.assertTrue(graph.is_connected(mode="weak"))
+        self.assertEqual(graph.vs["name"], [0])
+        self.assertEqual(graph.ecount(), 0)
+
+    def test_create_uniform_random_tree_is_deterministic_for_seed(self) -> None:
+        first = create_uniform_random_tree(n_agents=10, seed=29)
+        second = create_uniform_random_tree(n_agents=10, seed=29)
 
         self.assertEqual(sorted(first.get_edgelist()), sorted(second.get_edgelist()))
 

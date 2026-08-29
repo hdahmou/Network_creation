@@ -263,6 +263,33 @@ class PolicyTaskConfigTest(unittest.TestCase):
         self.assertEqual(settings.initial_graph_kind, "erdos_renyi")
         self.assertEqual(settings.initial_graph_p, 0.25)
 
+    def test_prepare_policy_run_accepts_uniform_random_tree_initial_graph(
+        self,
+    ) -> None:
+        config = cast(dict[str, Any], task_config())
+        simulator = cast(dict[str, Any], config["simulator"])
+        simulator["initial_graph"] = {
+            "kind": "uniform_random_tree",
+        }
+
+        input_spec = collect_parameter_specs(config)
+        parameter_samples = sample_parameters(input_spec)
+        policy_entries = parse_policy_entries(config)
+        sweep = build_sweep(
+            config,
+            parameter_samples,
+            parameter_specs=input_spec["parameters"],
+            policy_ids=tuple(policy_id for policy_id, _ in policy_entries),
+        )
+        policy_task = prepare_policy_run(config)
+        settings = sweep.resolve(sweep.configuration_at(0))
+
+        self.assertEqual(policy_task.inputs, (0,))
+        self.assertEqual(sweep.initial_graph_kind, "uniform_random_tree")
+        self.assertIsNone(sweep.initial_graph_p)
+        self.assertEqual(settings.initial_graph_kind, "uniform_random_tree")
+        self.assertIsNone(settings.initial_graph_p)
+
     def test_prepare_policy_run_rejects_invalid_erdos_renyi_probability(self) -> None:
         invalid_initial_graphs = (
             {"kind": "erdos_renyi"},

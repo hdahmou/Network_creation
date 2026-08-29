@@ -52,6 +52,28 @@ def create_erdos_renyi_graph(n_agents: int, p: float, seed: int) -> ig.Graph:
     return graph
 
 
+def create_uniform_random_tree(n_agents: int, seed: int) -> ig.Graph:
+    """Create a uniform labeled tree with independently oriented edges."""
+
+    if n_agents < 1:
+        raise ValueError("n_agents must be a positive integer")
+
+    rng = random.Random(int(seed))
+    if n_agents == 1:
+        graph = ig.Graph(n=1, directed=True)
+    else:
+        prufer_sequence = [rng.randrange(n_agents) for _ in range(n_agents - 2)]
+        tree = ig.Graph.Prufer(prufer_sequence)
+        directed_edges = [
+            (source, target) if rng.getrandbits(1) else (target, source)
+            for source, target in tree.get_edgelist()
+        ]
+        graph = ig.Graph(n=n_agents, edges=directed_edges, directed=True)
+
+    graph.vs["name"] = list(range(n_agents))
+    return graph
+
+
 def build_observation_from_state(
     state: EnvironmentState, node_id: int, radius: int
 ) -> Observation:

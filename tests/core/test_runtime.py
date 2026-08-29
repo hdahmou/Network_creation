@@ -8,7 +8,10 @@ import unittest
 import numpy as np
 
 from network_creation.core.agent import Agent
-from network_creation.core.graph import create_erdos_renyi_graph
+from network_creation.core.graph import (
+    create_erdos_renyi_graph,
+    create_uniform_random_tree,
+)
 from network_creation.core.model import (
     Action,
     ActionSpace,
@@ -139,6 +142,39 @@ class RuntimeAssemblyTest(unittest.TestCase):
                 ),
                 seed=13,
             )
+
+    def test_create_environment_supports_uniform_random_tree_initial_graph(
+        self,
+    ) -> None:
+        settings = SimulationSettings(
+            n_agents=6,
+            n_actors=1,
+            seed=7,
+            max_steps=3,
+            n_episodes=1,
+            stagnation_patience=None,
+            initial_graph_kind="uniform_random_tree",
+        )
+        environment = create_environment(
+            simulation_settings=settings,
+            seed=13,
+        )
+
+        self.assertEqual(
+            sorted(environment.state.graph.get_edgelist()),
+            sorted(
+                create_uniform_random_tree(n_agents=6, seed=13).get_edgelist()
+            ),
+        )
+
+        reset_state = environment.reset(seed=17)
+
+        self.assertEqual(
+            sorted(reset_state.graph.get_edgelist()),
+            sorted(
+                create_uniform_random_tree(n_agents=6, seed=17).get_edgelist()
+            ),
+        )
 
     def test_create_agents_builds_agents_in_node_id_order(self) -> None:
         build_calls: list[int] = []

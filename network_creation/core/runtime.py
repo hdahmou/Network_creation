@@ -9,7 +9,11 @@ import numpy as np
 
 from .agent import Agent
 from .environment import Environment
-from .graph import create_empty_graph, create_erdos_renyi_graph
+from .graph import (
+    create_empty_graph,
+    create_erdos_renyi_graph,
+    create_uniform_random_tree,
+)
 from .model import ActorScheduler
 from .observability import SimulationObserver
 from .simulator import Simulator
@@ -58,9 +62,22 @@ def create_environment(
             initial_graph_factory=build_initial_graph,
         )
 
+    if simulation_settings.initial_graph_kind == "uniform_random_tree":
+        def build_initial_graph(graph_seed: int):
+            return create_uniform_random_tree(
+                simulation_settings.n_agents,
+                graph_seed,
+            )
+
+        return Environment(
+            build_initial_graph(seed),
+            seed=seed,
+            initial_graph_factory=build_initial_graph,
+        )
+
     raise ValueError(
         f"unsupported initial graph kind {simulation_settings.initial_graph_kind!r}; "
-        "supported kinds are 'empty' and 'erdos_renyi'"
+        "supported kinds are 'empty', 'erdos_renyi', and 'uniform_random_tree'"
     )
 
 

@@ -67,7 +67,10 @@ class HubRankingObserver(SimulationObserver):
         for decision in event.decisions:
             for action in decision.actions:
                 actor_id = int(action.source)
-                if not self._actor_seen[actor_id]:
+                if (
+                    action.type is not ActionType.PASS
+                    and not self._actor_seen[actor_id]
+                ):
                     self._actor_seen[actor_id] = True
                     self._actor_order[self._actor_count] = actor_id
                     self._actor_count += 1

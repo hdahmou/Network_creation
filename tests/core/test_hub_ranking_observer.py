@@ -61,7 +61,7 @@ class HubRankingObserverTest(unittest.TestCase):
         simulator.run(n_episodes=1, reset_observers=True)
         result = observer.get()
 
-        np.testing.assert_array_equal(result.actor_order, [[0, 1, 2]])
+        np.testing.assert_array_equal(result.actor_order, [[0, 2, -1]])
         np.testing.assert_array_equal(result.recipient_order, [[1, -1, -1]])
         np.testing.assert_array_equal(result.final_hub_id, [1])
 

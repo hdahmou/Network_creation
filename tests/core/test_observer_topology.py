@@ -584,9 +584,9 @@ class TopologyObserverTest(unittest.TestCase):
             HubSponsorshipObserver.reference_values({}, {"choi2020": 0.25}),
             {
                 "choi2020": 0.25,
-                "periphery_sponsored_star": 0.0,
-                "empty": 0.5,
-                "center_sponsored_star": 1.0,
+                "Periphery_sponsored_star": 0.0,
+                "Empty/Balanced": 0.5,
+                "Center_sponsored_star": 1.0,
             },
         )
 

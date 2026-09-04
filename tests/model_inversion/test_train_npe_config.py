@@ -111,7 +111,7 @@ class InversionConfigAndArtifactTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "timeseries x requires"):
                 load_inversion_config(config_path)
 
-    def test_split_excludes_diagnostics_and_calibration_covers_categories(self) -> None:
+    def test_split_is_disjoint_by_parameter_row(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             workdir = Path(temp_dir)
             zarr_path = write_result_store(workdir / "run.zarr")
@@ -131,9 +131,63 @@ class InversionConfigAndArtifactTests(unittest.TestCase):
                 [dataset.theta(int(index)) for index in split.calibration_indices]
             )
 
+            def parameter_rows(indices: np.ndarray) -> set[int]:
+                return {
+                    int(value) for value in row_index.parameter_row_indices[indices]
+                }
+
+            def theta_rows(indices: np.ndarray) -> set[tuple[float, ...]]:
+                return {
+                    tuple(float(value) for value in dataset.theta(int(index)))
+                    for index in indices
+                }
+
+            def n_agents_values(indices: np.ndarray) -> set[int]:
+                source_positions = row_index.kept_indices[indices]
+                populations = source.population_indices[source_positions]
+                return {int(schema.n_agents[int(value)]) for value in populations}
+
+            train_rows = set(int(value) for value in split.train_indices)
+            validation_rows = set(int(value) for value in split.validation_indices)
+            diagnostic_rows = set(int(value) for value in split.diagnostic_indices)
+            train_parameters = parameter_rows(split.train_indices)
+            validation_parameters = parameter_rows(split.validation_indices)
+            diagnostic_parameters = parameter_rows(split.diagnostic_indices)
+            train_theta = theta_rows(split.train_indices)
+            validation_theta = theta_rows(split.validation_indices)
+            diagnostic_theta = theta_rows(split.diagnostic_indices)
+
             self.assertEqual(len(split.diagnostic_indices), 4)
-            self.assertTrue(set(split.train_indices).isdisjoint(set(split.diagnostic_indices)))
-            self.assertTrue(set(split.validation_indices).isdisjoint(set(split.diagnostic_indices)))
+            self.assertEqual(train_parameters, {0, 4})
+            self.assertEqual(validation_parameters, {1, 5})
+            self.assertEqual(diagnostic_parameters, {2, 3})
+            self.assertTrue(train_rows.isdisjoint(validation_rows))
+            self.assertTrue(train_rows.isdisjoint(diagnostic_rows))
+            self.assertTrue(validation_rows.isdisjoint(diagnostic_rows))
+            self.assertEqual(
+                train_rows | validation_rows | diagnostic_rows,
+                set(range(len(dataset))),
+            )
+            self.assertTrue(train_parameters.isdisjoint(validation_parameters))
+            self.assertTrue(train_parameters.isdisjoint(diagnostic_parameters))
+            self.assertTrue(validation_parameters.isdisjoint(diagnostic_parameters))
+            self.assertTrue(train_theta.isdisjoint(validation_theta))
+            self.assertTrue(train_theta.isdisjoint(diagnostic_theta))
+            self.assertTrue(validation_theta.isdisjoint(diagnostic_theta))
+            self.assertEqual(n_agents_values(split.train_indices), {10, 20})
+            self.assertEqual(n_agents_values(split.validation_indices), {10, 20})
+            self.assertEqual(n_agents_values(split.diagnostic_indices), {10, 20})
+            self.assertTrue(
+                parameter_rows(split.calibration_indices).issubset(train_parameters)
+            )
+            prior_parameter_rows = {
+                int(value)
+                for value in source.metadata_arrays["input_coordinates"][
+                    prior.source_indices,
+                    2,
+                ]
+            }
+            self.assertTrue(prior_parameter_rows.issubset(train_parameters))
             self.assertEqual(set(calibration_theta[:, -1].astype(int).tolist()), {1, 2})
             self.assertEqual(prior.theta.shape[0], 3)
             self.assertEqual(prior.theta.shape[1], len(schema.theta_order))

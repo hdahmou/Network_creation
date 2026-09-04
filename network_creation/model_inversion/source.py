@@ -24,6 +24,7 @@ class InversionSource:
     attrs: dict[str, Any]
     input_index: NDArray[np.int64]
     population_indices: NDArray[np.int64]
+    parameter_row_indices: NDArray[np.int64]
 
 
 def load_inversion_source(config_path: str | Path) -> InversionSource:
@@ -72,22 +73,35 @@ def load_inversion_source(config_path: str | Path) -> InversionSource:
         metadata_arrays["input_coordinates"],
         dtype=np.int64,
     )
-    if input_coordinates.ndim != 2 or input_coordinates.shape[1] < 1:
-        raise ValueError("metadata/input_coordinates must contain population indices")
+    if input_coordinates.ndim != 2 or input_coordinates.shape[1] < 3:
+        raise ValueError(
+            "metadata/input_coordinates must contain population, policy-composition, "
+            "and parameter-row indices"
+        )
     if sorted_input_index.size and (
         np.min(sorted_input_index) < 0
         or np.max(sorted_input_index) >= input_coordinates.shape[0]
     ):
         raise ValueError("results/input_index is outside metadata/input_coordinates")
-    population_indices = np.asarray(
-        input_coordinates[sorted_input_index, 0],
-        dtype=np.int64,
-    )
+    result_coordinates = input_coordinates[sorted_input_index]
+    population_indices = np.asarray(result_coordinates[:, 0], dtype=np.int64)
     if population_indices.size and (
         np.min(population_indices) < 0
         or np.max(population_indices) >= n_agents.shape[0]
     ):
         raise ValueError("result population index is outside metadata/n_agents")
+    parameters = np.asarray(metadata_arrays["parameters"])
+    if parameters.ndim != 4:
+        raise ValueError(
+            "metadata/parameters must have population, policy-composition, "
+            "parameter-row, and parameter axes"
+        )
+    parameter_row_indices = np.asarray(result_coordinates[:, 2], dtype=np.int64)
+    if parameter_row_indices.size and (
+        np.min(parameter_row_indices) < 0
+        or np.max(parameter_row_indices) >= parameters.shape[2]
+    ):
+        raise ValueError("result parameter-row index is outside metadata/parameters")
 
     return InversionSource(
         config=config,
@@ -99,4 +113,5 @@ def load_inversion_source(config_path: str | Path) -> InversionSource:
         attrs=attrs,
         input_index=sorted_input_index,
         population_indices=population_indices,
+        parameter_row_indices=parameter_row_indices,
     )

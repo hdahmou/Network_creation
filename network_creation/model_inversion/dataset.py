@@ -24,6 +24,7 @@ from .source import InversionSource
 class InversionRowIndex:
     kept_indices: NDArray[np.int64]
     source_sample_ids: NDArray[np.int64]
+    parameter_row_indices: NDArray[np.int64]
     diagnostic_group_ids: tuple[tuple[int, ...], ...]
 
     @property
@@ -189,6 +190,10 @@ def build_row_index(
     return InversionRowIndex(
         kept_indices=kept_indices,
         source_sample_ids=np.asarray(source.input_index[kept_indices], dtype=np.int64),
+        parameter_row_indices=np.asarray(
+            source.parameter_row_indices[kept_indices],
+            dtype=np.int64,
+        ),
         diagnostic_group_ids=diagnostic_group_ids,
     )
 
@@ -199,7 +204,11 @@ def _diagnostic_groups(
     *,
     kept_indices: NDArray[np.int64],
 ) -> tuple[tuple[int, ...], ...]:
-    group_names = schema.discrete_input_names + schema.discrete_theta_names
+    group_names = tuple(
+        name
+        for name in schema.discrete_input_names + schema.discrete_theta_names
+        if name != "n_agents"
+    )
     if not group_names:
         return tuple((0,) for _ in kept_indices)
     values = parameter_values_for_indices(source, group_names, source_positions=kept_indices)

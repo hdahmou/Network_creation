@@ -65,7 +65,12 @@ class InversionTrainingConfig(StrictModel):
     device: Name = "cpu"
     batch_size: PositiveInt = 200
     learning_rate: NonNegativeFloat = 5e-4
-    validation_fraction: UnitFraction = 0.1
+    validation_fraction: UnitFraction = Field(
+        default=0.1,
+        description=(
+            "Fraction of non-diagnostic parameter samples assigned to validation"
+        ),
+    )
     stop_after_epochs: PositiveInt = 20
     max_num_epochs: PositiveInt = 500
     clip_max_norm: PositiveFloat | None = 5.0
@@ -108,7 +113,12 @@ class InversionConfig(StrictModel):
     model: InversionModelConfig = Field(default_factory=InversionModelConfig)
     training: InversionTrainingConfig = Field(default_factory=InversionTrainingConfig)
     output: InversionOutputConfig
-    diagnostic_holdout_count_per_group: PositiveInt
+    diagnostic_holdout_count_per_group: PositiveInt = Field(
+        description=(
+            "Number of parameter samples held out per categorical stratum; "
+            "n_agents is not part of the stratum"
+        )
+    )
 
     @model_validator(mode="after")
     def validate_embedding_representation(self) -> "InversionConfig":

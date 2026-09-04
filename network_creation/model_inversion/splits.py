@@ -1,4 +1,4 @@
-"""Deterministic row splitting for model inversion."""
+"""Deterministic parameter-sample splitting for model inversion."""
 
 from __future__ import annotations
 
@@ -32,30 +32,65 @@ def split_inversion_rows(
     config: InversionConfig,
 ) -> InversionSplit:
     rng = np.random.default_rng(int(config.training.seed))
-    diagnostic_indices = _diagnostic_indices(row_index, config=config, rng=rng)
-    all_indices = np.arange(len(dataset), dtype=np.int64)
-    diagnostic_mask = np.zeros(len(dataset), dtype=np.bool_)
-    diagnostic_mask[diagnostic_indices] = True
-    remaining = all_indices[~diagnostic_mask]
-    if remaining.size <= 1:
-        raise ValueError("diagnostic split must leave training and validation rows")
+    rows_by_parameter_row = _rows_by_parameter_row(row_index)
+    diagnostic_parameter_rows = _diagnostic_parameter_rows(
+        row_index,
+        rows_by_parameter_row,
+        config=config,
+        rng=rng,
+    )
+    diagnostic_set = set(int(value) for value in diagnostic_parameter_rows)
+    remaining_parameter_rows = np.asarray(
+        [
+            parameter_row
+            for parameter_row in sorted(rows_by_parameter_row)
+            if parameter_row not in diagnostic_set
+        ],
+        dtype=np.int64,
+    )
+    if remaining_parameter_rows.size <= 1:
+        raise ValueError(
+            "diagnostic split must leave training and validation parameter rows"
+        )
 
-    permutation = rng.permutation(remaining)
-    train_count = int((1.0 - config.training.validation_fraction) * remaining.size)
-    validation_count = int(remaining.size) - train_count
+    permutation = rng.permutation(remaining_parameter_rows)
+    train_count = int(
+        (1.0 - config.training.validation_fraction)
+        * remaining_parameter_rows.size
+    )
+    validation_count = int(remaining_parameter_rows.size) - train_count
     if train_count <= 0 or validation_count <= 0:
         raise ValueError(
-            "validation_fraction must leave at least one training and validation row"
+            "validation_fraction must leave at least one training and validation "
+            "parameter row"
         )
-    validation_indices = np.sort(permutation[:validation_count].astype(np.int64))
-    train_indices = np.sort(permutation[validation_count:].astype(np.int64))
-    _validate_category_coverage(dataset, train_indices, split_name="training split")
-    _validate_category_coverage(
-        dataset,
-        validation_indices,
-        split_name="validation split",
+    validation_parameter_rows = permutation[:validation_count]
+    train_parameter_rows = permutation[validation_count:]
+    diagnostic_indices = _rows_for_parameter_rows(
+        rows_by_parameter_row,
+        diagnostic_parameter_rows,
     )
-    calibration_indices = _calibration_indices(dataset, train_indices, config=config, rng=rng)
+    validation_indices = _rows_for_parameter_rows(
+        rows_by_parameter_row,
+        validation_parameter_rows,
+    )
+    train_indices = _rows_for_parameter_rows(
+        rows_by_parameter_row,
+        train_parameter_rows,
+    )
+    for split_name, indices in (
+        ("training split", train_indices),
+        ("validation split", validation_indices),
+        ("diagnostic split", diagnostic_indices),
+    ):
+        _validate_n_agents_coverage(dataset, indices, split_name=split_name)
+        _validate_category_coverage(dataset, indices, split_name=split_name)
+    calibration_indices = _calibration_indices(
+        dataset,
+        train_indices,
+        config=config,
+        rng=rng,
+    )
     _validate_category_coverage(
         dataset,
         calibration_indices,
@@ -95,28 +130,59 @@ def select_prior_samples(
     )
 
 
-def _diagnostic_indices(
+def _rows_by_parameter_row(
     row_index: InversionRowIndex,
+) -> dict[int, NDArray[np.int64]]:
+    grouped: dict[int, list[int]] = {}
+    for local_index, parameter_row in enumerate(row_index.parameter_row_indices):
+        grouped.setdefault(int(parameter_row), []).append(local_index)
+    return {
+        parameter_row: np.asarray(indices, dtype=np.int64)
+        for parameter_row, indices in grouped.items()
+    }
+
+
+def _diagnostic_parameter_rows(
+    row_index: InversionRowIndex,
+    rows_by_parameter_row: dict[int, NDArray[np.int64]],
     *,
     config: InversionConfig,
     rng: np.random.Generator,
 ) -> NDArray[np.int64]:
     groups: dict[tuple[int, ...], list[int]] = {}
-    for index, group in enumerate(row_index.diagnostic_group_ids):
-        groups.setdefault(tuple(group), []).append(index)
+    for parameter_row, indices in rows_by_parameter_row.items():
+        parameter_groups = {
+            row_index.diagnostic_group_ids[int(index)] for index in indices
+        }
+        if len(parameter_groups) != 1:
+            raise ValueError(
+                f"parameter row {parameter_row} spans multiple diagnostic groups"
+            )
+        group = next(iter(parameter_groups))
+        groups.setdefault(group, []).append(parameter_row)
     selected: list[int] = []
     count = int(config.diagnostic_holdout_count_per_group)
     for group in sorted(groups):
-        values = np.asarray(groups[group], dtype=np.int64)
+        values = np.asarray(sorted(groups[group]), dtype=np.int64)
         if values.size <= count:
             raise ValueError(
                 "diagnostic_holdout_count_per_group must leave at least one "
-                f"training row in group {group}"
+                f"non-diagnostic parameter row in group {group}"
             )
         selected.extend(rng.choice(values, size=count, replace=False).astype(np.int64))
     if not selected:
         raise ValueError("diagnostic split is empty")
     return np.asarray(selected, dtype=np.int64)
+
+
+def _rows_for_parameter_rows(
+    rows_by_parameter_row: dict[int, NDArray[np.int64]],
+    parameter_rows: NDArray[np.int64],
+) -> NDArray[np.int64]:
+    rows = [rows_by_parameter_row[int(parameter_row)] for parameter_row in parameter_rows]
+    if not rows:
+        return np.empty((0,), dtype=np.int64)
+    return np.sort(np.concatenate(rows).astype(np.int64, copy=False))
 
 
 def _calibration_indices(
@@ -148,6 +214,30 @@ def _calibration_indices(
         if len(selected) >= max_count:
             break
     return np.asarray(selected, dtype=np.int64)
+
+
+def _validate_n_agents_coverage(
+    dataset: ZarrInversionDataset,
+    indices: NDArray[np.int64],
+    *,
+    split_name: str,
+) -> None:
+    if indices.size == 0:
+        raise ValueError(f"{split_name} is empty")
+    source_positions = dataset.row_index.kept_indices[indices]
+    population_indices = dataset.source.population_indices[source_positions]
+    expected = {int(value) for value in dataset.schema.n_agents}
+    observed = {
+        int(dataset.schema.n_agents[int(population_index)])
+        for population_index in population_indices
+    }
+    missing = sorted(expected - observed)
+    if missing:
+        raise ValueError(
+            f"{split_name} must contain all n_agents values; missing {missing} after "
+            "successful/non-finite row filtering; change seed, add data, or adjust "
+            "split settings"
+        )
 
 
 def _validate_category_coverage(

@@ -14,6 +14,7 @@ from network_creation.model_inversion.dataset import (
 )
 from network_creation.model_inversion.schema import resolve_inversion_schema
 from network_creation.model_inversion.source import load_inversion_source
+from network_creation.model_inversion.splits import split_inversion_rows
 
 from .support import write_result_store, write_training_config
 
@@ -66,6 +67,14 @@ class ZarrBackedDatasetTests(unittest.TestCase):
         np.testing.assert_array_equal(schema.raw_step_horizons, [2, 4])
         np.testing.assert_allclose(schema.step_labels, [0.2])
         self.assertEqual(row_index.row_count, 12)
+        np.testing.assert_array_equal(
+            source.parameter_row_indices,
+            [0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5],
+        )
+        np.testing.assert_array_equal(
+            row_index.parameter_row_indices,
+            source.parameter_row_indices,
+        )
         np.testing.assert_allclose(theta, [0.1, 0.01, 1.0])
         np.testing.assert_allclose(x, [2.0, 1.0, 0.0])
 
@@ -93,10 +102,32 @@ class ZarrBackedDatasetTests(unittest.TestCase):
             source = load_inversion_source(config_path)
             schema = resolve_inversion_schema(source)
             row_index = build_row_index(source, schema)
+            dataset = ZarrInversionDataset(
+                source=source,
+                row_index=row_index,
+                schema=schema,
+            )
+            split = split_inversion_rows(row_index, dataset, source.config)
 
         self.assertEqual(finite_rows.row_count, 12)
         self.assertEqual(row_index.row_count, 11)
         self.assertEqual(int(row_index.source_sample_ids[0]), 1)
+        np.testing.assert_array_equal(
+            row_index.parameter_row_indices,
+            [1, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5],
+        )
+        split_parameter_rows = [
+            set(int(value) for value in row_index.parameter_row_indices[indices])
+            for indices in (
+                split.train_indices,
+                split.validation_indices,
+                split.diagnostic_indices,
+            )
+        ]
+        self.assertTrue(split_parameter_rows[0].isdisjoint(split_parameter_rows[1]))
+        self.assertTrue(split_parameter_rows[0].isdisjoint(split_parameter_rows[2]))
+        self.assertTrue(split_parameter_rows[1].isdisjoint(split_parameter_rows[2]))
+        self.assertEqual(set.union(*split_parameter_rows), set(range(6)))
 
     def test_timeseries_normalization_uses_population_specific_valid_prefixes(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -232,6 +263,14 @@ class ZarrBackedDatasetTests(unittest.TestCase):
         np.testing.assert_array_equal(
             source.population_indices,
             [0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1],
+        )
+        np.testing.assert_array_equal(
+            source.parameter_row_indices,
+            [0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5],
+        )
+        np.testing.assert_array_equal(
+            row_index.parameter_row_indices,
+            source.parameter_row_indices,
         )
         np.testing.assert_allclose(first_population_x, [2.0, 1.0, 0.0])
         np.testing.assert_allclose(second_population_x, [10.0, 0.0, 1.0])

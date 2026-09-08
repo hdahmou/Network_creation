@@ -11,6 +11,7 @@ from typing import Any
 import numpy as np
 import torch
 from numpy.typing import NDArray
+from tqdm.auto import tqdm
 
 from .artifact_metadata import ArtifactDatasetMetadata, ArtifactMetadata
 from .encoding import ObservationEncoder
@@ -159,8 +160,10 @@ class PosteriorArtifact:
         seed: int | None = None,
         device: str = "cpu",
         max_samples_per_call: int | None = None,
+        show_case_progress: bool = False,
         **sample_kwargs: Any,
     ) -> NDArray[np.float32]:
+        """Sample cases with optional overall progress, independent of SBI's bars."""
         return sample_posterior_cases(
             self,
             x,
@@ -168,6 +171,7 @@ class PosteriorArtifact:
             seed=seed,
             device=device,
             max_samples_per_call=max_samples_per_call,
+            show_case_progress=show_case_progress,
             **sample_kwargs,
         )
 
@@ -296,6 +300,7 @@ def sample_posterior_cases(
     seed: int | None = None,
     device: str = "cpu",
     max_samples_per_call: int | None = None,
+    show_case_progress: bool = False,
     **sample_kwargs: Any,
 ) -> NDArray[np.float32]:
     if num_samples <= 0:
@@ -307,31 +312,37 @@ def sample_posterior_cases(
     chunk_size = int(max_samples_per_call or num_samples)
     results: list[NDArray[np.float32]] = []
     call_index = 0
-    for observation in observations:
-        chunks: list[NDArray[np.float32]] = []
-        remaining = int(num_samples)
-        while remaining > 0:
-            this_count = min(chunk_size, remaining)
-            call_seed = None if seed is None else int(seed) + call_index
-            samples = sample_posterior_observation(
-                artifact.posterior,
-                observation,
-                num_samples=this_count,
-                x_event_shape=artifact.x_event_shape,
-                theta_names=artifact.theta_order,
-                discrete_theta_names=artifact.discrete_theta_names,
-                discrete_theta_values=tuple(
-                    artifact.schema.discrete_theta_values[name]
-                    for name in artifact.schema.discrete_theta_names
-                ),
-                seed=call_seed,
-                device=device,
-                **sample_kwargs,
-            )
-            chunks.append(np.asarray(samples, dtype=np.float32))
-            remaining -= int(samples.shape[0])
-            call_index += 1
-        results.append(np.concatenate(chunks, axis=0)[:num_samples])
+    with tqdm(
+        observations,
+        desc="Sampling posterior cases",
+        unit="case",
+        disable=not show_case_progress,
+    ) as cases:
+        for observation in cases:
+            chunks: list[NDArray[np.float32]] = []
+            remaining = int(num_samples)
+            while remaining > 0:
+                this_count = min(chunk_size, remaining)
+                call_seed = None if seed is None else int(seed) + call_index
+                samples = sample_posterior_observation(
+                    artifact.posterior,
+                    observation,
+                    num_samples=this_count,
+                    x_event_shape=artifact.x_event_shape,
+                    theta_names=artifact.theta_order,
+                    discrete_theta_names=artifact.discrete_theta_names,
+                    discrete_theta_values=tuple(
+                        artifact.schema.discrete_theta_values[name]
+                        for name in artifact.schema.discrete_theta_names
+                    ),
+                    seed=call_seed,
+                    device=device,
+                    **sample_kwargs,
+                )
+                chunks.append(np.asarray(samples, dtype=np.float32))
+                remaining -= int(samples.shape[0])
+                call_index += 1
+            results.append(np.concatenate(chunks, axis=0)[:num_samples])
     return np.stack(results, axis=0).astype(np.float32)
 
 

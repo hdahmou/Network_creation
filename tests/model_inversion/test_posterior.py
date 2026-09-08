@@ -2,10 +2,14 @@ from __future__ import annotations
 
 import json
 import unittest
+from functools import partial
+from io import StringIO
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 import torch
+from tqdm.std import tqdm as terminal_tqdm
 
 from network_creation.model_inversion.artifact_metadata import ArtifactMetadata
 from network_creation.model_inversion.posterior import (
@@ -138,6 +142,60 @@ class PosteriorArtifactTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "unknown categories"):
             category_probabilities([10.0, 30.0], [10, 20])
+
+    def test_case_progress_is_opt_in_and_independent_of_sbi_bars(self) -> None:
+        class Posterior:
+            def sample(self, sample_shape, x, show_progress_bars):  # noqa: ANN001
+                self.show_progress_bars = show_progress_bars
+                return torch.as_tensor([1.0, 10.0]).repeat(int(sample_shape[0]), 1)
+
+        posterior = Posterior()
+        artifact = PosteriorArtifact(
+            Path("."), posterior, metadata(),
+            np.empty((0, 2), dtype=np.float32), np.empty(0, dtype=np.int64),
+        )
+        observations = np.asarray([[1.0, 1.0, 0.0], [2.0, 0.0, 1.0]], dtype=np.float32)
+        for options in ({}, {"show_case_progress": True}):
+            with self.subTest(options=options):
+                output = StringIO()
+                with patch(
+                    "network_creation.model_inversion.posterior.tqdm",
+                    side_effect=partial(terminal_tqdm, file=output),
+                ) as progress:
+                    samples = artifact.sample_cases(
+                        observations, num_samples=5, max_samples_per_call=2,
+                        show_progress_bars=False, **options,
+                    )
+                self.assertEqual(samples.shape, (2, 5, 2))
+                self.assertFalse(posterior.show_progress_bars)
+                self.assertEqual(progress.call_count, 1)
+                self.assertEqual(progress.call_args.kwargs["unit"], "case")
+                if options:
+                    self.assertFalse(progress.call_args.kwargs["disable"])
+                    self.assertIn("Sampling posterior cases", output.getvalue())
+                    self.assertIn("2/2", output.getvalue())
+                else:
+                    self.assertTrue(progress.call_args.kwargs["disable"])
+                    self.assertEqual(output.getvalue(), "")
+
+    def test_case_progress_closes_when_sampling_fails(self) -> None:
+        artifact = PosteriorArtifact(
+            Path("."), object(), metadata(),
+            np.empty((0, 2), dtype=np.float32), np.empty(0, dtype=np.int64),
+        )
+        observations = np.asarray([[1.0, 1.0, 0.0]], dtype=np.float32)
+        with (
+            patch("network_creation.model_inversion.posterior.tqdm") as progress,
+            patch(
+                "network_creation.model_inversion.posterior.sample_posterior_observation",
+                side_effect=RuntimeError("sampling failed"),
+            ),
+        ):
+            progress.return_value.__enter__.return_value.__iter__.return_value = iter(observations)
+            with self.assertRaisesRegex(RuntimeError, "sampling failed"):
+                artifact.sample_cases(observations, num_samples=2, show_case_progress=True)
+            progress.return_value.__exit__.assert_called_once()
+            self.assertIs(progress.return_value.__exit__.call_args.args[0], RuntimeError)
 
 
 if __name__ == "__main__":

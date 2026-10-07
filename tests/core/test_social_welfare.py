@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import unittest
+from itertools import permutations, product
+from unittest.mock import patch
 
 import numpy as np
 
@@ -31,6 +33,8 @@ from network_creation.stats.topology_welfare import (
     agent_payoff,
     centered_mean_welfare,
     centered_total_welfare,
+    er_centered_mean_welfare,
+    er_discounted_distance_expectation,
     max_er_centered_mean_welfare,
     reference_centered_mean_welfare,
 )
@@ -75,6 +79,77 @@ def _record_agent_payoff_episode(
             final_state=StateView(final_graph),
         )
     )
+
+
+class ERWelfareTest(unittest.TestCase):
+    def test_expectation_matches_three_agent_closed_form(self) -> None:
+        discounts = np.array([0.0, 0.3, 0.9, 1.0])
+        for probability in (0.0, 1e-12, 0.2, 0.8, 1.0):
+            with self.subTest(probability=probability):
+                q = probability * (2.0 - probability)
+                expected = discounts * q + discounts**2 * (1.0 - q) * q**2
+                actual = er_discounted_distance_expectation(
+                    3, probability, discounts
+                )
+                np.testing.assert_allclose(actual, expected, rtol=1e-12, atol=0.0)
+
+    def test_welfare_matches_exhaustive_directed_graph_enumeration(self) -> None:
+        n = 4
+        ratio, discount = 0.8, 0.7
+        arcs = tuple(permutations(range(n), 2))
+        welfare_by_link_count = np.zeros(len(arcs) + 1)
+        for present in product((0, 1), repeat=len(arcs)):
+            adjacency = np.zeros((n, n), dtype=np.int8)
+            for (source, target), active in zip(arcs, present):
+                adjacency[source, target] = active
+            graph = graph_from_adjacency_matrix(adjacency)
+            welfare_by_link_count[sum(present)] += centered_mean_welfare(
+                graph, ratio, discount
+            )
+
+        counts = np.arange(len(arcs) + 1)
+        for probability in (0.0, 0.01, 0.2, 0.8, 1.0):
+            with self.subTest(probability=probability):
+                expected = np.sum(
+                    welfare_by_link_count
+                    * probability**counts
+                    * (1.0 - probability) ** (len(arcs) - counts)
+                )
+                actual = er_centered_mean_welfare(n, ratio, discount, probability)
+                self.assertAlmostEqual(actual, float(expected), places=12)
+
+    def test_grid_returns_sampled_maximum_instead_of_continuous_optimum(self) -> None:
+        # For two agents, welfare is 2 * (2*p - p**2) - p. Seven grid
+        # points give 10/9, whereas the continuous optimum is 9/8 at p=3/4.
+        actual = max_er_centered_mean_welfare(2, 2.0, 1.0, grid_points=7)
+        self.assertAlmostEqual(actual, 10.0 / 9.0)
+        self.assertLess(actual, 9.0 / 8.0)
+
+    def test_grid_includes_empty_and_complete_endpoints(self) -> None:
+        self.assertEqual(max_er_centered_mean_welfare(2, 0.1, 0.9), 0.0)
+        self.assertEqual(
+            max_er_centered_mean_welfare(2, 2.0, 1.0, grid_points=2), 1.0
+        )
+        self.assertEqual(max_er_centered_mean_welfare(4, 1.0, 0.0), 0.0)
+
+    def test_single_agent_has_zero_welfare_and_distance_expectation(self) -> None:
+        np.testing.assert_array_equal(
+            er_discounted_distance_expectation(1, 0.2, np.array([0.0, 0.9, 1.0])),
+            np.zeros(3),
+        )
+        self.assertEqual(er_centered_mean_welfare(1, 1.0, 0.9, 0.2), 0.0)
+        self.assertEqual(max_er_centered_mean_welfare(1, 1.0, 0.9), 0.0)
+
+    def test_grid_requires_at_least_two_points(self) -> None:
+        with self.assertRaisesRegex(ValueError, "grid_points must be at least 2"):
+            max_er_centered_mean_welfare(4, 1.0, 0.9, grid_points=1)
+
+    def test_random_reference_matches_manuscript_calibrations(self) -> None:
+        for n, expected in ((10, 0.646), (50, 0.522), (100, 0.464)):
+            with self.subTest(n_agents=n):
+                random = reference_centered_mean_welfare("random", n, 5.0 / n, 0.9)
+                star = reference_centered_mean_welfare("star", n, 5.0 / n, 0.9)
+                self.assertAlmostEqual(random / star, expected, delta=0.0005)
 
 
 class SocialWelfareTest(unittest.TestCase):
@@ -165,7 +240,7 @@ class SocialWelfareTest(unittest.TestCase):
 
         self.assertAlmostEqual(welfare, 0.5)
 
-    def test_welfare_references_match_closed_forms_and_er_argmax(self) -> None:
+    def test_welfare_references_match_closed_forms_and_er_grid(self) -> None:
         n = 4
         distance_discount = 0.5
         benefit_to_cost_ratio = 1.0
@@ -211,16 +286,31 @@ class SocialWelfareTest(unittest.TestCase):
         self.assertAlmostEqual(random_reference, expected_random)
         self.assertAlmostEqual(max_reference, max(empty_reference, star_reference))
 
-    def test_random_reference_resolves_optimum_below_uniform_grid_spacing(self) -> None:
+    def test_grid_resolves_small_probabilities_for_large_populations(self) -> None:
         n = 4000
-        random_reference = reference_centered_mean_welfare(
-            reference="random",
-            n_agents=n,
-            benefit_to_cost_ratio=5.0 / n,
-            distance_discount=0.9,
-        )
+        upper_probability = (5.0 / n) * 0.9
+        peak_probability = upper_probability / 3.0
+
+        def narrow_peak(**kwargs: float) -> float:
+            probability = kwargs["directed_link_probability"]
+            return 0.8 * (1.0 - (probability / peak_probability - 1.0) ** 2)
+
+        # Isolate grid resolution without running the cubic exact recursion
+        # on a 4,000-agent population. A grid on [0, 1] misses this peak.
+        with patch(
+            "network_creation.stats.topology_welfare.er_centered_mean_welfare",
+            side_effect=narrow_peak,
+        ) as evaluator:
+            random_reference = max_er_centered_mean_welfare(n, 5.0 / n, 0.9)
 
         self.assertGreater(random_reference, 0.7)
+        self.assertEqual(evaluator.call_count, 1000)
+        probabilities = [
+            call.kwargs["directed_link_probability"]
+            for call in evaluator.call_args_list
+        ]
+        self.assertEqual(probabilities[0], 0.0)
+        self.assertAlmostEqual(probabilities[-1], upper_probability)
 
     def test_welfare_references_reject_invalid_name(self) -> None:
         with self.assertRaisesRegex(

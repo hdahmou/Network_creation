@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from functools import cache
+from functools import cache, lru_cache
 from typing import Literal
 
 import igraph as ig
 import numpy as np
 from numpy.typing import NDArray
-from scipy.optimize import minimize_scalar  # type: ignore[import-untyped]
+from scipy.special import gammaln  # type: ignore[import-untyped]
 
 type WelfareReference = Literal["star", "empty", "random", "max"]
 
@@ -128,46 +128,62 @@ def star_centered_mean_welfare(
     )
 
 
+@lru_cache(maxsize=8)
+def _er_log_binomial_coefficients(n_agents: int) -> tuple[NDArray[np.float64], ...]:
+    log_factorials = np.asarray(gammaln(np.arange(n_agents) + 1), dtype=np.float64)
+    rows = []
+    for u in range(1, n_agents):
+        discovered = np.arange(1, u + 1)
+        rows.append(
+            log_factorials[u] - log_factorials[discovered]
+            - log_factorials[u - discovered]
+        )
+    return tuple(rows)
+
+
+def er_discounted_distance_expectation(
+    n_agents: int,
+    directed_link_probability: float,
+    distance_discounts: float | NDArray[np.float64],
+) -> NDArray[np.float64]:
+    """Compute E[delta**D] by exact BFS recursion for one or more discounts."""
+    discounts = np.atleast_1d(np.asarray(distance_discounts, dtype=np.float64))
+    if n_agents <= 1 or directed_link_probability == 0.0:
+        return np.zeros_like(discounts)
+    if directed_link_probability == 1.0:
+        return discounts.copy()
+
+    log_no_access = 2.0 * np.log1p(-directed_link_probability)
+    counts = np.arange(1, n_agents)
+    h = np.zeros((n_agents + 1, n_agents + 1, discounts.size), dtype=np.float64)
+    for u, coefficients in enumerate(_er_log_binomial_coefficients(n_agents), start=1):
+        frontier = counts[: n_agents - u]
+        discovered = counts[:u]
+        log_miss = frontier[:, None] * log_no_access
+        log_hit = np.log(-np.expm1(log_miss))
+        # Log weights avoid overflowing binomial coefficients or losing tiny p.
+        weights = np.exp(
+            coefficients + log_hit * discovered + log_miss * (u - discovered)
+        )
+        continuation = discovered[:, None] + h[u - discovered, discovered]
+        h[u, frontier] = discounts * np.einsum("ft,td->fd", weights, continuation)
+    return h[n_agents - 1, 1] / (n_agents - 1)
+
+
 def er_centered_mean_welfare(
     n_agents: int,
     benefit_to_cost_ratio: float,
     distance_discount: float,
     directed_link_probability: float,
 ) -> float:
-    """Return ER centered mean welfare at one directed link probability."""
-    no_link_probability = (1.0 - directed_link_probability) ** 2
-    with np.errstate(divide="ignore"):
-        log_no_link_probability = float(
-            2.0 * np.log1p(-directed_link_probability)
-        )
-
-    tail_at_d_minus_2 = 1.0
-    tail_at_d_minus_1 = no_link_probability
-    discount_at_distance = distance_discount
-    discounted_reachability = discount_at_distance * (
-        tail_at_d_minus_2 - tail_at_d_minus_1
+    """Return exact expected mean welfare at sponsorship probability p."""
+    if n_agents <= 1:
+        return 0.0
+    expectation = er_discounted_distance_expectation(
+        n_agents, directed_link_probability, distance_discount
     )
-
-    for _distance in range(2, n_agents):
-        shell_probability = tail_at_d_minus_2 - tail_at_d_minus_1
-        exponent = (n_agents - 1) * shell_probability
-        multiplier = (
-            float(np.exp(exponent * log_no_link_probability))
-            if exponent > 0.0
-            else 1.0
-        )
-        next_tail = tail_at_d_minus_1 * multiplier
-        next_tail = min(max(next_tail, 0.0), tail_at_d_minus_1)
-
-        discount_at_distance *= distance_discount
-        discounted_reachability += discount_at_distance * (
-            tail_at_d_minus_1 - next_tail
-        )
-        tail_at_d_minus_2, tail_at_d_minus_1 = tail_at_d_minus_1, next_tail
-
-    return (
-        benefit_to_cost_ratio * (n_agents - 1) * discounted_reachability
-        - (n_agents - 1) * directed_link_probability
+    return (n_agents - 1) * (
+        benefit_to_cost_ratio * float(expectation[0]) - directed_link_probability
     )
 
 
@@ -175,20 +191,22 @@ def max_er_centered_mean_welfare(
     n_agents: int,
     benefit_to_cost_ratio: float,
     distance_discount: float,
+    *,
+    grid_points: int = 1000,
 ) -> float:
-    """Return the maximum ER centered mean welfare over p in [0, 1]."""
-    def welfare_at_probability(probability: float) -> float:
-        return er_centered_mean_welfare(
+    """Return the best welfare on a uniform grid up to min(1, lambda * delta)."""
+    if grid_points < 2:
+        raise ValueError("grid_points must be at least 2")
+    upper_probability = min(1.0, benefit_to_cost_ratio * distance_discount)
+    if n_agents <= 1 or upper_probability <= 0.0:
+        return 0.0
+    probabilities = np.linspace(0.0, upper_probability, grid_points)
+    return max(
+        er_centered_mean_welfare(
             n_agents=n_agents,
             benefit_to_cost_ratio=benefit_to_cost_ratio,
             distance_discount=distance_discount,
-            directed_link_probability=probability,
+            directed_link_probability=float(probability),
         )
-
-    result = minimize_scalar(
-        lambda probability: -welfare_at_probability(float(probability)),
-        bounds=(0.0, 1.0),
-        method="bounded",
-        options={"xatol": 1e-9, "maxiter": 500},
+        for probability in probabilities
     )
-    return max(0.0, welfare_at_probability(1.0), -float(result.fun))
